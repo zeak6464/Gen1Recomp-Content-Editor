@@ -3119,6 +3119,10 @@ local function editorNeighbors(S, rootDef)
   return out
 end
 
+function Maps.directNeighbors(S, rootDef)
+  return editorNeighbors(S, rootDef)
+end
+
 local function facingFromRange(range)
   if range == "UP" then return "up" end
   if range == "LEFT" then return "left" end

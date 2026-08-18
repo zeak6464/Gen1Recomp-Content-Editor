@@ -404,14 +404,92 @@ local function drawWarpNodes(S, source)
   end
 end
 
+local function neighborExtents(S, source)
+  local x0, y0 = 0, 0
+  local x1 = source.cellWidth * CELL
+  local y1 = source.cellHeight * CELL
+  if S.mapShowNeighbors == false then return x0, y0, x1, y1 end
+  local mapRec = S.project and S.project.maps and S.project.maps[source.id]
+  local Maps = require("Maps")
+  if not (mapRec and Maps.directNeighbors) then return x0, y0, x1, y1 end
+  for _, nb in ipairs(Maps.directNeighbors(S, mapRec)) do
+    local nw = math.max(1, tonumber(nb.def.width) or 1) * 32
+    local nh = math.max(1, tonumber(nb.def.height) or 1) * 32
+    if nb.ox < x0 then x0 = nb.ox end
+    if nb.oy < y0 then y0 = nb.oy end
+    if nb.ox + nw > x1 then x1 = nb.ox + nw end
+    if nb.oy + nh > y1 then y1 = nb.oy + nh end
+  end
+  return x0, y0, x1, y1
+end
+
 local function fitCanvas(S, source, viewW, viewH)
-  local mapW, mapH = source.cellWidth * CELL, source.cellHeight * CELL
-  local zoom = math.min(viewW / math.max(1, mapW), viewH / math.max(1, mapH))
+  local x0, y0, x1, y1 = neighborExtents(S, source)
+  local mapW, mapH = math.max(1, x1 - x0), math.max(1, y1 - y0)
+  local zoom = math.min(viewW / mapW, viewH / mapH)
   zoom = clamp(zoom, 0.25, 6)
   S.builderZoom = zoom
-  S.builderCamX = (mapW - viewW / zoom) / 2
-  S.builderCamY = (mapH - viewH / zoom) / 2
+  S.builderCamX = x0 + (mapW - viewW / zoom) / 2
+  S.builderCamY = y0 + (mapH - viewH / zoom) / 2
   S._builderFitFor = source.id .. ":" .. source.cellWidth .. "x" .. source.cellHeight
+end
+
+local function clampBuilderCam(S, source, viewW, viewH, zoom)
+  local x0, y0, x1, y1 = neighborExtents(S, source)
+  local pad = CELL * 2
+  x0, y0, x1, y1 = x0 - pad, y0 - pad, x1 + pad, y1 + pad
+  local worldW, worldH = viewW / zoom, viewH / zoom
+  local minX, maxX, minY, maxY
+  local bw, bh = x1 - x0, y1 - y0
+  if bw <= worldW then
+    minX = x0 + (bw - worldW) / 2
+    maxX = minX
+  else
+    minX, maxX = x0, x1 - worldW
+  end
+  if bh <= worldH then
+    minY = y0 + (bh - worldH) / 2
+    maxY = minY
+  else
+    minY, maxY = y0, y1 - worldH
+  end
+  local x = tonumber(S.builderCamX) or 0
+  local y = tonumber(S.builderCamY) or 0
+  if x < minX then x = minX elseif x > maxX then x = maxX end
+  if y < minY then y = minY elseif y > maxY then y = maxY end
+  S.builderCamX, S.builderCamY = x, y
+end
+
+local function drawConnectedNeighbors(S, source, camX, camY, viewW, viewH)
+  if S.mapShowNeighbors == false then return end
+  local mapRec = S.project and S.project.maps and S.project.maps[source.id]
+  local Maps = require("Maps")
+  if not (mapRec and Maps.directNeighbors) then return end
+  for _, nb in ipairs(Maps.directNeighbors(S, mapRec)) do
+    love.graphics.push()
+    love.graphics.translate(nb.ox, nb.oy)
+    love.graphics.setColor(1, 1, 1, 0.82)
+    local layered = S.project.layeredMaps and S.project.layeredMaps[nb.id]
+    if layered and LayeredMap.previewRenderer then
+      local okR, renderer = pcall(LayeredMap.previewRenderer, S, layered, nb.id)
+      if okR and renderer then
+        renderer:draw(camX - nb.ox, camY - nb.oy, viewW, viewH)
+      end
+    else
+      local ok, loaded = Maps.loadEditorMap(S, nb.id)
+      if ok and loaded and loaded.renderer then
+        local draw = loaded.renderer.drawMapOnly or loaded.renderer.draw
+        if draw then
+          draw(loaded.renderer, camX - nb.ox, camY - nb.oy, viewW, viewH)
+        end
+      end
+    end
+    love.graphics.setColor(0.27, 0.59, 1, 0.5)
+    love.graphics.rectangle("line", 0, 0,
+      math.max(1, tonumber(nb.def.width) or 1) * 32,
+      math.max(1, tonumber(nb.def.height) or 1) * 32)
+    love.graphics.pop()
+  end
 end
 
 local function drawCanvas(S, source, x, y, w, h, App)
@@ -422,6 +500,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
   if S._builderFitFor ~= fitKey then fitCanvas(S, source, vw, vh) end
   local zoom = clamp(S.builderZoom or 1, 0.25, 8)
   S.builderZoom = zoom
+  clampBuilderCam(S, source, vw, vh, zoom)
 
   love.graphics.setScissor(math.floor(vx), math.floor(vy),
     math.ceil(vw), math.ceil(vh))
@@ -431,10 +510,11 @@ local function drawCanvas(S, source, x, y, w, h, App)
   love.graphics.translate(-(S.builderCamX or 0), -(S.builderCamY or 0))
 
   local camX, camY = S.builderCamX or 0, S.builderCamY or 0
+  local viewW, viewH = vw / zoom, vh / zoom
   local viewX0 = math.floor(camX / CELL) - 1
   local viewY0 = math.floor(camY / CELL) - 1
-  local viewX1 = math.floor((camX + vw / zoom) / CELL) + 1
-  local viewY1 = math.floor((camY + vh / zoom) / CELL) + 1
+  local viewX1 = math.floor((camX + viewW) / CELL) + 1
+  local viewY1 = math.floor((camY + viewH) / CELL) + 1
   local x0 = math.max(0, viewX0)
   local y0 = math.max(0, viewY0)
   local x1 = math.min(source.cellWidth - 1, viewX1)
@@ -444,14 +524,20 @@ local function drawCanvas(S, source, x, y, w, h, App)
     math.max(0, viewX1 - viewX0 + 1) * CELL,
     math.max(0, viewY1 - viewY0 + 1) * CELL)
 
+  -- One 32x32 block of Gold border around this map — not the whole camera.
+  local BORDER = 2
   local mapRec = S.project.maps and S.project.maps[source.id]
   local borderBlock = mapRec and (mapRec.borderBlock or 0) or 0
   local borderTs = source.baseTileset or (mapRec and mapRec.tileset)
   local borderDesc = borderTs
     and LayeredMap.sourceDescriptor(S, LayeredMap.runtimeSourceId(borderTs))
   if borderDesc then
-    for cy = viewY0, viewY1 do
-      for cx = viewX0, viewX1 do
+    local bx0 = math.max(viewX0, -BORDER)
+    local by0 = math.max(viewY0, -BORDER)
+    local bx1 = math.min(viewX1, source.cellWidth - 1 + BORDER)
+    local by1 = math.min(viewY1, source.cellHeight - 1 + BORDER)
+    for cy = by0, by1 do
+      for cx = bx0, bx1 do
         if cx < 0 or cy < 0
             or cx >= source.cellWidth or cy >= source.cellHeight then
           local tile = borderBlock * 4 + (cy % 2) * 2 + (cx % 2)
@@ -460,6 +546,8 @@ local function drawCanvas(S, source, x, y, w, h, App)
       end
     end
   end
+
+  drawConnectedNeighbors(S, source, camX, camY, viewW, viewH)
 
   for cy = y0, y1 do
     for cx = x0, x1 do
@@ -499,6 +587,9 @@ local function drawCanvas(S, source, x, y, w, h, App)
       love.graphics.line(x0 * CELL, py, math.min(mapW, (x1 + 1) * CELL), py)
     end
   end
+  love.graphics.setColor(0.25, 0.85, 0.4, 0.95)
+  love.graphics.rectangle("line", 0, 0,
+    source.cellWidth * CELL, source.cellHeight * CELL)
   drawSelections(S, source)
   drawWarpNodes(S, source)
   if S.mapWorkspace then

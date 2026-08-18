@@ -175,7 +175,7 @@ function MapsWorkspace.draw(S, x, y, w, h, App)
         enabled = selected ~= nil,
         tooltip = world
           and "Return to the map editor"
-          or "Show this map with its connected neighbors" }) then
+          or "Zoomed overview of this map and its neighbors. The editor already draws connected routes around the map." }) then
     S.mapViewMode = world and "editor" or "world"
     if S.mapViewMode == "world" then
       S._worldFitKey = nil
