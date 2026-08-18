@@ -60,6 +60,10 @@ local wheelY = 0
 
 App.dataVersion = nil
 
+function App.session()
+  return S
+end
+
 local TABS = {
   { id = "project",  label = "PROJECT",
     tip = "Create / open mod, boot & constants, validate / playtest" },
@@ -593,6 +597,9 @@ function App.save()
       if tilesets[tid] == nil then tilesets[tid] = rec end
     end
     base.tilesets = tilesets
+  end
+  if S.manifestDirty then
+    if not Manifest.save(S, App) then return false end
   end
   ModIO._emitBaseData = base
   local ok, err = ModIO.save(S.path, S.project)

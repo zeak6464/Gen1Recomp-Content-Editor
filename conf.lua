@@ -10,4 +10,13 @@ function love.conf(t)
   t.window.resizable = true
   t.window.vsync = 1
   t.modules.physics = false
+  if type(arg) == "table" then
+    for i = -5, 40 do
+      if arg[i] == "--pokemonium-pack" then
+        t.console = true
+        t.window.vsync = 0
+        break
+      end
+    end
+  end
 end

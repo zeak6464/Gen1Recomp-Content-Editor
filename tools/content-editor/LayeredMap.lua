@@ -1,9 +1,9 @@
 -- Native layered map source and compiler.
 --
 -- The editor works in 16x16 walk cells. Saving folds the exported layers into
--- the runtime's 32x32 block format and one generated tileset per map. The
--- source stays in editor_project.lua, while the game only sees normal map and
--- tileset registry records.
+-- the runtime's 32x32 block format. Maps painted from one game tileset keep
+-- that tileset (and its ledge collision). Mixed or custom graphics still bake
+-- one generated tileset per map. The source stays in editor_project.lua.
 
 local ModIO = require("ModIO")
 local Preview = require("Preview")
@@ -1376,6 +1376,95 @@ end
 
 -- Map assembly --------------------------------------------------------------
 
+local function exportedCellsAt(mapSource, index)
+  local refs = {}
+  for _, layer in ipairs(mapSource.layers or {}) do
+    if layer.export ~= false then
+      local cell = layer.cells and layer.cells[index]
+      if type(cell) == "table" and cell.source then
+        refs[#refs + 1] = cell
+      end
+    end
+  end
+  return refs
+end
+
+-- If every 32x32 map block is one game-tileset metatile, keep that tileset
+-- instead of baking a custom atlas (which remaps borders and drops COLL_HOP).
+local function runtimeBlockGrid(mapSource)
+  local width, height = mapSource.cellWidth, mapSource.cellHeight
+  local tilesetId, blocks = nil, {}
+  for blockY = 0, height / 2 - 1 do
+    for blockX = 0, width / 2 - 1 do
+      local blockId = nil
+      for cellY = 0, 1 do
+        for cellX = 0, 1 do
+          local index = (blockY * 2 + cellY) * width + blockX * 2 + cellX + 1
+          local refs = exportedCellsAt(mapSource, index)
+          if #refs > 1 then return nil end
+          if #refs == 0 then
+            if blockId ~= nil and blockId ~= 0 then return nil end
+            blockId = 0
+          else
+            local ts = LayeredMap.runtimeTilesetId(refs[1].source)
+            if not ts then return nil end
+            if tilesetId and tilesetId ~= ts then return nil end
+            tilesetId = ts
+            local b = math.floor((tonumber(refs[1].tile) or 0) / 4)
+            if blockId ~= nil and blockId ~= b then return nil end
+            blockId = b
+          end
+        end
+      end
+      blocks[#blocks + 1] = blockId or 0
+    end
+  end
+  return tilesetId or mapSource.baseTileset, blocks
+end
+
+local function dropGeneratedTileset(S, project, mapId)
+  local genId = generatedTilesetId(project, mapId)
+  local ts = project.tilesets[genId]
+  if ts and ts._layeredGenerated then project.tilesets[genId] = nil end
+  local function dropLive(bag)
+    local live = bag and bag[genId]
+    if live and live._layeredGenerated then bag[genId] = nil end
+  end
+  if S and S.data then
+    dropLive(S.data.tilesets)
+    dropLive(S.data.gen2Tilesets)
+  end
+  return genId
+end
+
+local function applyCompiledWarps(map, warpRecords)
+  if type(warpRecords) == "table" and #warpRecords > 0 then
+    map.warps = warpRecords
+  elseif type(map.warps) ~= "table" then
+    map.warps = {}
+  end
+end
+
+local function compilePassthrough(context, mapId, mapSource, warpRecords,
+    tilesetId, mapBlocks)
+  local project, S, map = context.project, context.S, context.project.maps[mapId]
+  local genId = dropGeneratedTileset(S, project, mapId)
+  local wasGenerated = map.tileset == genId
+  map.tileset = tilesetId
+  map.width = mapSource.cellWidth / 2
+  map.height = mapSource.cellHeight / 2
+  map.blocks = mapBlocks
+  if wasGenerated and (map.borderBlock == nil or map.borderBlock == 1) then
+    map.borderBlock = 0
+  elseif map.borderBlock == nil then
+    map.borderBlock = 0
+  end
+  map.trueColor = nil
+  map._layeredSource = mapId
+  applyCompiledWarps(map, warpRecords)
+  return map
+end
+
 -- Each 16x16 editor cell becomes four 8x8 graphics tiles. Groups of four
 -- editor cells are then deduplicated into the runtime's 32x32 map blocks.
 local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCells)
@@ -1391,6 +1480,12 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
     if node.x < 0 or node.y < 0 or node.x >= width or node.y >= height then
       error(("%s: warp %s is outside the resized map"):format(mapId, node.id), 0)
     end
+  end
+
+  local passthroughTileset, passthroughBlocks = runtimeBlockGrid(mapSource)
+  if passthroughTileset then
+    return compilePassthrough(context, mapId, mapSource, warpRecords,
+      passthroughTileset, passthroughBlocks)
   end
 
   local tilesetId = generatedTilesetId(project, mapId)
@@ -1535,6 +1630,9 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   local atlasRel = derivedAssetPath(project, atlasTransformRel)
 
   local blocks, blockIds, collisionQuads = {}, {}, {}
+  -- Gold treats block id 0 as an impassable sentinel (Map:cellCollision).
+  blocks[1] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+  collisionQuads[1] = { 0xff, 0xff, 0xff, 0xff }
   local COLL = {
     solid = 0x07, walk = 0x00, grass = 0x18, water = 0x21, shore = 0x23,
   }
@@ -1605,7 +1703,8 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
     animation = "TILEANIM_NONE",
     trueColor = trueColor and true or nil,
     animatedTiles = #animatedTiles > 0 and animatedTiles or nil,
-    collision = require("Generation").isGen2(context.S) and collisionQuads or nil,
+    collision = (trueColor or require("Generation").isGen2(context.S))
+      and collisionQuads or nil,
     _isNew = true,
     _layeredGenerated = true,
   }
@@ -1623,8 +1722,10 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   end
   map.width, map.height = width / 2, height / 2
   map.blocks = mapBlocks
-  if map.borderBlock == nil then map.borderBlock = 0 end
-  map.warps = warpRecords or {}
+  if map.borderBlock == nil or map.borderBlock == 0 then
+    map.borderBlock = 1
+  end
+  applyCompiledWarps(map, warpRecords)
   -- Carry this on both records.  The tileset flag is the canonical link, but
   -- editor/world previews can temporarily retain an older tileset object
   -- while a generated map is being rebuilt.  The map-level override makes
@@ -1663,6 +1764,9 @@ function LayeredMap.compileProject(S)
     pixels = {},
     outputs = {},
   }
+  for _, map in pairs(project.maps or {}) do
+    if type(map) == "table" then importMapWarps(S, map) end
+  end
   local records, activeCells = warpPlan(project)
   local compiled = 0
   for _, mapId in ipairs(sortedKeys(project.layeredMaps)) do
@@ -1676,24 +1780,34 @@ function LayeredMap.compileProject(S)
       S.data.tilesets = S.data.tilesets or {}
       S.data.maps[mapId] = project.maps[mapId]
       local tilesetId = project.maps[mapId].tileset
-      S.data.tilesets[tilesetId] = project.tilesets[tilesetId]
+      if project.tilesets[tilesetId] then
+        S.data.tilesets[tilesetId] = project.tilesets[tilesetId]
+      end
       if S.data.gen2Maps and S.data.gen2Maps ~= S.data.maps then
         S.data.gen2Maps[mapId] = project.maps[mapId]
       end
-      if S.data.gen2Tilesets and S.data.gen2Tilesets ~= S.data.tilesets then
+      if S.data.gen2Tilesets and S.data.gen2Tilesets ~= S.data.tilesets
+          and project.tilesets[tilesetId] then
         S.data.gen2Tilesets[tilesetId] = project.tilesets[tilesetId]
       end
     end
   end
-  local transformed, transformErr = emitTransform(context)
-  if not transformed then return false, transformErr end
-  project.layeredTransform = "mapbuilder_transforms.lua"
-  if S.manifestDraft and S.browseModId == project.id then
-    S.manifestDraft.assets_transforms = project.layeredTransform
+  if next(context.outputs) then
+    local transformed, transformErr = emitTransform(context)
+    if not transformed then return false, transformErr end
+    project.layeredTransform = "mapbuilder_transforms.lua"
+    if S.manifestDraft and S.browseModId == project.id then
+      S.manifestDraft.assets_transforms = project.layeredTransform
+    end
+    writeEditorDerivedImages(context)
+  elseif project.layeredTransform then
+    local removed, removeErr = ModIO.removeMapBuilderTransform(S.path)
+    if not removed then return false, removeErr end
+    project.layeredTransform = nil
+    if S.manifestDraft and S.browseModId == project.id then
+      S.manifestDraft.assets_transforms = nil
+    end
   end
-  -- The transform writes derived PNGs on game load. The editor world view
-  -- uses MapLoader now, so bake the same atlases into the LÖVE save dir.
-  writeEditorDerivedImages(context)
   if context.images then
     for _, img in pairs(context.images) do
       if img and img.release then pcall(img.release, img) end

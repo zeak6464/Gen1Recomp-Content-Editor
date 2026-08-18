@@ -983,6 +983,7 @@ local function convertOne(path, conv, report)
     cellWidth = pack == 2 and width or nil,
     cellHeight = pack == 2 and height or nil,
     cellCollision = pack == 2 and cellCollision or nil,
+    props = mapProps,
   }
 end
 
@@ -1037,6 +1038,13 @@ function TmxPokemonium.importPath(S, path, App)
       converted[#converted + 1] = m
     else
       report[#report + 1] = "FAIL " .. basename(files[i]) .. ": " .. tostring(err)
+    end
+    if i == 1 or i % 50 == 0 or i == #files then
+      local line = string.format("[pokemonium] map %d/%d %s", i, #files, basename(files[i]))
+      print(line)
+      local lf = io.open((os.getenv("TEMP") or ".") .. "\\pokemonium_pack.log", "a")
+      if lf then lf:write(line .. "\n"); lf:close() end
+      collectgarbage("collect")
     end
   end
   if #converted == 0 then
@@ -1161,7 +1169,9 @@ function TmxPokemonium.importPath(S, path, App)
           else
             px = (neighbor.yOff or 0) - (rec.yOff or 0)
           end
-          connections[dir] = { map = neighbor.id, offset = px / div }
+          connections[dir] = {
+            mapId = neighbor.id, map = neighbor.id, offset = px / div,
+          }
         end
       end
     end
@@ -1190,6 +1200,8 @@ function TmxPokemonium.importPath(S, path, App)
       map.outdoor = gen2 or map.environment == "outside"
     end
     map.trueColor = true
+    map._pmProps = rec.props
+    map._pmWx, map._pmWy = rec.wx, rec.wy
     S.project.maps[rec.id] = map
     if S.data and S.data.maps then S.data.maps[rec.id] = map end
     if S.project.layeredMaps then S.project.layeredMaps[rec.id] = nil end

@@ -75,6 +75,7 @@ local function loadDraft(S, modId)
     S.manifestDirty = false
     return
   end
+  local Generation = require("Generation")
   local d = defaultDraft(modId)
   for k, v in pairs(data) do d[k] = v end
   d.permissions = type(d.permissions) == "table" and d.permissions or {}
@@ -87,16 +88,15 @@ local function loadDraft(S, modId)
   d.language = d.language == true
   d.github = d.github or ""
   d.description = d.description or ""
-  if type(d.games) ~= "table" then
-    local Generation = require("Generation")
-    d.games = Generation.manifestGames(S)
+  -- New-mod defaults are `games: ["all"]` + gen2compat. An existing file that
+  -- omitted both is Gen 1 only in the loader. Do not keep those defaults, or
+  -- the Manifest tab shows YES while Gold skips with "not marked gen2compat".
+  if type(data.games) == "table" then
+    d.games = data.games
+  else
+    d.games = {}
   end
-  if d.gen2compat == nil then
-    d.gen2compat = false
-    for _, g in ipairs(d.games or {}) do
-      if g == "all" or g == "gen2" or g == "gold" then d.gen2compat = true; break end
-    end
-  end
+  d.gen2compat = data.gen2compat == true or Generation.coversGen2(d.games)
   S.manifestDraft = d
   S.manifestLoadError = nil
   S.manifestDirty = false
@@ -131,11 +131,11 @@ local function field(S, id, x, y, w, h, value, ph)
   return v
 end
 
-local function saveDraft(S, App)
+function Manifest.save(S, App)
   local d = S.manifestDraft
   if not (d and S.browseModId) then
     S.status = "No mod selected"
-    return
+    return false
   end
   local payload = {
     id = tostring(d.id or S.browseModId),
@@ -171,13 +171,13 @@ local function saveDraft(S, App)
   if not ok then
     S.manifestValidateMsg = tostring(err)
     S.status = "Manifest invalid: " .. tostring(err)
-    return
+    return false
   end
 
   local wok, werr = ModIO.writeManifest(S.browseModId, payload)
   if not wok then
     S.status = "Write failed: " .. tostring(werr)
-    return
+    return false
   end
   S.manifestDirty = false
   S.manifestValidateMsg = "OK"
@@ -190,6 +190,7 @@ local function saveDraft(S, App)
       if App and App.markDirty then App.markDirty() end
     end
   end
+  return true
 end
 
 function Manifest.draw(S, x, y, w, h, App)
@@ -258,7 +259,7 @@ function Manifest.draw(S, x, y, w, h, App)
   local btnH = 30 * s
   local bw = 88 * s
   if Kit.button(mainX, barY, bw, btnH, "Write", { kind = "primary" }) then
-    saveDraft(S, App)
+    Manifest.save(S, App)
   end
   if Kit.button(mainX + bw + 8 * s, barY, bw, btnH, "Reload", { kind = "ghost" }) then
     loadDraft(S, S.browseModId)
@@ -346,38 +347,30 @@ function Manifest.draw(S, x, y, w, h, App)
     local cur = csv(d.games)
     local v = field(S, "mf_games", fx, fy, fw, fh_, cur, "all")
     if v ~= cur then
+      local Generation = require("Generation")
       d.games = splitCsv(v)
-      d.gen2compat = false
-      for _, g in ipairs(d.games) do
-        local low = tostring(g):lower()
-        if low == "all" or low == "gen2" or low == "gold" then
-          d.gen2compat = true
-          break
-        end
-      end
+      d.gen2compat = Generation.coversGen2(d.games)
       markManifestDirty(S)
     end
   end)
   row("gen2compat", function(fx, fy, fw, fh_)
     local on = d.gen2compat == true
     if Kit.chip(fx, fy, 80 * s, fh_, on and "YES" or "NO", on, PAL.green) then
+      local Generation = require("Generation")
       d.gen2compat = not on
       d.games = type(d.games) == "table" and d.games or {}
-      local hasGen2 = false
-      for _, g in ipairs(d.games) do
-        local low = tostring(g):lower()
-        if low == "all" or low == "gen2" or low == "gold" then
-          hasGen2 = true
-          break
-        end
-      end
+      local hasGen2 = Generation.coversGen2(d.games)
       if d.gen2compat and not hasGen2 then
-        d.games[#d.games + 1] = "gen2"
+        if #d.games == 0 then
+          d.games = { "all" }
+        else
+          d.games[#d.games + 1] = "gen2"
+        end
       elseif not d.gen2compat and hasGen2 then
         local nextGames = {}
         for _, g in ipairs(d.games) do
           local low = tostring(g):lower()
-          if low ~= "gen2" and low ~= "gold" then
+          if low ~= "all" and low ~= "gen2" and low ~= "gold" then
             nextGames[#nextGames + 1] = g
           end
         end

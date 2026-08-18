@@ -557,6 +557,7 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
   for _, key in ipairs(statKeys) do
     local lab = key == "specialAttack" and "SPA"
       or key == "specialDefense" and "SPD"
+      or key == "special" and "SPC"
       or key:sub(1, 3):upper()
     Kit.text("micro", lab, sx, fy - 2 * s, PAL.faint)
     local cur = mon.baseStats[key]

@@ -443,12 +443,13 @@ function ModIO.save(modDir, project, version)
     mf:write(generated)
     mf:close()
 
-    -- Ship Schemas.lua only on Gen1 when trainer party DV/moves/statExp overrides
-    -- exist (main.lua only loads it when not gen2).
+    -- Ship Schemas.lua when maps use block ids above 255, or on Gen1 when
+    -- trainer party DV/moves/statExp overrides exist.
     local schemasPath = join(modDir, "Schemas.lua")
     local Generation = require("Generation")
-    if (not Generation.isGen2(nil)) and ModWriter.trainerPartyHasOverrides(project) then
-      local okS, errS = ModIO.writeText(schemasPath, ModWriter.trainerPartySchemasLua())
+    local schemaBody = ModWriter.contentSchemasLua(project, Generation.isGen2(nil))
+    if schemaBody then
+      local okS, errS = ModIO.writeText(schemasPath, schemaBody)
       if not okS then return false, errS end
     elseif ModIO.exists(schemasPath) then
       os.remove(schemasPath)

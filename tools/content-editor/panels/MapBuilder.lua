@@ -922,10 +922,7 @@ local function drawMapList(S, x, y, w, h, App)
         end
       end
     end
-    local mapRec = S.project.maps and S.project.maps[id]
-    local title = (mapRec and type(mapRec.label) == "string" and mapRec.label ~= "")
-      and mapRec.label or id
-    Kit.text("micro", Kit.ellipsize("micro", title, innerW - 42 * Kit.scale),
+    Kit.text("micro", Kit.ellipsize("micro", id, innerW - 42 * Kit.scale),
       x + 14 * Kit.scale, ry + 6 * Kit.scale,
       layered and PAL.heading or PAL.muted)
     if layered then
