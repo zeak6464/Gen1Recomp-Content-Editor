@@ -44,8 +44,6 @@ local BASIC_EVENT_TOOLS = { object = true, sign = true, event_select = true }
 
 -- Shared panel helpers
 
-local quadCache = setmetatable({}, { __mode = "k" })
-
 local function clamp(value, low, high)
   value = tonumber(value) or low
   return math.max(low, math.min(high, value))
@@ -71,117 +69,8 @@ local function mapSource(S)
   return source
 end
 
-local function quad(image, x, y, w, h)
-  local bucket = quadCache[image]
-  if not bucket then
-    bucket = {}
-    quadCache[image] = bucket
-  end
-  local key = table.concat({ x, y, w, h }, ":")
-  if not bucket[key] then
-    local iw, ih = image:getDimensions()
-    bucket[key] = love.graphics.newQuad(x, y, w, h, iw, ih)
-  end
-  return bucket[key]
-end
-
-local function goldMapBgSet(S)
-  if not Generation.isGen2(S) then return nil end
-  local mapId = S.builderMapId or S.mapId
-  local map = (S.project and S.project.maps and S.project.maps[mapId])
-    or Generation.dataMaps(S)[mapId]
-  if type(map) ~= "table" then return nil end
-  return select(1, Preview.gen2MapBgSet(S, map))
-end
-
-local function animationTile(source, tile)
-  local frames = source and source.animations and source.animations[tile]
-  if not frames or #frames < 2 then return tile end
-  local total = 0
-  for _, frame in ipairs(frames) do
-    total = total + math.max(16, tonumber(frame.duration) or 200)
-  end
-  local now = love.timer and love.timer.getTime and love.timer.getTime() or 0
-  local cursor = (now * 1000) % total
-  for _, frame in ipairs(frames) do
-    cursor = cursor - math.max(16, tonumber(frame.duration) or 200)
-    if cursor < 0 then return frame.tile end
-  end
-  return frames[#frames].tile
-end
-
 local function drawSourceTile(S, source, tile, x, y, size, alpha)
-  if not source or not source.image then return false end
-  local image = Preview.image(S, source.image)
-  if not image then return false end
-  tile = animationTile(source, math.max(0, math.floor(tonumber(tile) or 0)))
-  local shaded = false
-  local gbc, bgSet, tilePals
-  if source.colorMode ~= "true_color" and source.runtimeTileset then
-    bgSet = goldMapBgSet(S)
-    if bgSet then
-      local okG, GbcPalette = pcall(require, "src.render.GbcPalette")
-      if okG and GbcPalette and GbcPalette.with then
-        gbc = GbcPalette
-        tilePals = source.tileset and source.tileset.tilePalettes
-        if not tilePals then
-          local vanilla = Generation.dataTilesets(S)[source.runtimeTileset]
-          tilePals = vanilla and vanilla.tilePalettes
-        end
-      end
-    end
-  end
-  if source.colorMode ~= "true_color" and not gbc then
-    local mapId = S.builderMapId or S.mapId
-    local map = S.project and S.project.maps and S.project.maps[mapId]
-      or Generation.dataMaps(S)[mapId]
-    shaded = Preview.pushPaletteShader(S, Preview.mapPaletteName(S, map))
-  end
-  love.graphics.setColor(1, 1, 1, alpha or 1)
-  if source.runtimeTileset then
-    local blockId = math.floor(tile / 4)
-    local quadrant = tile % 4
-    local block = source.tileset.blocks and source.tileset.blocks[blockId + 1]
-    if not block then
-      Preview.popPaletteShader(shaded)
-      love.graphics.setColor(1, 1, 1, 1)
-      return false
-    end
-    local qx, qy = quadrant % 2, math.floor(quadrant / 2)
-    local scale = size / 16
-    local perRow = source.tileset.tilesPerRow
-      or math.max(1, math.floor(image:getWidth() / 8))
-    for microY = 0, 1 do
-      for microX = 0, 1 do
-        local tileId = block[(qy * 2 + microY) * 4 + qx * 2 + microX + 1]
-        if tileId then
-          local sx = (tileId % perRow) * 8
-          local sy = math.floor(tileId / perRow) * 8
-          local dx = x + microX * 8 * scale
-          local dy = y + microY * 8 * scale
-          if gbc then
-            local slot = (tilePals and tilePals[tileId + 1]) or 1
-            gbc.with(bgSet[slot], function()
-              love.graphics.draw(image, quad(image, sx, sy, 8, 8),
-                dx, dy, 0, scale, scale)
-            end)
-          else
-            love.graphics.draw(image, quad(image, sx, sy, 8, 8),
-              dx, dy, 0, scale, scale)
-          end
-        end
-      end
-    end
-  else
-    local columns = source.columns or math.max(1, math.floor(image:getWidth() / 16))
-    local sx = (tile % columns) * 16
-    local sy = math.floor(tile / columns) * 16
-    local scale = size / 16
-    love.graphics.draw(image, quad(image, sx, sy, 16, 16), x, y, 0, scale, scale)
-  end
-  Preview.popPaletteShader(shaded)
-  love.graphics.setColor(1, 1, 1, 1)
-  return true
+  return LayeredMap.drawSourceTile(S, source, tile, x, y, size, alpha)
 end
 
 local function refEqual(left, right)

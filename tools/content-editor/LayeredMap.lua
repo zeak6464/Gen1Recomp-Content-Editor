@@ -1855,33 +1855,135 @@ LayeredMap.cleanId = cleanId
 
 function LayeredMap.usesCellPreview(source)
   local layer = source and source.layers and source.layers[1]
-  local ref = layer and layer.cells and layer.cells[1]
-  return type(ref) == "table" and ref.source ~= nil
-    and not LayeredMap.isRuntimeSource(ref.source)
+  return type(layer) == "table" and type(layer.cells) == "table"
 end
 
--- World view / engine preview for TMX imports: paint the same 16x16 cells
--- the Map Builder uses. TileRenderer samples the 8x8 block atlas, which a
--- folder import packs into a texture taller than the GPU allows.
+-- Shared 16x16 cell draw (Map Builder, World View, map preview). Runtime
+-- tilesets expand each cell from its 32x32 metatile and apply Gold GBC
+-- palettes the same way the paint canvas does.
 local previewQuads = setmetatable({}, { __mode = "k" })
 
-function LayeredMap.previewRenderer(S, source)
+local function tileQuad(image, x, y, w, h)
+  local bucket = previewQuads[image]
+  if not bucket then
+    bucket = {}
+    previewQuads[image] = bucket
+  end
+  local key = table.concat({ x, y, w, h }, ":")
+  if not bucket[key] then
+    local iw, ih = image:getDimensions()
+    bucket[key] = love.graphics.newQuad(x, y, w, h, iw, ih)
+  end
+  return bucket[key]
+end
+
+local function animationTile(source, tile)
+  local frames = source and source.animations and source.animations[tile]
+  if not frames or #frames < 2 then return tile end
+  local total = 0
+  for _, frame in ipairs(frames) do
+    total = total + math.max(16, tonumber(frame.duration) or 200)
+  end
+  local now = love.timer and love.timer.getTime and love.timer.getTime() or 0
+  local cursor = (now * 1000) % total
+  for _, frame in ipairs(frames) do
+    cursor = cursor - math.max(16, tonumber(frame.duration) or 200)
+    if cursor < 0 then return frame.tile end
+  end
+  return frames[#frames].tile
+end
+
+function LayeredMap.drawSourceTile(S, source, tile, x, y, size, alpha, mapId)
+  if not source or not source.image then return false end
+  local image = Preview.image(S, source.image)
+  if not image then return false end
+  tile = animationTile(source, math.max(0, math.floor(tonumber(tile) or 0)))
+  local shaded = false
+  local gbc, bgSet, tilePals
+  if source.colorMode ~= "true_color" and source.runtimeTileset then
+    local Generation = require("Generation")
+    if Generation.isGen2(S) then
+      mapId = mapId or S.builderMapId or S.mapId
+      local map = (S.project and S.project.maps and S.project.maps[mapId])
+        or Generation.dataMaps(S)[mapId]
+      if type(map) == "table" then
+        bgSet = select(1, Preview.gen2MapBgSet(S, map))
+      end
+    end
+    if bgSet then
+      local okG, GbcPalette = pcall(require, "src.render.GbcPalette")
+      if okG and GbcPalette and GbcPalette.with then
+        gbc = GbcPalette
+        tilePals = source.tileset and source.tileset.tilePalettes
+        if not tilePals then
+          local vanilla = require("Generation").dataTilesets(S)[source.runtimeTileset]
+          tilePals = vanilla and vanilla.tilePalettes
+        end
+      end
+    end
+  end
+  if source.colorMode ~= "true_color" and not gbc then
+    mapId = mapId or S.builderMapId or S.mapId
+    local map = S.project and S.project.maps and S.project.maps[mapId]
+      or require("Generation").dataMaps(S)[mapId]
+    shaded = Preview.pushPaletteShader(S, Preview.mapPaletteName(S, map))
+  end
+  love.graphics.setColor(1, 1, 1, alpha or 1)
+  if source.runtimeTileset then
+    local blockId = math.floor(tile / 4)
+    local quadrant = tile % 4
+    local block = source.tileset.blocks and source.tileset.blocks[blockId + 1]
+    if not block then
+      Preview.popPaletteShader(shaded)
+      love.graphics.setColor(1, 1, 1, 1)
+      return false
+    end
+    local qx, qy = quadrant % 2, math.floor(quadrant / 2)
+    local scale = size / 16
+    local perRow = source.tileset.tilesPerRow
+      or math.max(1, math.floor(image:getWidth() / 8))
+    for microY = 0, 1 do
+      for microX = 0, 1 do
+        local tileId = block[(qy * 2 + microY) * 4 + qx * 2 + microX + 1]
+        if tileId then
+          local sx = (tileId % perRow) * 8
+          local sy = math.floor(tileId / perRow) * 8
+          local dx = x + microX * 8 * scale
+          local dy = y + microY * 8 * scale
+          if gbc then
+            local slot = (tilePals and tilePals[tileId + 1]) or 1
+            gbc.with(bgSet[slot], function()
+              love.graphics.draw(image, tileQuad(image, sx, sy, 8, 8),
+                dx, dy, 0, scale, scale)
+            end)
+          else
+            love.graphics.draw(image, tileQuad(image, sx, sy, 8, 8),
+              dx, dy, 0, scale, scale)
+          end
+        end
+      end
+    end
+  else
+    local columns = source.columns or math.max(1, math.floor(image:getWidth() / 16))
+    local sx = (tile % columns) * 16
+    local sy = math.floor(tile / columns) * 16
+    local scale = size / 16
+    love.graphics.draw(image, tileQuad(image, sx, sy, 16, 16),
+      x, y, 0, scale, scale)
+  end
+  Preview.popPaletteShader(shaded)
+  love.graphics.setColor(1, 1, 1, 1)
+  return true
+end
+
+-- World View / engine preview: same 16x16 cells as Map Builder, including
+-- Gold runtime tilesets. MapPreview.bake uses compiled 32x32 blocks and a
+-- different palette path, so World View used to disagree with the canvas.
+function LayeredMap.previewRenderer(S, source, mapId)
   if not source then return nil end
   LayeredMap.internSourceCells(source)
   local CELL = LayeredMap.CELL_SIZE
-  local function quadFor(image, x, y, w, h)
-    local bucket = previewQuads[image]
-    if not bucket then
-      bucket = {}
-      previewQuads[image] = bucket
-    end
-    local key = x .. ":" .. y .. ":" .. w .. ":" .. h
-    if not bucket[key] then
-      local iw, ih = image:getDimensions()
-      bucket[key] = love.graphics.newQuad(x, y, w, h, iw, ih)
-    end
-    return bucket[key]
-  end
+  mapId = mapId or source.id
   local function draw(_, camX, camY, vw, vh)
     camX, camY = camX or 0, camY or 0
     vw = vw or source.cellWidth * CELL
@@ -1894,7 +1996,6 @@ function LayeredMap.previewRenderer(S, source)
       math.floor((camY + vh) / CELL) + 1)
     love.graphics.push()
     love.graphics.translate(-math.floor(camX), -math.floor(camY))
-    love.graphics.setColor(1, 1, 1, 1)
     for cy = y0, y1 do
       for cx = x0, x1 do
         for _, layer in ipairs(source.layers or {}) do
@@ -1902,17 +2003,9 @@ function LayeredMap.previewRenderer(S, source)
             local ref = layer.cells[cy * source.cellWidth + cx + 1]
             if ref then
               local desc = LayeredMap.sourceDescriptor(S, ref.source)
-              local image = desc and desc.image
-                and Preview.image(S, desc.image)
-              if image then
-                local columns = desc.columns
-                  or math.max(1, math.floor(image:getWidth() / 16))
-                local tile = math.max(0, math.floor(tonumber(ref.tile) or 0))
-                local sx = (tile % columns) * 16
-                local sy = math.floor(tile / columns) * 16
-                love.graphics.setColor(1, 1, 1, layer.opacity or 1)
-                love.graphics.draw(image, quadFor(image, sx, sy, 16, 16),
-                  cx * CELL, cy * CELL)
+              if desc then
+                LayeredMap.drawSourceTile(S, desc, ref.tile,
+                  cx * CELL, cy * CELL, CELL, layer.opacity or 1, mapId)
               end
             end
           end
@@ -1922,7 +2015,7 @@ function LayeredMap.previewRenderer(S, source)
     love.graphics.pop()
     love.graphics.setColor(1, 1, 1, 1)
   end
-  return { draw = draw, drawMapOnly = draw }
+  return { draw = draw, drawMapOnly = draw, cellPreview = true }
 end
 
 return LayeredMap

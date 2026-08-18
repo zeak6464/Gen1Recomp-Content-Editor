@@ -2927,7 +2927,7 @@ function Maps.loadEditorMap(S, mapId)
   local liveSig = tostring(mapId) .. "|" .. tostring(def and def.tileset)
     .. "|" .. tostring(daytimeHint)
   if S.project and S.project.layeredMaps and S.project.layeredMaps[mapId] then
-    liveSig = liveSig .. "|layered"
+    liveSig = liveSig .. "|layered-cells"
   end
   local live = S._editorLiveMaps and S._editorLiveMaps[mapId]
   if live and live.sig == liveSig and live.map and live.map.renderer then
@@ -2958,24 +2958,26 @@ function Maps.loadEditorMap(S, mapId)
     end
     local ok, map = pcall(Map2.new, def, tileset)
     if not ok then return false, map end
+    -- Layered maps: same 16x16 cells + GBC palettes as Map Builder. Compiled
+    -- MapPreview.bake uses 32x32 blocks and looks different (washed-out cave).
+    do
+      local layered = S.project and S.project.layeredMaps
+        and S.project.layeredMaps[mapId]
+      local LM = require("LayeredMap")
+      if layered and LM.usesCellPreview and LM.usesCellPreview(layered)
+          and LM.previewRenderer then
+        local okL, cellR = pcall(LM.previewRenderer, S, layered, mapId)
+        if okL and cellR then
+          map.renderer = cellR
+          S._editorLiveMaps = S._editorLiveMaps or {}
+          S._editorLiveMaps[mapId] = { sig = liveSig, map = map }
+          return true, map
+        end
+      end
+    end
     -- True-color / composed atlases: draw windowed. A full-map canvas for a
     -- large import is what pushed the editor past a gigabyte.
     if def.trueColor or (tileset and tileset.trueColor) then
-      do
-        local layered = S.project and S.project.layeredMaps
-          and S.project.layeredMaps[mapId]
-        local LM = require("LayeredMap")
-        if layered and LM.usesCellPreview and LM.usesCellPreview(layered)
-            and LM.previewRenderer then
-          local okL, cellR = pcall(LM.previewRenderer, S, layered)
-          if okL and cellR then
-            map.renderer = cellR
-            S._editorLiveMaps = S._editorLiveMaps or {}
-            S._editorLiveMaps[mapId] = { sig = liveSig, map = map }
-            return true, map
-          end
-        end
-      end
       local TileRenderer = require("src.render.TileRenderer")
       local okR, renderer = pcall(TileRenderer.new, map, S.data)
       if not okR or not renderer then return false, renderer end
