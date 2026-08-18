@@ -1103,9 +1103,7 @@ end
 
 local function emitLoadSchemas(out)
   out[#out + 1] = "  -- Schema extensions from Schemas.lua (wide map blocks / trainer parties)"
-  -- Leading ';' so a previous call/table is not parsed as calling this IIFE
-  -- (Lua "ambiguous syntax (function call x new statement) near '('").
-  out[#out + 1] = "  ;(function()"
+  out[#out + 1] = "  do (function()"
   out[#out + 1] = "    local body = mod:read(\"Schemas.lua\")"
   out[#out + 1] = "    if type(body) == \"string\" and body ~= \"\" then"
   out[#out + 1] = "      local loadstring = loadstring or load"
@@ -1113,9 +1111,9 @@ local function emitLoadSchemas(out)
   out[#out + 1] = "      assert(chunk, err or \"Schemas.lua failed to load\")"
       out[#out + 1] = "      chunk()"
       out[#out + 1] = "    end"
-      out[#out + 1] = "  end)();"
+      out[#out + 1] = "  end)() end"
       out[#out + 1] = ""
-      out[#out + 1] = "  ;(function()"
+      out[#out + 1] = "  do (function()"
       out[#out + 1] = "    local body = mod:read(\"gold_runtime.lua\")"
       out[#out + 1] = "    if type(body) == \"string\" and body ~= \"\" then"
       out[#out + 1] = "      local loadstring = loadstring or load"
@@ -1123,7 +1121,7 @@ local function emitLoadSchemas(out)
       out[#out + 1] = "      assert(chunk, err or \"gold_runtime.lua failed to load\")"
       out[#out + 1] = "      chunk()(mod)"
       out[#out + 1] = "    end"
-      out[#out + 1] = "  end)();"
+      out[#out + 1] = "  end)() end"
       out[#out + 1] = ""
 end
 function ModWriter.trainerPartySchemasLua()
@@ -1387,10 +1385,10 @@ function ModWriter.emitMain(project, baseData)
       else
         lit = rewriteModPaths(emitTableLiteral(payload, 1))
       end
-      out[#out + 1] = "  ;(function()"
+      out[#out + 1] = "  do (function()"
       out[#out + 1] = string.format("  mod.content.tilesets:%s(%q, %s)",
         verb, tid, lit)
-      out[#out + 1] = "  end)();"
+      out[#out + 1] = "  end)() end"
       out[#out + 1] = ""
     end
   end
@@ -1831,12 +1829,10 @@ function ModWriter.emitMain(project, baseData)
     rec.superRod = nil
     rec.id = rec.id or mid
     local verb = emitVerb(raw)
-    -- Leading ';' so a previous call/table is not parsed as calling this IIFE
-    -- (Lua "ambiguous syntax (function call x new statement) near '('").
-    out[#out + 1] = "  ;(function()"
+    out[#out + 1] = "  do (function()"
     out[#out + 1] = string.format("  mod.content.maps:%s(%q, %s)",
       verb, mid, emitTableLiteral(rec, 1))
-    out[#out + 1] = "  end)();"
+    out[#out + 1] = "  end)() end"
     out[#out + 1] = ""
     if not gen2 and raw.encounters then
       local everb = emitVerb(raw)
@@ -1936,17 +1932,17 @@ function ModWriter.emitMain(project, baseData)
   for _, tid in ipairs(textIds) do
     local body = project.text[tid]
     if type(body) == "string" and body ~= "" then
-      if textChunk == 0 then out[#out + 1] = "  ;(function()" end
+      if textChunk == 0 then out[#out + 1] = "  do (function()" end
       textChunk = textChunk + 1
       out[#out + 1] = string.format("  mod.content.text:override(%q, %s)",
         tid, escapeStr(body))
       if textChunk >= 40 then
-        out[#out + 1] = "  end)();"
+        out[#out + 1] = "  end)() end"
         textChunk = 0
       end
     end
   end
-  if textChunk > 0 then out[#out + 1] = "  end)();" end
+  if textChunk > 0 then out[#out + 1] = "  end)() end" end
   if #textIds > 0 then out[#out + 1] = "" end
 
   -- Gold overworld scripts (scriptKey → opcode rows). No content.scripts
@@ -2075,7 +2071,7 @@ function ModWriter.emitMain(project, baseData)
       end
     end
     if next(lists) then
-      out[#out + 1] = "  ;(function()"
+      out[#out + 1] = "  do (function()"
       out[#out + 1] = "    local _lists = " .. emitTableLiteral(lists, 2)
       out[#out + 1] = [[    mod.events:on("mods.loaded", function(ev)
       local data = ev and ev.data
@@ -2089,7 +2085,7 @@ function ModWriter.emitMain(project, baseData)
       if type(dest) ~= "table" then dest = marts end
       for i, stock in pairs(_lists) do dest[i] = stock end
     end)]]
-      out[#out + 1] = "  end)();"
+      out[#out + 1] = "  end)() end"
       out[#out + 1] = ""
     end
   end
