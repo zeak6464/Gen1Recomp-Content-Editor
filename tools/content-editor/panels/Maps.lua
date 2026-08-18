@@ -5068,6 +5068,13 @@ local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
     end
     local ww = Kit.textfield("mp_w", fx, fy, 60 * s, fh_, draft.w, "10")
     local hh = Kit.textfield("mp_h", fx + 70 * s, fy, 60 * s, fh_, draft.h, "9")
+    -- Clicking the canvas or another control does not steal text focus by
+    -- itself; blur so the pair actually commits on click-away.
+    if Kit.mouseClicked and (Kit.focus == "mp_w" or Kit.focus == "mp_h")
+        and not Kit.hit(fx, fy, 60 * s, fh_)
+        and not Kit.hit(fx + 70 * s, fy, 60 * s, fh_) then
+      Kit.blur()
+    end
     local sizing = (Kit.focus == "mp_w" or Kit.focus == "mp_h")
     if sizing then
       draft.w, draft.h = ww, hh
@@ -5077,16 +5084,32 @@ local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
       S._mapSizeDraft = nil
       if nw ~= map.width or nh ~= map.height then
         map = mutate()
+        local oldW, oldH = map.width, map.height
+        local oldBlocks = map.blocks
+        local layered = S.project and S.project.layeredMaps
+          and S.project.layeredMaps[map.id]
+        if layered then
+          local ok, err = require("LayeredMap").resizeMap(
+            S.project, map.id, nw * 2, nh * 2)
+          if not ok then
+            S.status = "Resize rejected: " .. tostring(err)
+            return
+          end
+          S._builderFitFor = nil
+          S._builderSizeDraft = nil
+          S.builderSelections = {}
+        end
         local nb = {}
         for yb = 0, nh - 1 do
           for xb = 0, nw - 1 do
-            local old = (yb < map.height and xb < map.width)
-              and map.blocks[yb * map.width + xb + 1] or 1
+            local old = (yb < oldH and xb < oldW)
+              and oldBlocks[yb * oldW + xb + 1] or 1
             nb[yb * nw + xb + 1] = old
           end
         end
         map.width, map.height, map.blocks = nw, nh, nb
         MapLoader.invalidate(map.id)
+        Maps.invalidateGoldPreview(S, map.id)
         S._mapCenteredFor = nil
         App.markDirty()
       end
