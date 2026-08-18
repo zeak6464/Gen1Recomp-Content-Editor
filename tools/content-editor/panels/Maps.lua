@@ -1111,6 +1111,10 @@ local function pasteMapEventClip(S, App)
     map.warps[n] = entry
     S.mapSection = "warps"
     S.mapWarpIndex = n
+    local LM = withLayeredMap()
+    if LM and LM.adoptWarpRecord then
+      LM.adoptWarpRecord(S.project, map.id or S.mapId, entry)
+    end
   elseif clip.kind == "sign" then
     if Generation.isGen2(S) then
       map.bgEvents = map.bgEvents or {}
@@ -3144,6 +3148,11 @@ local function clearWarpDestPick(S, status)
   if status then S.status = status end
 end
 
+local function withLayeredMap()
+  local ok, LM = pcall(require, "LayeredMap")
+  if ok then return LM end
+end
+
 local function armWarpDestPick(S, mapId, warpIndex)
   if not mapId or not warpIndex then return end
   S.warpDestPick = { sourceMapId = mapId, sourceWarpIndex = warpIndex }
@@ -3191,6 +3200,21 @@ local function applyWarpDestPick(S, mapDef, cx, cy, App)
 
   srcMap.warps[srcIdx].destMap = destId
   srcMap.warps[srcIdx].destWarp = destIdx
+  local LM = withLayeredMap()
+  if LM then
+    if LM.adoptWarpRecord then
+      LM.adoptWarpRecord(S.project, destId, destMap.warps[destIdx])
+      LM.adoptWarpRecord(S.project, srcId, srcMap.warps[srcIdx])
+    end
+    local destNode = LM.nodeAt and LM.nodeAt(S.project, destId, cx, cy)
+    local srcWarp = srcMap.warps[srcIdx]
+    local srcNode = LM.nodeAt and LM.nodeAt(S.project, srcId, srcWarp.x, srcWarp.y)
+    if srcNode and destNode then
+      srcNode.active = true
+      srcNode.targetNode = destNode.id
+      srcNode.targetMap, srcNode.targetIndex = nil, nil
+    end
+  end
   S.data.maps[srcId] = srcMap
   S.data.maps[destId] = destMap
   MapLoader.invalidate(srcId)
@@ -3381,6 +3405,10 @@ local function applyToolAtCell(S, mapDef, cx, cy, App)
     mapDef.warps[#mapDef.warps + 1] = {
       x = cx, y = cy, destMap = defaultDest, destWarp = 1,
     }
+    local LM = withLayeredMap()
+    if LM and LM.adoptWarpRecord then
+      LM.adoptWarpRecord(S.project, mapDef.id or S.mapId, mapDef.warps[#mapDef.warps])
+    end
     S.mapSection = "warps"
     S.mapWarpIndex = #mapDef.warps
     local ts = tilesetDef(S, mapDef.tileset)
@@ -3689,18 +3717,20 @@ local function drawMapCoordLabels(S, mapDef, vx, vy, vw, vh)
   end
 end
 
-local function drawMarkerOverlays(S, mapDef)
+local function drawMarkerOverlays(S, mapDef, opts)
   local camX, camY = S.mapCamX or 0, S.mapCamY or 0
   local function cellRect(cx, cy)
     return cx * CELL - camX, cy * CELL - camY, CELL, CELL
   end
-  love.graphics.setColor(0.27, 0.59, 1, 0.55)
-  for i, w in ipairs(mapDef.warps or {}) do
-    love.graphics.rectangle("line", cellRect(w.x, w.y))
-    if S.mapWarpIndex == i and S.mapSection == "warps" then
-      love.graphics.setColor(0.27, 0.59, 1, 0.9)
-      love.graphics.rectangle("fill", cellRect(w.x, w.y))
-      love.graphics.setColor(0.27, 0.59, 1, 0.55)
+  if not (opts and opts.skipWarps) then
+    love.graphics.setColor(0.27, 0.59, 1, 0.55)
+    for i, w in ipairs(mapDef.warps or {}) do
+      love.graphics.rectangle("line", cellRect(w.x, w.y))
+      if S.mapWarpIndex == i and S.mapSection == "warps" then
+        love.graphics.setColor(0.27, 0.59, 1, 0.9)
+        love.graphics.rectangle("fill", cellRect(w.x, w.y))
+        love.graphics.setColor(0.27, 0.59, 1, 0.55)
+      end
     end
   end
   love.graphics.setColor(1, 0.85, 0.15, 0.7)
@@ -5763,7 +5793,12 @@ local function drawWarps(S, map, mutate, App, px, py, propW, listBottom, fh, s)
     local x = tonumber(field(App, "wp_x", fx, fy, 50 * s, fh_, tostring(w.x or 0), "0")) or 0
     local y = tonumber(field(App, "wp_y", fx + 60 * s, fy, 50 * s, fh_, tostring(w.y or 0), "0")) or 0
     if x ~= (w.x or 0) or y ~= (w.y or 0) then
+      local oldX, oldY = w.x or 0, w.y or 0
       map = mutate(); map.warps[i].x = x; map.warps[i].y = y
+      local LM = withLayeredMap()
+      if LM and LM.moveWarpAt then
+        LM.moveWarpAt(S.project, map.id or S.mapId, oldX, oldY, x, y)
+      end
     end
   end)
   row("Dest map", function(fx, fy, fw, fh_)
@@ -5831,8 +5866,14 @@ local function drawWarps(S, map, mutate, App, px, py, propW, listBottom, fh, s)
       elseif pick and pick.sourceMapId == mid and pick.sourceWarpIndex > i then
         pick.sourceWarpIndex = pick.sourceWarpIndex - 1
       end
+      local wx, wy = w.x, w.y
       map = mutate()
-      table.remove(map.warps, i)
+      local LM = withLayeredMap()
+      if LM and LM.removeWarpAt then
+        LM.removeWarpAt(S.project, mid, wx, wy)
+      else
+        table.remove(map.warps, i)
+      end
       S.mapWarpIndex = math.min(i, #map.warps)
       MapLoader.invalidate(map.id)
       App.markDirty()
@@ -8153,7 +8194,14 @@ function Maps.moveEvent(S, kind, index, cx, cy, App)
   cx = math.max(0, math.min((tonumber(map.width) or 1) * 2 - 1, cx))
   cy = math.max(0, math.min((tonumber(map.height) or 1) * 2 - 1, cy))
   if entity.x == cx and entity.y == cy then return false end
+  local oldX, oldY = entity.x, entity.y
   entity.x, entity.y = cx, cy
+  if kind == "warp" then
+    local LM = withLayeredMap()
+    if LM and LM.moveWarpAt then
+      LM.moveWarpAt(S.project, map.id or S.mapId, oldX, oldY, cx, cy)
+    end
+  end
   if S.data and S.data.maps then S.data.maps[map.id or S.mapId] = map end
   MapLoader.invalidate(map.id or S.mapId)
   App.markDirty()
@@ -8192,7 +8240,16 @@ function Maps.deleteSelectedEvent(S, App)
     return false
   end
   App.beginEditBatch()
-  table.remove(list, index)
+  if kind == "warp" then
+    local LM = withLayeredMap()
+    if LM and LM.removeWarpAt then
+      LM.removeWarpAt(S.project, map.id or S.mapId, list[index].x, list[index].y)
+    else
+      table.remove(list, index)
+    end
+  else
+    table.remove(list, index)
+  end
   if kind == "object" then S.mapObjectIndex = math.min(index, #list)
   elseif kind == "sign" then S.mapSignIndex = math.min(index, #list)
   else S.mapWarpIndex = math.min(index, #list) end
@@ -8211,7 +8268,7 @@ function Maps.drawEventOverlays(S)
   -- subtracts its camera. The layered canvas has already applied its camera.
   local oldX, oldY = S.mapCamX, S.mapCamY
   S.mapCamX, S.mapCamY = 0, 0
-  drawMarkerOverlays(S, map)
+  drawMarkerOverlays(S, map, { skipWarps = true })
   S.mapCamX, S.mapCamY = oldX, oldY
 end
 

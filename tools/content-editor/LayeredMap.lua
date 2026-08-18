@@ -328,24 +328,28 @@ end
 local function importMapWarps(S, map)
   local project = ensureProject(S.project)
   for index, warp in ipairs(map.warps or {}) do
+    -- Existing editor nodes are the source of truth. Re-applying compiled
+    -- map.warps would resurrect deleted endpoints on Save.
     local node = nodeAt(project, map.id, warp.x, warp.y)
-      or newNode(project, map.id, warp.x, warp.y)
-    node.active = true
-    node.originalIndex = index
-    node.targetMap = warp.destMap
-    node.targetIndex = warp.destWarp
-    node.destGroup = warp.destGroup
-    node.destMapNum = warp.destMapNum
-    -- External destinations (DAY_CARE, etc.) must not keep a same-map
-    -- targetNode or compile rewrites them into intra-map hops.
-    if warp.destMap and not project.layeredMaps[warp.destMap] then
-      node.targetNode = nil
+    if not node then
+      node = newNode(project, map.id, warp.x, warp.y)
+      node.active = true
+      node.originalIndex = index
+      node.targetMap = warp.destMap
+      node.targetIndex = warp.destWarp
+      node.destGroup = warp.destGroup
+      node.destMapNum = warp.destMapNum
+      if warp.destMap and not project.layeredMaps[warp.destMap] then
+        node.targetNode = nil
+      end
+    elseif not node.originalIndex then
+      node.originalIndex = index
     end
   end
 
   -- Reconnect only when the destination is also a layered map.
   for _, node in pairs(project.mapWarpNodes) do
-    if node.targetMap and node.targetIndex
+    if node.targetNode == nil and node.targetMap and node.targetIndex
         and project.layeredMaps[node.targetMap] then
       for _, candidate in pairs(project.mapWarpNodes) do
         if candidate.map == node.targetMap
@@ -763,9 +767,22 @@ function LayeredMap.createWarpLink(project, mode, from, destination, returnPoint
   return true, first.id, second.id
 end
 
+local function stripMapWarpsAt(project, mapId, x, y)
+  local map = project.maps and project.maps[mapId]
+  if not (map and map.warps) then return end
+  for index = #map.warps, 1, -1 do
+    local warp = map.warps[index]
+    if warp and warp.x == x and warp.y == y then
+      table.remove(map.warps, index)
+    end
+  end
+end
+
 function LayeredMap.removeWarpNode(project, nodeId)
   ensureProject(project)
-  if not project.mapWarpNodes[nodeId] then return false end
+  local gone = project.mapWarpNodes[nodeId]
+  if not gone then return false end
+  stripMapWarpsAt(project, gone.map, gone.x, gone.y)
   project.mapWarpNodes[nodeId] = nil
   for _, node in pairs(project.mapWarpNodes) do
     if node.targetNode == nodeId then
@@ -773,6 +790,38 @@ function LayeredMap.removeWarpNode(project, nodeId)
       node.active = false
     end
   end
+  return true
+end
+
+function LayeredMap.removeWarpAt(project, mapId, x, y)
+  ensureProject(project)
+  local node = nodeAt(project, mapId, x, y)
+  if node then return LayeredMap.removeWarpNode(project, node.id) end
+  stripMapWarpsAt(project, mapId, x, y)
+  return true
+end
+
+function LayeredMap.adoptWarpRecord(project, mapId, warp)
+  if not (project and mapId and type(warp) == "table") then return nil end
+  ensureProject(project)
+  if not project.layeredMaps[mapId] then return nil end
+  local node = nodeAt(project, mapId, warp.x, warp.y)
+    or newNode(project, mapId, warp.x, warp.y)
+  node.active = true
+  if not node.targetNode then
+    node.targetMap = warp.destMap
+    node.targetIndex = warp.destWarp
+    node.destGroup = warp.destGroup
+    node.destMapNum = warp.destMapNum
+  end
+  return node
+end
+
+function LayeredMap.moveWarpAt(project, mapId, oldX, oldY, newX, newY)
+  ensureProject(project)
+  local node = nodeAt(project, mapId, oldX, oldY)
+  if not node then return false end
+  node.x, node.y = newX, newY
   return true
 end
 
@@ -1439,11 +1488,7 @@ local function dropGeneratedTileset(S, project, mapId)
 end
 
 local function applyCompiledWarps(map, warpRecords)
-  if type(warpRecords) == "table" and #warpRecords > 0 then
-    map.warps = warpRecords
-  elseif type(map.warps) ~= "table" then
-    map.warps = {}
-  end
+  map.warps = type(warpRecords) == "table" and warpRecords or {}
 end
 
 local function compilePassthrough(context, mapId, mapSource, warpRecords,
@@ -1768,8 +1813,10 @@ function LayeredMap.compileProject(S)
     pixels = {},
     outputs = {},
   }
-  for _, map in pairs(project.maps or {}) do
-    if type(map) == "table" then importMapWarps(S, map) end
+  for id, map in pairs(project.maps or {}) do
+    if type(map) == "table" and not project.layeredMaps[id] then
+      importMapWarps(S, map)
+    end
   end
   local records, activeCells = warpPlan(project)
   local compiled = 0
