@@ -242,6 +242,57 @@ local function drawSlotRows(S, App, px, py, propW, listBottom, fh, s,
   return py
 end
 
+-- Gold `species = 0` is TimeFishGroups: the level byte is the group index,
+-- and day vs nite pick the real mon. pret/pokegold data/wild/fish.asm.
+local GOLD_TIME_FISH = {
+  [0] = { day = "CORSOLA", dayLevel = 20, nite = "STARYU", niteLevel = 20 },
+  [1] = { day = "CORSOLA", dayLevel = 40, nite = "STARYU", niteLevel = 40 },
+  [2] = { day = "SHELLDER", dayLevel = 20, nite = "SHELLDER", niteLevel = 20 },
+  [3] = { day = "SHELLDER", dayLevel = 40, nite = "SHELLDER", niteLevel = 40 },
+  [4] = { day = "GOLDEEN", dayLevel = 20, nite = "GOLDEEN", niteLevel = 20 },
+  [5] = { day = "GOLDEEN", dayLevel = 40, nite = "GOLDEEN", niteLevel = 40 },
+  [6] = { day = "POLIWAG", dayLevel = 20, nite = "POLIWAG", niteLevel = 20 },
+  [7] = { day = "POLIWAG", dayLevel = 40, nite = "POLIWAG", niteLevel = 40 },
+  [8] = { day = "DRATINI", dayLevel = 20, nite = "DRATINI", niteLevel = 20 },
+  [9] = { day = "DRATINI", dayLevel = 40, nite = "DRATINI", niteLevel = 40 },
+  [10] = { day = "QWILFISH", dayLevel = 20, nite = "QWILFISH", niteLevel = 20 },
+  [11] = { day = "QWILFISH", dayLevel = 40, nite = "QWILFISH", niteLevel = 40 },
+  [12] = { day = "REMORAID", dayLevel = 20, nite = "REMORAID", niteLevel = 20 },
+  [13] = { day = "REMORAID", dayLevel = 40, nite = "REMORAID", niteLevel = 40 },
+  [14] = { day = "GYARADOS", dayLevel = 20, nite = "GYARADOS", niteLevel = 20 },
+  [15] = { day = "GYARADOS", dayLevel = 40, nite = "GYARADOS", niteLevel = 40 },
+  [16] = { day = "DRATINI", dayLevel = 10, nite = "DRATINI", niteLevel = 10 },
+  [17] = { day = "DRATINI", dayLevel = 10, nite = "DRATINI", niteLevel = 10 },
+  [18] = { day = "HORSEA", dayLevel = 20, nite = "HORSEA", niteLevel = 20 },
+  [19] = { day = "HORSEA", dayLevel = 40, nite = "HORSEA", niteLevel = 40 },
+  [20] = { day = "TENTACOOL", dayLevel = 20, nite = "TENTACOOL", niteLevel = 20 },
+  [21] = { day = "TENTACOOL", dayLevel = 40, nite = "TENTACOOL", niteLevel = 40 },
+}
+
+local function isTimeFishSlot(slot)
+  local sp = slot and slot.species
+  return sp == 0 or sp == "0"
+end
+
+local function timeFishGroup(S, index)
+  index = tonumber(index) or 0
+  local root = S and S.data and (S.data.gen2Encounters or S.data.encounters)
+  local groups = root and (root.timeFishGroups or root.fishTimeGroups)
+  if type(groups) == "table" then
+    local row = groups[index]
+    if type(row) ~= "table" then row = groups[index + 1] end
+    if type(row) == "table" then
+      return {
+        day = row.day or row.daySpecies or row.species or row[1],
+        dayLevel = row.dayLevel or row.level or row[2],
+        nite = row.nite or row.niteSpecies or row[3] or row.day or row[1],
+        niteLevel = row.niteLevel or row[4] or row.dayLevel or row[2],
+      }
+    end
+  end
+  return GOLD_TIME_FISH[index]
+end
+
 -- Fishing / headbutt-tree slots carry a chance (0-255) alongside level+species.
 local function drawChanceSlotRows(S, App, px, py, propW, listBottom, fh, s,
     kindKey, slots, onChange, onDelete, maxSlots)
@@ -251,28 +302,54 @@ local function drawChanceSlotRows(S, App, px, py, propW, listBottom, fh, s,
     if py + fh > listBottom - 36 * s then break end
     local slot = slots[si]
     local lx = px + 10 * s
+    local timeSlot = isTimeFishSlot(slot)
+    local tg = timeSlot and timeFishGroup(S, slot.level)
+    local shownLevel = (tg and (tg.dayLevel or tg.niteLevel)) or (slot.level or 1)
+    local shownSpecies = slot.species or "MAGIKARP"
+    local shownLabel = nil
+    if tg then
+      shownSpecies = tg.day or shownSpecies
+      if tg.nite and tg.nite ~= tg.day then
+        shownLabel = tostring(tg.day) .. "/" .. tostring(tg.nite)
+      else
+        shownLabel = tostring(tg.day or "TIME")
+      end
+    elseif timeSlot then
+      shownSpecies = nil
+      shownLabel = "TIME " .. tostring(slot.level or 0)
+    end
     local chance = tonumber(field(App, "enc_ch_" .. kindKey .. si, lx, py, 44 * s, fh,
       tostring(slot.chance or 0), "0")) or 0
     local lvl = tonumber(field(App, "enc_cl_" .. kindKey .. si, lx + 48 * s, py, 40 * s, fh,
-      tostring(slot.level or 1), "1")) or 1
+      tostring(shownLevel), "1")) or 1
     local spW = math.max(80 * s, propW - (lx - px) - 96 * s - 42 * s - 8 * s)
-    local sp = slot.species or "MAGIKARP"
     SpeciesPicker.field(S, {
       x = lx + 92 * s, y = py, w = spW, h = fh,
-      current = sp,
+      current = shownSpecies,
+      label = shownLabel,
       title = "ENCOUNTER SPECIES",
+      tooltip = tg and "Gold time-of-day fish (day / nite). Pick a species to make it a fixed slot."
+        or nil,
       onPick = function(id)
         onChange(si, {
           chance = math.max(0, math.min(255, slot.chance or 0)),
-          level = math.max(1, slot.level or 1), species = id,
+          level = math.max(1, shownLevel or 1), species = id,
         })
       end,
     })
-    if chance ~= (slot.chance or 0) or lvl ~= (slot.level or 1) then
-      onChange(si, {
-        chance = math.max(0, math.min(255, chance)),
-        level = math.max(1, lvl), species = sp,
-      })
+    if chance ~= (slot.chance or 0) or lvl ~= shownLevel then
+      if timeSlot and lvl == shownLevel then
+        onChange(si, {
+          chance = math.max(0, math.min(255, chance)),
+          level = slot.level, species = 0,
+        })
+      else
+        onChange(si, {
+          chance = math.max(0, math.min(255, chance)),
+          level = math.max(1, lvl),
+          species = (tg and tg.day) or slot.species or "MAGIKARP",
+        })
+      end
     end
     if Kit.button(px + propW - 42 * s, py, 28 * s, fh, "X", { kind = "danger" }) then
       onDelete(si)

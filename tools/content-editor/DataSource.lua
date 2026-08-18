@@ -291,6 +291,7 @@ local GOLD_EXTRAS = {
   { file = "intro", keys = { "intro", "gen2Intro" } },
   { file = "landmarks", keys = { "landmarks", "gen2Landmarks" } },
   { file = "menu_gfx", keys = { "menu_gfx", "gen2MenuGfx" } },
+  { file = "pokedex", keys = { "pokedex", "gen2Pokedex" } },
 }
 
 local function loadGoldGenerated(name)

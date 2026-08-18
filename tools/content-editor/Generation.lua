@@ -124,6 +124,9 @@ function Generation.bindGoldData(data)
   if data.pokedex and data.gen2Pokedex == nil then
     data.gen2Pokedex = data.pokedex
   end
+  if data.gen2Pokedex and data.pokedex == nil then
+    data.pokedex = data.gen2Pokedex
+  end
   if data.battle_anims and data.gen2BattleAnims == nil then
     data.gen2BattleAnims = data.battle_anims
   end

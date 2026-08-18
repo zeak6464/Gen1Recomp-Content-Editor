@@ -93,7 +93,9 @@ function SpeciesPicker.field(S, opts)
   end
   local bx = x + thumb + 6 * s
   local bw = math.max(40 * s, w - thumb - 6 * s)
-  local label = cur ~= "" and cur or (opts.emptyLabel or "(pick)")
+  local label = opts.label
+    or ((cur ~= "" and cur ~= 0) and tostring(cur))
+    or (opts.emptyLabel or "(pick)")
   if Kit.button(bx, y, bw, h, Kit.ellipsize("small", label, bw - 8 * s), {
       kind = "accent",
       tooltip = opts.tooltip or "Pick a species",
