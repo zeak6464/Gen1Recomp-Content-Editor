@@ -542,15 +542,35 @@ local function drawCanvas(S, source, x, y, w, h, App)
   love.graphics.translate(-(S.builderCamX or 0), -(S.builderCamY or 0))
 
   local camX, camY = S.builderCamX or 0, S.builderCamY or 0
-  local x0 = math.max(0, math.floor(camX / CELL) - 1)
-  local y0 = math.max(0, math.floor(camY / CELL) - 1)
-  local x1 = math.min(source.cellWidth - 1,
-    math.floor((camX + vw / zoom) / CELL) + 1)
-  local y1 = math.min(source.cellHeight - 1,
-    math.floor((camY + vh / zoom) / CELL) + 1)
+  local viewX0 = math.floor(camX / CELL) - 1
+  local viewY0 = math.floor(camY / CELL) - 1
+  local viewX1 = math.floor((camX + vw / zoom) / CELL) + 1
+  local viewY1 = math.floor((camY + vh / zoom) / CELL) + 1
+  local x0 = math.max(0, viewX0)
+  local y0 = math.max(0, viewY0)
+  local x1 = math.min(source.cellWidth - 1, viewX1)
+  local y1 = math.min(source.cellHeight - 1, viewY1)
   love.graphics.setColor(0.16, 0.18, 0.22, 1)
-  love.graphics.rectangle("fill", x0 * CELL, y0 * CELL,
-    math.max(0, x1 - x0 + 1) * CELL, math.max(0, y1 - y0 + 1) * CELL)
+  love.graphics.rectangle("fill", viewX0 * CELL, viewY0 * CELL,
+    math.max(0, viewX1 - viewX0 + 1) * CELL,
+    math.max(0, viewY1 - viewY0 + 1) * CELL)
+
+  local mapRec = S.project.maps and S.project.maps[source.id]
+  local borderBlock = mapRec and (mapRec.borderBlock or 0) or 0
+  local borderTs = source.baseTileset or (mapRec and mapRec.tileset)
+  local borderDesc = borderTs
+    and LayeredMap.sourceDescriptor(S, LayeredMap.runtimeSourceId(borderTs))
+  if borderDesc then
+    for cy = viewY0, viewY1 do
+      for cx = viewX0, viewX1 do
+        if cx < 0 or cy < 0
+            or cx >= source.cellWidth or cy >= source.cellHeight then
+          local tile = borderBlock * 4 + (cy % 2) * 2 + (cx % 2)
+          drawSourceTile(S, borderDesc, tile, cx * CELL, cy * CELL, CELL, 1)
+        end
+      end
+    end
+  end
 
   for cy = y0, y1 do
     for cx = x0, x1 do
@@ -913,6 +933,11 @@ local function drawMapList(S, x, y, w, h, App)
       S.builderLayer = 1
       S.builderSelections = {}
       S._builderFitFor = nil
+      local src = S.project.layeredMaps[id]
+      if src and src.baseTileset then
+        S.builderSourceId = LayeredMap.runtimeSourceId(src.baseTileset)
+        S.builderTile, S.builderTileOffset = 0, 0
+      end
       if S.builderWarpDraft and not S.project.layeredMaps[id] then
         if S.mapWorkspace then
           S.builderWarpDraft = nil
@@ -1050,8 +1075,11 @@ local function drawTilePalette(S, source, x, y, w, h, App)
 
   local ids = source and LayeredMap.sourceIds(S, source.id) or sortedKeys(
     S.project.mapTileSources)
+  local preferred = source and source.baseTileset
+    and LayeredMap.runtimeSourceId(source.baseTileset)
   if not S.builderSourceId or not LayeredMap.sourceDescriptor(S, S.builderSourceId) then
-    S.builderSourceId = ids[1]
+    S.builderSourceId = (preferred and LayeredMap.sourceDescriptor(S, preferred)
+      and preferred) or ids[1]
   end
   local sy = y + 34 * Kit.scale
   local sourceIndex = 1

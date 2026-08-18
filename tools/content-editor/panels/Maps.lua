@@ -950,6 +950,11 @@ local function cloneTilesetForMap(S, map, App)
   if not (S and map) then return nil, nil, "no map" end
   State.ensureProjectFields(S.project)
   local srcId = map.tileset or "OVERWORLD"
+  local layered = S.project.layeredMaps and S.project.layeredMaps[map.id or S.mapId]
+  if layered and layered.baseTileset then
+    local owned = S.project.tilesets and S.project.tilesets[srcId]
+    if owned and owned._layeredGenerated then srcId = layered.baseTileset end
+  end
   local src = (S.project.tilesets and S.project.tilesets[srcId])
     or (S.data and S.data.tilesets and S.data.tilesets[srcId])
   if type(src) ~= "table" then
@@ -4854,6 +4859,13 @@ local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
     py = py + fh + 8 * s
   end
 
+  local function authoredTileset()
+    local layered = S.project and S.project.layeredMaps
+      and S.project.layeredMaps[map.id]
+    if layered and layered.baseTileset then return layered.baseTileset end
+    return map.tileset
+  end
+
   if prow("ID", function(fx, fy, fw, fh_)
     -- Draft while typing; commit on Enter / focus loss so each keystroke
     -- does not create a sidebar entry (and a live data.maps alias).
@@ -5127,8 +5139,9 @@ local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
     local assignW = 70 * s
     local gap = 4 * s
     local labelW = math.max(40 * s, fw - cloneW - assignW - gap * 2)
-    local label = Kit.ellipsize("mono", map.tileset or "?", labelW - 4 * s)
-    local ownedTs = S.project.tilesets and S.project.tilesets[map.tileset or ""]
+    local shown = authoredTileset()
+    local label = Kit.ellipsize("mono", shown or "?", labelW - 4 * s)
+    local ownedTs = S.project.tilesets and S.project.tilesets[shown or ""]
     local localSlot = ownedTs and ownedTs._mapLocal
     Kit.text("mono", label, fx, fy + 6 * s, localSlot and PAL.green or PAL.heading)
     if Kit.button(fx + labelW + gap, fy, cloneW, fh_, "Clone", {
@@ -5151,12 +5164,14 @@ local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
     end
   end) then return py end
   do
-    local ownedTs = S.project.tilesets and S.project.tilesets[map.tileset or ""]
+    local shown = authoredTileset()
+    local ownedTs = S.project.tilesets and S.project.tilesets[shown or ""]
+    local compiled = S.project.tilesets and S.project.tilesets[map.tileset or ""]
     if ownedTs and ownedTs._mapLocal then
       Kit.text("micro", "local slot (Passage safe)", px + 10 * s, py, PAL.green)
-    elseif ownedTs and ownedTs._layeredGenerated then
-      Kit.text("micro", "compiled atlas — Save rebuilds this from map cells",
-        px + 10 * s, py, PAL.yellow)
+    elseif compiled and compiled._layeredGenerated then
+      Kit.text("micro", "Save keeps this tileset; playtest uses a compiled copy",
+        px + 10 * s, py, PAL.muted)
     else
       Kit.text("micro", "shared tileset — Clone or TERRAIN will make a local slot",
         px + 10 * s, py, PAL.yellow)

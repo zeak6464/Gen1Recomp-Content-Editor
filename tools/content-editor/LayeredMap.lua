@@ -1392,9 +1392,9 @@ local function exportedCellsAt(mapSource, index)
   return refs
 end
 
--- Build the runtime 32x32 block grid from 16x16 editor cells.
--- A 2x2 that mixes metatiles is quantized to the first painted cell.
--- Custom PNG cells are skipped so Save can keep the assigned game tileset.
+-- If every 32x32 is one game-tileset metatile, keep that tileset. Mixed 16x16
+-- cells in a 2x2 (or a custom PNG) return nil so Save bakes an atlas that
+-- matches the editor instead of flattening the map.
 local function runtimeBlockGrid(mapSource)
   local width, height = mapSource.cellWidth, mapSource.cellHeight
   local tilesetId, blocks = nil, {}
@@ -1408,12 +1408,12 @@ local function runtimeBlockGrid(mapSource)
           local ref = refs[#refs]
           if ref then
             local ts = LayeredMap.runtimeTilesetId(ref.source)
-            if ts then
-              tilesetId = tilesetId or ts
-              if blockId == nil then
-                blockId = math.floor((tonumber(ref.tile) or 0) / 4)
-              end
-            end
+            if not ts then return nil end
+            if tilesetId and tilesetId ~= ts then return nil end
+            tilesetId = ts
+            local b = math.floor((tonumber(ref.tile) or 0) / 4)
+            if blockId ~= nil and blockId ~= b then return nil end
+            blockId = b
           end
         end
       end
@@ -1484,11 +1484,12 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   local genId = generatedTilesetId(project, mapId)
   local assigned = mapSource.baseTileset or map.tileset
   if assigned == genId then assigned = nil end
-  local keepTileset = assigned or inferredTileset
-  -- Assigned/game tilesets are never replaced with a map-named atlas.
-  if keepTileset and keepTileset ~= genId then
-    return compilePassthrough(context, mapId, mapSource, warpRecords,
-      keepTileset, passthroughBlocks)
+  if inferredTileset and passthroughBlocks then
+    local keepTileset = assigned or inferredTileset
+    if keepTileset and keepTileset ~= genId then
+      return compilePassthrough(context, mapId, mapSource, warpRecords,
+        keepTileset, passthroughBlocks)
+    end
   end
 
   local tilesetId = generatedTilesetId(project, mapId)
