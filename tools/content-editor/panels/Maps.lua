@@ -5154,6 +5154,9 @@ local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
     local ownedTs = S.project.tilesets and S.project.tilesets[map.tileset or ""]
     if ownedTs and ownedTs._mapLocal then
       Kit.text("micro", "local slot (Passage safe)", px + 10 * s, py, PAL.green)
+    elseif ownedTs and ownedTs._layeredGenerated then
+      Kit.text("micro", "compiled atlas — Save rebuilds this from map cells",
+        px + 10 * s, py, PAL.yellow)
     else
       Kit.text("micro", "shared tileset — Clone or TERRAIN will make a local slot",
         px + 10 * s, py, PAL.yellow)
@@ -5164,6 +5167,11 @@ local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
   if prow("Border block", function(fx, fy, fw, fh_)
     local bid = map.borderBlock or 0
     local thumb = fh_
+    local brush = S.paintBlock or 0
+    if S.project and S.project.layeredMaps
+        and S.project.layeredMaps[map.id] then
+      brush = math.floor((tonumber(S.builderTile) or 0) / 4)
+    end
     drawBlockThumb(S, map.tileset, bid, fx, fy, thumb)
     local fieldX = fx + thumb + 6 * s
     local v = tonumber(field(App, "mp_border", fieldX, fy, 50 * s, fh_,
@@ -5178,11 +5186,10 @@ local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
     local btnW = math.max(0, fw - (btnX - fx))
     if btnW >= 56 * s and Kit.button(btnX, fy, btnW, fh_, "Use brush", {
         kind = "accent",
-        tooltip = "Set border to paint block "
-          .. tostring(S.paintBlock or 0),
+        tooltip = "Set border to paint block " .. tostring(brush),
       }) then
       map = mutate()
-      map.borderBlock = S.paintBlock or 0
+      map.borderBlock = brush
       MapLoader.invalidate(map.id)
       App.markDirty()
       S.status = "Border block → " .. tostring(map.borderBlock)

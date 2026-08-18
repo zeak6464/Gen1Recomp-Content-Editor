@@ -436,12 +436,15 @@ function LayeredMap.resize(source, newWidth, newHeight)
   end
   if width == source.cellWidth and height == source.cellHeight then return true end
   local oldWidth, oldHeight = source.cellWidth, source.cellHeight
-  for _, layer in ipairs(source.layers or {}) do
+  for layerIndex, layer in ipairs(source.layers or {}) do
     local cells = {}
     for y = 0, height - 1 do
       for x = 0, width - 1 do
         if x < oldWidth and y < oldHeight then
           cells[y * width + x + 1] = layer.cells[y * oldWidth + x + 1]
+        elseif layerIndex == 1 then
+          cells[y * width + x + 1] =
+            defaultRuntimeRef(source.baseTileset, x, y, 0)
         end
       end
     end
@@ -1403,8 +1406,7 @@ local function runtimeBlockGrid(mapSource)
           local refs = exportedCellsAt(mapSource, index)
           if #refs > 1 then return nil end
           if #refs == 0 then
-            if blockId ~= nil and blockId ~= 0 then return nil end
-            blockId = 0
+            -- Empty cells (resize, eraser) must not force a custom atlas.
           else
             local ts = LayeredMap.runtimeTilesetId(refs[1].source)
             if not ts then return nil end
@@ -1448,15 +1450,12 @@ end
 local function compilePassthrough(context, mapId, mapSource, warpRecords,
     tilesetId, mapBlocks)
   local project, S, map = context.project, context.S, context.project.maps[mapId]
-  local genId = dropGeneratedTileset(S, project, mapId)
-  local wasGenerated = map.tileset == genId
+  dropGeneratedTileset(S, project, mapId)
   map.tileset = tilesetId
   map.width = mapSource.cellWidth / 2
   map.height = mapSource.cellHeight / 2
   map.blocks = mapBlocks
-  if wasGenerated and (map.borderBlock == nil or map.borderBlock == 1) then
-    map.borderBlock = 0
-  elseif map.borderBlock == nil then
+  if map.borderBlock == nil then
     map.borderBlock = 0
   end
   map.trueColor = nil
@@ -1483,7 +1482,8 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   end
 
   local passthroughTileset, passthroughBlocks = runtimeBlockGrid(mapSource)
-  if passthroughTileset then
+  if passthroughTileset
+      and passthroughTileset ~= generatedTilesetId(project, mapId) then
     return compilePassthrough(context, mapId, mapSource, warpRecords,
       passthroughTileset, passthroughBlocks)
   end
@@ -1722,8 +1722,8 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   end
   map.width, map.height = width / 2, height / 2
   map.blocks = mapBlocks
-  if map.borderBlock == nil or map.borderBlock == 0 then
-    map.borderBlock = 1
+  if map.borderBlock == nil then
+    map.borderBlock = 0
   end
   applyCompiledWarps(map, warpRecords)
   -- Carry this on both records.  The tileset flag is the canonical link, but
