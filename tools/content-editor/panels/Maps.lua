@@ -1111,7 +1111,7 @@ local function pasteMapEventClip(S, App)
     map.warps[n] = entry
     S.mapSection = "warps"
     S.mapWarpIndex = n
-    local LM = withLayeredMap()
+    local LM = require("LayeredMap")
     if LM and LM.adoptWarpRecord then
       LM.adoptWarpRecord(S.project, map.id or S.mapId, entry)
     end
@@ -3148,11 +3148,6 @@ local function clearWarpDestPick(S, status)
   if status then S.status = status end
 end
 
-local function withLayeredMap()
-  local ok, LM = pcall(require, "LayeredMap")
-  if ok then return LM end
-end
-
 local function armWarpDestPick(S, mapId, warpIndex)
   if not mapId or not warpIndex then return end
   S.warpDestPick = { sourceMapId = mapId, sourceWarpIndex = warpIndex }
@@ -3200,7 +3195,7 @@ local function applyWarpDestPick(S, mapDef, cx, cy, App)
 
   srcMap.warps[srcIdx].destMap = destId
   srcMap.warps[srcIdx].destWarp = destIdx
-  local LM = withLayeredMap()
+  local LM = require("LayeredMap")
   if LM then
     if LM.adoptWarpRecord then
       LM.adoptWarpRecord(S.project, destId, destMap.warps[destIdx])
@@ -3405,7 +3400,7 @@ local function applyToolAtCell(S, mapDef, cx, cy, App)
     mapDef.warps[#mapDef.warps + 1] = {
       x = cx, y = cy, destMap = defaultDest, destWarp = 1,
     }
-    local LM = withLayeredMap()
+    local LM = require("LayeredMap")
     if LM and LM.adoptWarpRecord then
       LM.adoptWarpRecord(S.project, mapDef.id or S.mapId, mapDef.warps[#mapDef.warps])
     end
@@ -5795,7 +5790,7 @@ local function drawWarps(S, map, mutate, App, px, py, propW, listBottom, fh, s)
     if x ~= (w.x or 0) or y ~= (w.y or 0) then
       local oldX, oldY = w.x or 0, w.y or 0
       map = mutate(); map.warps[i].x = x; map.warps[i].y = y
-      local LM = withLayeredMap()
+      local LM = require("LayeredMap")
       if LM and LM.moveWarpAt then
         LM.moveWarpAt(S.project, map.id or S.mapId, oldX, oldY, x, y)
       end
@@ -5868,7 +5863,7 @@ local function drawWarps(S, map, mutate, App, px, py, propW, listBottom, fh, s)
       end
       local wx, wy = w.x, w.y
       map = mutate()
-      local LM = withLayeredMap()
+      local LM = require("LayeredMap")
       if LM and LM.removeWarpAt then
         LM.removeWarpAt(S.project, mid, wx, wy)
       else
@@ -8197,7 +8192,7 @@ function Maps.moveEvent(S, kind, index, cx, cy, App)
   local oldX, oldY = entity.x, entity.y
   entity.x, entity.y = cx, cy
   if kind == "warp" then
-    local LM = withLayeredMap()
+    local LM = require("LayeredMap")
     if LM and LM.moveWarpAt then
       LM.moveWarpAt(S.project, map.id or S.mapId, oldX, oldY, cx, cy)
     end
@@ -8241,7 +8236,7 @@ function Maps.deleteSelectedEvent(S, App)
   end
   App.beginEditBatch()
   if kind == "warp" then
-    local LM = withLayeredMap()
+    local LM = require("LayeredMap")
     if LM and LM.removeWarpAt then
       LM.removeWarpAt(S.project, map.id or S.mapId, list[index].x, list[index].y)
     else
