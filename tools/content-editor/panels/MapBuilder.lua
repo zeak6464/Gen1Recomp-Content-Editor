@@ -460,12 +460,17 @@ local function clampBuilderCam(S, source, viewW, viewH, zoom)
   S.builderCamX, S.builderCamY = x, y
 end
 
-local function drawConnectedNeighbors(S, source, camX, camY, viewW, viewH)
+local function drawConnectedNeighbors(S, source)
   if S.mapShowNeighbors == false then return end
   local mapRec = S.project and S.project.maps and S.project.maps[source.id]
   local Maps = require("Maps")
   if not (mapRec and Maps.directNeighbors) then return end
+  -- Canvas already applied -cam. Draw each neighbor in local space at its
+  -- world offset (same as World View). Passing the camera into the renderer
+  -- here would translate twice and slide the tiles off the bounds box.
   for _, nb in ipairs(Maps.directNeighbors(S, mapRec)) do
+    local nw = math.max(1, tonumber(nb.def.width) or 1) * 32
+    local nh = math.max(1, tonumber(nb.def.height) or 1) * 32
     love.graphics.push()
     love.graphics.translate(nb.ox, nb.oy)
     love.graphics.setColor(1, 1, 1, 0.82)
@@ -473,21 +478,19 @@ local function drawConnectedNeighbors(S, source, camX, camY, viewW, viewH)
     if layered and LayeredMap.previewRenderer then
       local okR, renderer = pcall(LayeredMap.previewRenderer, S, layered, nb.id)
       if okR and renderer then
-        renderer:draw(camX - nb.ox, camY - nb.oy, viewW, viewH)
+        renderer:draw(0, 0, nw, nh)
       end
     else
       local ok, loaded = Maps.loadEditorMap(S, nb.id)
       if ok and loaded and loaded.renderer then
         local draw = loaded.renderer.drawMapOnly or loaded.renderer.draw
         if draw then
-          draw(loaded.renderer, camX - nb.ox, camY - nb.oy, viewW, viewH)
+          draw(loaded.renderer, 0, 0, nw, nh)
         end
       end
     end
-    love.graphics.setColor(0.27, 0.59, 1, 0.5)
-    love.graphics.rectangle("line", 0, 0,
-      math.max(1, tonumber(nb.def.width) or 1) * 32,
-      math.max(1, tonumber(nb.def.height) or 1) * 32)
+    love.graphics.setColor(0.27, 0.59, 1, 0.7)
+    love.graphics.rectangle("line", 0.5, 0.5, nw - 1, nh - 1)
     love.graphics.pop()
   end
 end
@@ -496,7 +499,10 @@ local function drawCanvas(S, source, x, y, w, h, App)
   local pad = 8 * Kit.scale
   local vx, vy = x + pad, y + pad
   local vw, vh = math.max(1, w - pad * 2), math.max(1, h - pad * 2)
+  local nx0, ny0, nx1, ny1 = neighborExtents(S, source)
   local fitKey = source.id .. ":" .. source.cellWidth .. "x" .. source.cellHeight
+    .. ":" .. math.floor(nx0) .. "," .. math.floor(ny0)
+    .. "," .. math.floor(nx1) .. "," .. math.floor(ny1)
   if S._builderFitFor ~= fitKey then fitCanvas(S, source, vw, vh) end
   local zoom = clamp(S.builderZoom or 1, 0.25, 8)
   S.builderZoom = zoom
@@ -547,7 +553,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
     end
   end
 
-  drawConnectedNeighbors(S, source, camX, camY, viewW, viewH)
+  drawConnectedNeighbors(S, source)
 
   for cy = y0, y1 do
     for cx = x0, x1 do
@@ -587,9 +593,12 @@ local function drawCanvas(S, source, x, y, w, h, App)
       love.graphics.line(x0 * CELL, py, math.min(mapW, (x1 + 1) * CELL), py)
     end
   end
-  love.graphics.setColor(0.25, 0.85, 0.4, 0.95)
-  love.graphics.rectangle("line", 0, 0,
-    source.cellWidth * CELL, source.cellHeight * CELL)
+  local mapPx = source.cellWidth * CELL
+  local mapPy = source.cellHeight * CELL
+  love.graphics.setColor(0.12, 0.12, 0.14, 0.9)
+  love.graphics.rectangle("line", -1, -1, mapPx + 2, mapPy + 2)
+  love.graphics.setColor(0.35, 0.95, 0.5, 1)
+  love.graphics.rectangle("line", 0, 0, mapPx, mapPy)
   drawSelections(S, source)
   drawWarpNodes(S, source)
   if S.mapWorkspace then
