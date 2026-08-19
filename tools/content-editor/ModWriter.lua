@@ -228,12 +228,23 @@ local EDITOR_ONLY = {
   source = true,
 }
 
+-- Editor preview writes atlases under save/mod-derived; ship the transform path.
+local function shipModRelativePath(p)
+  if type(p) ~= "string" then return p end
+  local rel = p:match("^save/mod%-derived/[^/]+/(mapbuilder/.+)$")
+  if rel then return rel end
+  return p
+end
+
 local function stripEditorFields(rec)
   local out = {}
   for k, v in pairs(rec) do
     if type(k) == "string" and k:sub(1, 1) ~= "_" and not EDITOR_ONLY[k] then
       if isRomCachePath(v) then
         -- omit (MK301)
+      elseif type(v) == "string" then
+        local shipped = shipModRelativePath(v)
+        if shipped ~= "" then out[k] = shipped end
       elseif v ~= "" then
         out[k] = v
       end
@@ -445,6 +456,41 @@ end
 -- and silently drops the whole mod — including accuracy tweaks.)
 local function emitVerb(raw)
   return (raw and raw._isNew == true) and "register" or "patch"
+end
+
+-- Engine comment in Schemas.lua: mod maps use index >= 1000.
+-- Owning a custom map that was already in Data (after compile / mods:load)
+-- stamps _isNew=false, which would MK103-patch a non-vanilla id.
+local function isCustomMapRecord(raw)
+  if type(raw) ~= "table" then return false end
+  if raw._isNew == true then return true end
+  return type(raw.index) == "number" and raw.index >= 1000
+end
+
+local function catalogVerb(raw, id, vanillaSet)
+  if raw and (raw._isNew == true or raw._layeredGenerated) then
+    return "register"
+  end
+  if isCustomMapRecord(raw) then return "register" end
+  if type(vanillaSet) == "table" then
+    return vanillaSet[id] and "patch" or "register"
+  end
+  return emitVerb(raw)
+end
+
+local function shapeMapForEmit(rec, gen2, verb)
+  if type(rec) ~= "table" then return rec end
+  rec.blockdata = nil
+  if gen2 and verb == "register" then
+    if rec.bgEvents == nil then rec.bgEvents = {} end
+    if rec.generation == nil then rec.generation = 2 end
+    if rec.group == nil then rec.group = 0 end
+    if rec.map == nil then rec.map = 0 end
+    if rec.music == nil then rec.music = 0 end
+    if rec.fishGroup == nil then rec.fishGroup = "FISHGROUP_NONE" end
+    if rec.phoneService == nil then rec.phoneService = true end
+  end
+  return rec
 end
 
 local function valuesEqual(a, b)
@@ -1364,12 +1410,7 @@ function ModWriter.emitMain(project, baseData)
     rec.id = rec.id or tid
     local vanillaTs = type(baseData._vanillaTilesetIds) == "table"
       and baseData._vanillaTilesetIds
-    local verb
-    if vanillaTs then
-      verb = vanillaTs[tid] and "patch" or "register"
-    else
-      verb = emitVerb(raw)
-    end
+    local verb = catalogVerb(raw, tid, vanillaTs)
     local payload = rec
     local skip = false
     if verb == "patch" then
@@ -1842,16 +1883,11 @@ function ModWriter.emitMain(project, baseData)
     rec.id = rec.id or mid
     local vanillaMaps = type(baseData._vanillaMapIds) == "table"
       and baseData._vanillaMapIds
-    local verb
-    if vanillaMaps then
-      verb = vanillaMaps[mid] and "patch" or "register"
-    else
-      -- No ROM snapshot (unit tests / older sessions): patch only explicit clones.
-      verb = (raw and raw._isNew == false) and "patch" or "register"
-    end
+    local verb = catalogVerb(raw, mid, vanillaMaps)
+    rec = shapeMapForEmit(rec, gen2, verb)
     out[#out + 1] = "  do (function()"
     out[#out + 1] = string.format("  mod.content.maps:%s(%q, %s)",
-      verb, mid, emitTableLiteral(rec, 1))
+      verb, mid, rewriteModPaths(emitTableLiteral(rec, 1)))
     out[#out + 1] = "  end)() end"
     out[#out + 1] = ""
     if not gen2 and raw.encounters then

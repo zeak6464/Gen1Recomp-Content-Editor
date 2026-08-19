@@ -655,6 +655,13 @@ local function ensureOwned(S, mapId)
     S._vanillaMapBackup[mapId] = S.data.maps[mapId]
   end
   local copy = deepCloneMap(def)
+  -- Owning a map that is already in Data (mods:load / compile) is not a
+  -- vanilla clone. Keep it as a new id so Save registers instead of MK103.
+  if S._vanillaMapIds and S._vanillaMapIds[mapId] ~= true then
+    copy._isNew = true
+  elseif type(copy.index) == "number" and copy.index >= 1000 then
+    copy._isNew = true
+  end
   if not copy.encounters then
     if Generation.isGen2(S) then
       local root = S.data and (S.data.gen2Encounters or S.data.encounters)

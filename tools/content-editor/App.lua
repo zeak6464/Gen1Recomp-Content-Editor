@@ -151,10 +151,37 @@ end
 local function snapshotVanillaCatalog()
   -- Capture ROM ids before mods:load merges this project's maps into Data.
   -- Save uses this so custom maps (PALLET_CAVE) register instead of MK103-patch.
+  -- Live Data can still hold editor records from a previous compile; drop those.
   local Generation = require("Generation")
   local maps, tilesets = {}, {}
-  for id in pairs(Generation.maps(Data) or {}) do maps[id] = true end
-  for id in pairs(Generation.tilesets(Data) or {}) do tilesets[id] = true end
+  for id, rec in pairs(Generation.maps(Data) or {}) do
+    if type(rec) ~= "table" or rec._isNew == true
+        or (type(rec.index) == "number" and rec.index >= 1000) then
+      -- editor / mod-authored, not a ROM id
+    else
+      maps[id] = true
+    end
+  end
+  for id, rec in pairs(Generation.tilesets(Data) or {}) do
+    if type(rec) ~= "table" or rec._isNew == true or rec._layeredGenerated then
+      -- editor / mod-authored, not a ROM id
+    else
+      tilesets[id] = true
+    end
+  end
+  if S.project then
+    for id, rec in pairs(S.project.maps or {}) do
+      if type(rec) == "table" and (rec._isNew == true
+          or (type(rec.index) == "number" and rec.index >= 1000)) then
+        maps[id] = nil
+      end
+    end
+    for id, rec in pairs(S.project.tilesets or {}) do
+      if type(rec) == "table" and (rec._isNew == true or rec._layeredGenerated) then
+        tilesets[id] = nil
+      end
+    end
+  end
   S._vanillaMapIds = maps
   S._vanillaTilesetIds = tilesets
 end
@@ -596,10 +623,15 @@ function App.save()
   -- Custom maps/tilesets must keep _isNew so Save emits :register (MK103).
   -- Live S.data.maps is polluted with project records after compile.
   local function markNewRecords(bag, vanillaIds)
-    if type(bag) ~= "table" or type(vanillaIds) ~= "table" then return end
+    if type(bag) ~= "table" then return end
     for id, rec in pairs(bag) do
       if type(rec) == "table" then
-        rec._isNew = vanillaIds[id] ~= true
+        if rec._layeredGenerated or rec._isNew == true
+            or (type(rec.index) == "number" and rec.index >= 1000) then
+          rec._isNew = true
+        elseif type(vanillaIds) == "table" then
+          rec._isNew = vanillaIds[id] ~= true
+        end
       end
     end
   end
