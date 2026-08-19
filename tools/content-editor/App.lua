@@ -148,7 +148,19 @@ function App.getState()
   return S
 end
 
+local function snapshotVanillaCatalog()
+  -- Capture ROM ids before mods:load merges this project's maps into Data.
+  -- Save uses this so custom maps (PALLET_CAVE) register instead of MK103-patch.
+  local Generation = require("Generation")
+  local maps, tilesets = {}, {}
+  for id in pairs(Generation.maps(Data) or {}) do maps[id] = true end
+  for id in pairs(Generation.tilesets(Data) or {}) do tilesets[id] = true end
+  S._vanillaMapIds = maps
+  S._vanillaTilesetIds = tilesets
+end
+
 local function refreshModsAndEvents()
+  snapshotVanillaCatalog()
   local ModLoader = require("src.mods.Loader")
   local mods = ModLoader.new()
   mods:load(Data)
@@ -581,6 +593,19 @@ function App.save()
     return false
   end
 
+  -- Custom maps/tilesets must keep _isNew so Save emits :register (MK103).
+  -- Live S.data.maps is polluted with project records after compile.
+  local function markNewRecords(bag, vanillaIds)
+    if type(bag) ~= "table" or type(vanillaIds) ~= "table" then return end
+    for id, rec in pairs(bag) do
+      if type(rec) == "table" then
+        rec._isNew = vanillaIds[id] ~= true
+      end
+    end
+  end
+  markNewRecords(S.project.maps, S._vanillaMapIds)
+  markNewRecords(S.project.tilesets, S._vanillaTilesetIds)
+
   -- Base ROM data so move/item/tileset patches emit diffs + prefer :patch.
   -- Terrain paint aliases project.tilesets into S.data.tilesets, so diff must
   -- compare against the pristine clone in _vanillaTilesetBackup.
@@ -597,6 +622,15 @@ function App.save()
       if tilesets[tid] == nil then tilesets[tid] = rec end
     end
     base.tilesets = tilesets
+  end
+  if S._vanillaMapIds or S._vanillaTilesetIds then
+    if base == S.data then
+      local copy = {}
+      for k, v in pairs(S.data) do copy[k] = v end
+      base = copy
+    end
+    base._vanillaMapIds = S._vanillaMapIds
+    base._vanillaTilesetIds = S._vanillaTilesetIds
   end
   if S.manifestDirty then
     if not Manifest.save(S, App) then return false end

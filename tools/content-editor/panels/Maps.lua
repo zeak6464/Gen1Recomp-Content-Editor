@@ -542,6 +542,9 @@ local function renameMapId(S, map, newId, App)
   S.project.maps[oldId] = nil
   map.id = newId
   S.project.maps[newId] = map
+  if S._vanillaMapIds then
+    map._isNew = S._vanillaMapIds[newId] ~= true
+  end
   -- Keep native layered source and stable warp endpoints aligned with the
   -- public map id used by the generated registry record.
   local okLayered, LayeredMap = pcall(require, "LayeredMap")

@@ -1357,7 +1357,14 @@ function ModWriter.emitMain(project, baseData)
     local raw = project.tilesets[tid]
     local rec = shapeTilesetForEmit(stripEditorFields(raw))
     rec.id = rec.id or tid
-    local verb = emitVerb(raw)
+    local vanillaTs = type(baseData._vanillaTilesetIds) == "table"
+      and baseData._vanillaTilesetIds
+    local verb
+    if vanillaTs then
+      verb = vanillaTs[tid] and "patch" or "register"
+    else
+      verb = emitVerb(raw)
+    end
     local payload = rec
     local skip = false
     if verb == "patch" then
@@ -1828,14 +1835,22 @@ function ModWriter.emitMain(project, baseData)
     rec.encounters = nil
     rec.superRod = nil
     rec.id = rec.id or mid
-    local verb = emitVerb(raw)
+    local vanillaMaps = type(baseData._vanillaMapIds) == "table"
+      and baseData._vanillaMapIds
+    local verb
+    if vanillaMaps then
+      verb = vanillaMaps[mid] and "patch" or "register"
+    else
+      -- No ROM snapshot (unit tests / older sessions): patch only explicit clones.
+      verb = (raw and raw._isNew == false) and "patch" or "register"
+    end
     out[#out + 1] = "  do (function()"
     out[#out + 1] = string.format("  mod.content.maps:%s(%q, %s)",
       verb, mid, emitTableLiteral(rec, 1))
     out[#out + 1] = "  end)() end"
     out[#out + 1] = ""
     if not gen2 and raw.encounters then
-      local everb = emitVerb(raw)
+      local everb = verb
       out[#out + 1] = string.format("  mod.content.encounters:%s(%q, %s)",
         everb, mid, emitTableLiteral(raw.encounters, 1))
       out[#out + 1] = ""
