@@ -1771,7 +1771,49 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   end
   map.width, map.height = width / 2, height / 2
   map.blocks = mapBlocks
-  if map.borderBlock == nil then
+  if type(map._borderTile) == "number" then
+    local wantSrc, wantTile = map._borderSource, map._borderTile
+    local micros
+    for index = 1, width * height do
+      local refs = cellRefs(context, mapSource, index)
+      local ref = refs[#refs]
+      if ref and (tonumber(ref.tile) or 0) == wantTile then
+        local sid = ref.source and (ref.source.id or ref.source)
+        if not wantSrc or sid == wantSrc then
+          micros = cells[index]
+          break
+        end
+      end
+    end
+    if not micros then
+      local srcId = wantSrc or LayeredMap.runtimeSourceId(mapSource.baseTileset)
+      local source = srcId and LayeredMap.sourceDescriptor(S, srcId)
+      if source then
+        local refs = { { source = source, tile = wantTile, opacity = 1 } }
+        micros = {}
+        for micro = 0, 3 do
+          local spec = transformSpec(context, refs, micro, nil, nil, paletteColors)
+          micros[micro + 1] = addTile(spec, "solid")
+        end
+      end
+    end
+    if micros then
+      local block, quad = {}, { 0x07, 0x07, 0x07, 0x07 }
+      for cellY = 0, 1 do
+        for cellX = 0, 1 do
+          for microY = 0, 1 do
+            for microX = 0, 1 do
+              block[(cellY * 2 + microY) * 4
+                + cellX * 2 + microX + 1] = micros[microY * 2 + microX + 1]
+            end
+          end
+        end
+      end
+      map.borderBlock = addBlock(block, quad)
+    elseif map.borderBlock == nil then
+      map.borderBlock = 0
+    end
+  elseif map.borderBlock == nil then
     map.borderBlock = 0
   end
   applyCompiledWarps(map, warpRecords)

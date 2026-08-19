@@ -5221,20 +5221,42 @@ local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
   end
 
   if prow("Border block", function(fx, fy, fw, fh_)
+    local layered = S.project and S.project.layeredMaps
+      and S.project.layeredMaps[map.id]
+    local LM = require("LayeredMap")
     local bid = map.borderBlock or 0
+    local cellTile = map._borderTile
     local thumb = fh_
     local brush = S.paintBlock or 0
-    if S.project and S.project.layeredMaps
-        and S.project.layeredMaps[map.id] then
-      brush = math.floor((tonumber(S.builderTile) or 0) / 4)
+    if layered then
+      brush = tonumber(S.builderTile) or 0
     end
-    drawBlockThumb(S, map.tileset, bid, fx, fy, thumb)
+    if layered and type(cellTile) == "number" then
+      local srcId = map._borderSource
+        or LM.runtimeSourceId(authoredTileset())
+      local desc = LM.sourceDescriptor(S, srcId)
+      if desc then
+        LM.drawSourceTile(S, desc, cellTile, fx, fy, thumb, 1)
+      else
+        drawBlockThumb(S, authoredTileset(), bid, fx, fy, thumb)
+      end
+      bid = cellTile
+    else
+      drawBlockThumb(S, map.tileset, bid, fx, fy, thumb)
+    end
     local fieldX = fx + thumb + 6 * s
     local v = tonumber(field(App, "mp_border", fieldX, fy, 50 * s, fh_,
       tostring(bid), "0")) or 0
     if v ~= bid then
       map = mutate()
-      map.borderBlock = v
+      if layered then
+        map._borderTile = v
+        map._borderSource = map._borderSource
+          or S.builderSourceId
+          or LM.runtimeSourceId(authoredTileset())
+      else
+        map.borderBlock = v
+      end
       MapLoader.invalidate(map.id)
       App.markDirty()
     end
@@ -5242,13 +5264,23 @@ local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
     local btnW = math.max(0, fw - (btnX - fx))
     if btnW >= 56 * s and Kit.button(btnX, fy, btnW, fh_, "Use brush", {
         kind = "accent",
-        tooltip = "Set border to paint block " .. tostring(brush),
+        tooltip = layered
+          and ("Set border to 16x16 tile " .. tostring(brush))
+          or ("Set border to paint block " .. tostring(brush)),
       }) then
       map = mutate()
-      map.borderBlock = brush
+      if layered then
+        map._borderTile = brush
+        map._borderSource = S.builderSourceId
+          or LM.runtimeSourceId(authoredTileset())
+      else
+        map.borderBlock = brush
+      end
       MapLoader.invalidate(map.id)
       App.markDirty()
-      S.status = "Border block → " .. tostring(map.borderBlock)
+      S.status = layered
+        and ("Border 16x16 → " .. tostring(map._borderTile))
+        or ("Border block → " .. tostring(map.borderBlock))
     end
   end) then return py end
 

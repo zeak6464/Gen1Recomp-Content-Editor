@@ -561,7 +561,14 @@ local function drawCanvas(S, source, x, y, w, h, App)
         if cx < 0 or cy < 0
             or cx >= source.cellWidth or cy >= source.cellHeight then
           local tile = borderBlock * 4 + (cy % 2) * 2 + (cx % 2)
-          drawSourceTile(S, borderDesc, tile, cx * CELL, cy * CELL, CELL, 1)
+          local desc = borderDesc
+          if mapRec and type(mapRec._borderTile) == "number" then
+            tile = mapRec._borderTile
+            if mapRec._borderSource then
+              desc = LayeredMap.sourceDescriptor(S, mapRec._borderSource) or desc
+            end
+          end
+          drawSourceTile(S, desc, tile, cx * CELL, cy * CELL, CELL, 1)
         end
       end
     end
@@ -653,11 +660,17 @@ local function drawCanvas(S, source, x, y, w, h, App)
       S.builderSourceId, S.builderTile = ref.source, ref.tile
       S.builderLayer = layerIndex
       if tool == "picker" then S.builderTool = "pencil" end
+      local mapRec = S.project.maps and S.project.maps[source.id]
+      if mapRec then
+        mapRec._borderTile = ref.tile
+        mapRec._borderSource = ref.source
+        App.markDirty()
+      end
       if LayeredMap.isRuntimeSource(ref.source) then
-        S.paintBlock = math.floor((ref.tile or 0) / 4)
         S.mapPaletteTileset = LayeredMap.runtimeTilesetId(ref.source)
       end
-      S.status = "Copied tile — left click to paint"
+      S.status = string.format(
+        "Copied 16x16 tile %s — used as border", tostring(ref.tile))
     end
   end
   S._builderRmbWasDown = rmb and true or false
