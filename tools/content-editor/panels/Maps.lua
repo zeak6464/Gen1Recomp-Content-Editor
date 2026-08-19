@@ -3937,7 +3937,7 @@ local function drawMapPreview(S, mapDef, x, y, w, h, App)
     local camY = S.mapCamY or 0
 
     -- Connected neighbors behind the current map (engine drawMapOnly path).
-    if S.mapShowNeighbors ~= false then
+    if S.mapShowNeighbors then
       for _, nb in ipairs(editorNeighbors(S, mapDef)) do
         prepareLiveMap(S, nb.id, nb.def)
         local nok, nmap = Maps.loadEditorMap(S, nb.id)
@@ -7951,7 +7951,7 @@ function Maps.draw(S, x, y, w, h, App)
       S.mapShowCollision = not S.mapShowCollision
     end
     bx = bx + 98 * s
-    local showNb = S.mapShowNeighbors ~= false
+    local showNb = S.mapShowNeighbors == true
     if Kit.chip(bx, barY + 2 * s, 96 * s, barH - 4 * s, "Neighbors",
         showNb, PAL.blue, nil,
         Generation.isGen2(S)

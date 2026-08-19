@@ -51,7 +51,6 @@ local function beginEditingMap(S, App, mapId)
   S.builderSelections = {}
   S.builderPane = "layers"
   S.mapEditMode = "map"
-  S._builderFitFor = nil
   App.markDirty()
   S.status = "Editable copy created for " .. source.id
   return true
@@ -121,7 +120,7 @@ local function drawNewMapForm(S, x, y, w, App)
       S.builderLayer = 1
       S.builderSourceId = LayeredMap.runtimeSourceId(created.baseTileset)
       S.builderSelections = {}
-      S._builderFitFor = nil
+      S._builderDoFit = true
       App.markDirty()
     end
     if created then

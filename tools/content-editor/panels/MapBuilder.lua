@@ -404,11 +404,15 @@ local function drawWarpNodes(S, source)
   end
 end
 
+local function neighborsEnabled(S)
+  return S.mapShowNeighbors == true
+end
+
 local function neighborExtents(S, source)
   local x0, y0 = 0, 0
   local x1 = source.cellWidth * CELL
   local y1 = source.cellHeight * CELL
-  if S.mapShowNeighbors == false then return x0, y0, x1, y1 end
+  if not neighborsEnabled(S) then return x0, y0, x1, y1 end
   local mapRec = S.project and S.project.maps and S.project.maps[source.id]
   local Maps = require("Maps")
   if not (mapRec and Maps.directNeighbors) then return x0, y0, x1, y1 end
@@ -424,14 +428,14 @@ local function neighborExtents(S, source)
 end
 
 local function fitCanvas(S, source, viewW, viewH)
-  local x0, y0, x1, y1 = neighborExtents(S, source)
-  local mapW, mapH = math.max(1, x1 - x0), math.max(1, y1 - y0)
+  local mapW = math.max(1, source.cellWidth * CELL)
+  local mapH = math.max(1, source.cellHeight * CELL)
   local zoom = math.min(viewW / mapW, viewH / mapH)
   zoom = clamp(zoom, 0.25, 6)
   S.builderZoom = zoom
-  S.builderCamX = x0 + (mapW - viewW / zoom) / 2
-  S.builderCamY = y0 + (mapH - viewH / zoom) / 2
-  S._builderFitFor = source.id .. ":" .. source.cellWidth .. "x" .. source.cellHeight
+  S.builderCamX = (mapW - viewW / zoom) / 2
+  S.builderCamY = (mapH - viewH / zoom) / 2
+  S._builderCamMapId = source.id
 end
 
 local function clampBuilderCam(S, source, viewW, viewH, zoom)
@@ -460,38 +464,44 @@ local function clampBuilderCam(S, source, viewW, viewH, zoom)
   S.builderCamX, S.builderCamY = x, y
 end
 
-local function drawConnectedNeighbors(S, source)
-  if S.mapShowNeighbors == false then return end
+local function drawConnectedNeighbors(S, source, camX, camY, viewW, viewH)
+  if not neighborsEnabled(S) then return end
   local mapRec = S.project and S.project.maps and S.project.maps[source.id]
   local Maps = require("Maps")
   if not (mapRec and Maps.directNeighbors) then return end
-  -- Canvas already applied -cam. Draw each neighbor in local space at its
-  -- world offset (same as World View). Passing the camera into the renderer
-  -- here would translate twice and slide the tiles off the bounds box.
   for _, nb in ipairs(Maps.directNeighbors(S, mapRec)) do
     local nw = math.max(1, tonumber(nb.def.width) or 1) * 32
     local nh = math.max(1, tonumber(nb.def.height) or 1) * 32
-    love.graphics.push()
-    love.graphics.translate(nb.ox, nb.oy)
-    love.graphics.setColor(1, 1, 1, 0.82)
-    local layered = S.project.layeredMaps and S.project.layeredMaps[nb.id]
-    if layered and LayeredMap.previewRenderer then
-      local okR, renderer = pcall(LayeredMap.previewRenderer, S, layered, nb.id)
-      if okR and renderer then
-        renderer:draw(0, 0, nw, nh)
-      end
-    else
-      local ok, loaded = Maps.loadEditorMap(S, nb.id)
-      if ok and loaded and loaded.renderer then
-        local draw = loaded.renderer.drawMapOnly or loaded.renderer.draw
-        if draw then
-          draw(loaded.renderer, 0, 0, nw, nh)
+    if not (nb.ox + nw < camX or nb.oy + nh < camY
+        or nb.ox > camX + viewW or nb.oy > camY + viewH) then
+      local localCamX, localCamY = camX - nb.ox, camY - nb.oy
+      love.graphics.push()
+      love.graphics.translate(nb.ox, nb.oy)
+      -- Undo the renderer's camera translate so tiles stay in local space,
+      -- while still passing the visible rect for cell culling.
+      love.graphics.push()
+      love.graphics.translate(localCamX, localCamY)
+      love.graphics.setColor(1, 1, 1, 0.82)
+      local layered = S.project.layeredMaps and S.project.layeredMaps[nb.id]
+      if layered and LayeredMap.previewRenderer then
+        local okR, renderer = pcall(LayeredMap.previewRenderer, S, layered, nb.id)
+        if okR and renderer then
+          renderer:draw(localCamX, localCamY, viewW, viewH)
+        end
+      else
+        local ok, loaded = Maps.loadEditorMap(S, nb.id)
+        if ok and loaded and loaded.renderer then
+          local draw = loaded.renderer.drawMapOnly or loaded.renderer.draw
+          if draw then
+            draw(loaded.renderer, localCamX, localCamY, viewW, viewH)
+          end
         end
       end
+      love.graphics.pop()
+      love.graphics.setColor(0.27, 0.59, 1, 0.7)
+      love.graphics.rectangle("line", 0.5, 0.5, nw - 1, nh - 1)
+      love.graphics.pop()
     end
-    love.graphics.setColor(0.27, 0.59, 1, 0.7)
-    love.graphics.rectangle("line", 0.5, 0.5, nw - 1, nh - 1)
-    love.graphics.pop()
   end
 end
 
@@ -499,13 +509,17 @@ local function drawCanvas(S, source, x, y, w, h, App)
   local pad = 8 * Kit.scale
   local vx, vy = x + pad, y + pad
   local vw, vh = math.max(1, w - pad * 2), math.max(1, h - pad * 2)
-  local nx0, ny0, nx1, ny1 = neighborExtents(S, source)
-  local fitKey = source.id .. ":" .. source.cellWidth .. "x" .. source.cellHeight
-    .. ":" .. math.floor(nx0) .. "," .. math.floor(ny0)
-    .. "," .. math.floor(nx1) .. "," .. math.floor(ny1)
-  if S._builderFitFor ~= fitKey then fitCanvas(S, source, vw, vh) end
+  if S._builderDoFit or S.builderZoom == nil then
+    S._builderDoFit = nil
+    fitCanvas(S, source, vw, vh)
+  end
   local zoom = clamp(S.builderZoom or 1, 0.25, 8)
   S.builderZoom = zoom
+  if S._builderCamMapId ~= source.id then
+    S._builderCamMapId = source.id
+    S.builderCamX = (source.cellWidth * CELL - vw / zoom) / 2
+    S.builderCamY = (source.cellHeight * CELL - vh / zoom) / 2
+  end
   clampBuilderCam(S, source, vw, vh, zoom)
 
   love.graphics.setScissor(math.floor(vx), math.floor(vy),
@@ -553,7 +567,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
     end
   end
 
-  drawConnectedNeighbors(S, source)
+  drawConnectedNeighbors(S, source, camX, camY, viewW, viewH)
 
   for cy = y0, y1 do
     for cx = x0, x1 do
@@ -876,7 +890,7 @@ local function drawNewMapForm(S, x, y, w, App)
     S.builderLayer = 1
     S.builderSourceId = LayeredMap.runtimeSourceId(source.baseTileset)
     S.builderSelections = {}
-    S._builderFitFor = nil
+    S._builderDoFit = true
     App.markDirty()
     S.status = "Created custom map " .. source.id
   end
@@ -921,7 +935,6 @@ local function drawMapList(S, x, y, w, h, App)
       if not layered then S.builderPane = "details" end
       S.builderLayer = 1
       S.builderSelections = {}
-      S._builderFitFor = nil
       local src = S.project.layeredMaps[id]
       if src and src.baseTileset then
         S.builderSourceId = LayeredMap.runtimeSourceId(src.baseTileset)
@@ -1226,29 +1239,36 @@ local function drawToolbar(S, source, x, y, w, App)
     end
   end
   local viewY = stackedHeader and y + 32 * s or y
-  local zx = stackedHeader and x or x + w - 184 * s
-  if not stackedHeader and zx > x + 280 * s then
-    if Kit.chip(zx - 132 * s, y, 52 * s, 26 * s, "Grid",
+  local zx = stackedHeader and x or x + w - 276 * s
+  if Kit.chip(zx, viewY, 88 * s, 26 * s, "Neighbors",
+      neighborsEnabled(S), PAL.blue, PAL.steel,
+      "Show directly connected maps around this one") then
+    S.mapShowNeighbors = not neighborsEnabled(S)
+  end
+  if not stackedHeader and zx > x + 220 * s then
+    if Kit.chip(zx - 128 * s, y, 52 * s, 26 * s, "Grid",
         S.mapShowGrid ~= false, PAL.steel) then
       S.mapShowGrid = S.mapShowGrid == false and true or false
     end
-    if Kit.chip(zx - 76 * s, y, 72 * s, 26 * s, "Passage",
+    if Kit.chip(zx - 72 * s, y, 68 * s, 26 * s, "Passage",
         S.mapShowCollision == true, PAL.red, PAL.steel,
         "Show collision without changing tools") then
       S.mapShowCollision = not S.mapShowCollision
     end
   end
-  if Kit.stepper(zx, viewY, 26 * s, 26 * s, "-") then
+  local zc = zx + 92 * s
+  if Kit.stepper(zc, viewY, 26 * s, 26 * s, "-") then
     S.builderZoom = clamp((S.builderZoom or 1) - 0.25, 0.25, 8)
   end
   Kit.textCenter("mono", string.format("%.2fx", S.builderZoom or 1),
-    zx + 28 * s, viewY + 6 * s, 52 * s, PAL.muted)
-  if Kit.stepper(zx + 82 * s, viewY, 26 * s, 26 * s, "+") then
+    zc + 28 * s, viewY + 6 * s, 52 * s, PAL.muted)
+  if Kit.stepper(zc + 82 * s, viewY, 26 * s, 26 * s, "+") then
     S.builderZoom = clamp((S.builderZoom or 1) + 0.25, 0.25, 8)
   end
-  if Kit.button(zx + 112 * s, viewY, 68 * s, 26 * s,
-      "Fit", { kind = "ghost", tooltip = "Fit the whole map in the canvas" }) then
-    S._builderFitFor = nil
+  if Kit.button(zc + 112 * s, viewY, 68 * s, 26 * s,
+      "Fit", { kind = "ghost",
+        tooltip = "Fit this map in the canvas" }) then
+    S._builderDoFit = true
   end
 
   local allTools = workspace and S.mapEditMode == "events" and EVENT_TOOLS or TOOLS
@@ -1883,7 +1903,6 @@ local function drawProperties(S, source, x, y, w, h, App)
       local ok, result = LayeredMap.resizeMap(
         S.project, source.id, newWidth, newHeight)
       if ok then
-        S._builderFitFor = nil
         S.builderSelections = {}
         App.markDirty()
         App.endEditBatch()
