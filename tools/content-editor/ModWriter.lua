@@ -211,6 +211,11 @@ local function rewriteModPaths(lit)
   -- Rewrite nested path arrays too (for example animatedTiles.images).
   lit = lit:gsub('"(assets/[^"]+)"', rewrite)
   lit = lit:gsub('"(tilesets/[^"]+)"', rewrite)
+  lit = lit:gsub('"(mapbuilder/[^"]+)"', rewrite)
+  -- Editor preview stores atlases under save/mod-derived; ship the transform path.
+  lit = lit:gsub('"save/mod%-derived/[^"]-/(mapbuilder/[^"]+)"', function(rel)
+    return 'mod.path .. "/' .. rel .. '"'
+  end)
   return lit
 end
 
