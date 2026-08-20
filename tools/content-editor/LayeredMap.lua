@@ -1093,7 +1093,17 @@ local function sampleTransformLayer(layer, baseImages, pixelsById, x, y)
     if not rb then return 0, 0, 0, 0 end
     r, g, b, a = rb / 255, gb / 255, bb / 255, (ab or 0) / 255
   end
-  if layer.palette and a > 0 then
+  -- GBC sheets store color 0 as transparent in the PNG. The editor shader
+  -- still paints that as palette[1]. Skipping it here punches holes in the
+  -- trueColor atlas, and Gold's world canvas is white behind them.
+  if layer.palette then
+    if a <= 0 then
+      if not layer.base then
+        return 0, 0, 0, a * (layer.opacity or 1)
+      end
+      a = 1
+      r, g, b = 1, 1, 1
+    end
     local light = (r + g + b) / 3
     local color = light > 0.83 and layer.palette[1]
       or light > 0.5 and layer.palette[2]
@@ -1376,7 +1386,14 @@ local function emitTransform(context)
     "    local rb, gb, bb, ab = string.byte(raw, offset, offset + 3)",
     "    r, g, b, a = rb / 255, gb / 255, bb / 255, ab / 255",
     "  end",
-    "  if layer.palette and a > 0 then",
+    "  if layer.palette then",
+    "    if a <= 0 then",
+    "      if not layer.base then",
+    "        return 0, 0, 0, a * (layer.opacity or 1)",
+    "      end",
+    "      a = 1",
+    "      r, g, b = 1, 1, 1",
+    "    end",
     "    local light = (r + g + b) / 3",
     "    local color = light > 0.83 and layer.palette[1]",
     "      or light > 0.5 and layer.palette[2]",
@@ -1660,6 +1677,36 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   if #tiles == 0 then
     addTile({}, "solid")
   end
+  -- Gold's void is tileset block 0 when map.borderBlock is 0. Pack that
+  -- 32x32 before the atlas is written, using the same wall the editor
+  -- previews (base-tileset metatile, or an explicit 16x16), not sixteen
+  -- copies of whatever 8x8 happened to be packed first.
+  local borderGraphic = nil
+  do
+    local srcId = (map._borderExplicit and map._borderSource)
+      or LayeredMap.runtimeSourceId(mapSource.baseTileset)
+    local source = srcId and LayeredMap.sourceDescriptor(S, srcId)
+    if source then
+      local metatile = map.borderBlock or 0
+      local graphic = {}
+      for q = 0, 3 do
+        local cellTile = metatile * 4 + q
+        if map._borderExplicit and type(map._borderTile) == "number" then
+          cellTile = map._borderTile
+        end
+        local refs = { { source = source, tile = cellTile, opacity = 1 } }
+        local cellY, cellX = math.floor(q / 2), q % 2
+        for micro = 0, 3 do
+          local spec = transformSpec(
+            context, refs, micro, nil, nil, paletteColors)
+          local microY, microX = math.floor(micro / 2), micro % 2
+          graphic[(cellY * 2 + microY) * 4 + cellX * 2 + microX + 1]
+            = addTile(spec, "solid")
+        end
+      end
+      borderGraphic = graphic
+    end
+  end
   local atlasWidth = 128
   local atlasHeight = math.max(8, math.ceil(#tiles / 16) * 8)
   local atlasPlacements = {}
@@ -1678,8 +1725,10 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   local atlasRel = derivedAssetPath(project, atlasTransformRel)
 
   local blocks, blockIds, collisionQuads = {}, {}, {}
-  -- Gold treats block id 0 as an impassable sentinel (Map:cellCollision).
-  blocks[1] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+  -- Gold treats block id 0 as "use the map border" (Map:cellCollision /
+  -- LoadMetatiles). The 16 8x8s here are that border graphic.
+  blocks[1] = borderGraphic
+    or { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
   collisionQuads[1] = { 0xff, 0xff, 0xff, 0xff }
   local COLL = {
     solid = 0x07, walk = 0x00, grass = 0x18, water = 0x21, shore = 0x23,
@@ -1768,50 +1817,21 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   end
   map.width, map.height = width / 2, height / 2
   map.blocks = mapBlocks
-  if map._borderExplicit and type(map._borderTile) == "number" then
-    local wantSrc, wantTile = map._borderSource, map._borderTile
-    local micros
-    for index = 1, width * height do
-      local refs = cellRefs(context, mapSource, index)
-      local ref = refs[#refs]
-      if ref and (tonumber(ref.tile) or 0) == wantTile then
-        local sid = ref.source and (ref.source.id or ref.source)
-        if not wantSrc or sid == wantSrc then
-          micros = cells[index]
-          break
-        end
+  -- Layered block 0 is the void graphic; Gold reads that when borderBlock is 0.
+  map.borderBlock = 0
+  -- Bedroom MAPCALLBACK_TILES paints the feathery bed / town-map poster with
+  -- vanilla TILESET_PLAYERS_ROOM block ids (0x1b, 0x1f). Those ids do not
+  -- exist on a generated atlas, so Gold leaves those 32x32s as the canvas
+  -- clear colour (white holes). The painted blocks are the map now.
+  if type(map.callbacks) == "table" then
+    local kept = {}
+    for i = 1, #map.callbacks do
+      local cb = map.callbacks[i]
+      if not (type(cb) == "table" and cb.callback == "MAPCALLBACK_TILES") then
+        kept[#kept + 1] = cb
       end
     end
-    if not micros then
-      local srcId = wantSrc or LayeredMap.runtimeSourceId(mapSource.baseTileset)
-      local source = srcId and LayeredMap.sourceDescriptor(S, srcId)
-      if source then
-        local refs = { { source = source, tile = wantTile, opacity = 1 } }
-        micros = {}
-        for micro = 0, 3 do
-          local spec = transformSpec(context, refs, micro, nil, nil, paletteColors)
-          micros[micro + 1] = addTile(spec, "solid")
-        end
-      end
-    end
-    if micros then
-      local block, quad = {}, { 0x07, 0x07, 0x07, 0x07 }
-      for cellY = 0, 1 do
-        for cellX = 0, 1 do
-          for microY = 0, 1 do
-            for microX = 0, 1 do
-              block[(cellY * 2 + microY) * 4
-                + cellX * 2 + microX + 1] = micros[microY * 2 + microX + 1]
-            end
-          end
-        end
-      end
-      map.borderBlock = addBlock(block, quad)
-    elseif map.borderBlock == nil then
-      map.borderBlock = 0
-    end
-  elseif map.borderBlock == nil then
-    map.borderBlock = 0
+    map.callbacks = kept
   end
   applyCompiledWarps(map, warpRecords)
   -- Carry this on both records.  The tileset flag is the canonical link, but
