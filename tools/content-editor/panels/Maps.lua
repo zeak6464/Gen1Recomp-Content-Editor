@@ -1708,10 +1708,11 @@ end
 
 -- nil / colors table / SGB name for Preview.draw.
 -- Gen2: PAL_OW_* colors. Gen1: paletteSource or MEWMON.
-local function spritePreviewPal(S, def)
+local function spritePreviewPal(S, def, objectDef)
   if not def or def.trueColor then return nil end
   if Generation.isGen2(S) then
-    return Preview.gen2ObjectPalette(S, def.palette or def.paletteId)
+    return Preview.gen2ObjectPalette(S,
+      Preview.gen2ObjectPaletteRef(def, objectDef))
   end
   local src = def.paletteSource
   if type(src) == "string" and src ~= "" and Preview.paletteColors(S, src) then
@@ -1969,11 +1970,12 @@ local function mapPaletteName(S, mapDef)
   return Preview.mapPaletteName(S, mapDef or resolveMapDef(S, S.mapId))
 end
 
--- TrueColor: map flag or the tileset's own trueColor (GFX / stock engine).
+-- TrueColor belongs to the tileset. The pinned runtime's TileRenderer reads
+-- map.tileset.trueColor; a map.trueColor editor flag would preview correctly
+-- here but be ignored in playtest.
 local function mapUsesTrueColor(S, mapDef)
   mapDef = mapDef or resolveMapDef(S, S.mapId)
   if not mapDef then return false end
-  if mapDef.trueColor then return true end
   local ts = tilesetDef(S, mapDef.tileset)
   return ts and ts.trueColor and true or false
 end
@@ -2032,17 +2034,13 @@ local function invalidateMapPreview(S)
   Preview.invalidate()
 end
 
--- Maps TrueColor is per-map (`map.trueColor`). TileRenderer prefers that flag
--- over the tileset sheet, so we must NOT fork via ensureTerrainTileset here —
--- that created orphan MAP_TILESET copies and left the map pointing at a new
--- blank-looking slot. Edit the shared tileset's TrueColor on the GFX tab.
-local function syncTilesetTrueColor(S, map, on)
+-- Persist a patch for the actual tileset id. This deliberately does not clone
+-- or reassign the map: users who want map-local terrain first create/select a
+-- map-local tileset slot, then this same toggle applies to that slot.
+local function syncTilesetTrueColor(S, map, on, App)
   if not map then return end
-  -- If this map already owns a project tileset slot (same id — GFX-style
-  -- patch, or a prior map-local fork), keep the flag in sync for preview.
-  -- Never clone / reassign map.tileset from this toggle.
   local tid = map.tileset or ""
-  local ts = S.project.tilesets and S.project.tilesets[tid]
+  local ts = ensureOwnedTileset(S, tid, App)
   if ts then
     ts.trueColor = on and true or nil
     S._liveTilesets = nil
@@ -3657,15 +3655,23 @@ local function drawObjectSprites(S, mapDef)
   for i, obj in ipairs(mapDef.objects or {}) do
     if not obj.hidden then
       local sr = getSpriteRenderer(S, obj.sprite)
+      local def = spriteDef(S, obj.sprite)
       local px, py = (obj.x or 0) * CELL, (obj.y or 0) * CELL
       if sr then
+        -- Gold assigns an OBJ palette per map object. Cached preview renderers
+        -- are shared by sprite id, so refresh this before every draw instead
+        -- of allowing the previous object on the map to leak into this one.
+        if Generation.isGen2(S) and sr.setObjPalette and def then
+          local ref = Preview.gen2ObjectPaletteRef(def, obj)
+          local colors = Preview.gen2ObjectPalette(S, ref)
+          if colors then sr:setObjPalette(colors, "editor:" .. tostring(ref)) end
+        end
         local ok = pcall(sr.draw, sr, px, py, camX, camY,
           facingFromRange(obj.range), 0, false)
         if not ok then
-          local def = spriteDef(S, obj.sprite)
           if def and def.image then
             Preview.draw(S, def.image, px - camX, py - camY - 4, CELL, CELL,
-              spritePreviewPal(S, def))
+              spritePreviewPal(S, def, obj))
           end
         end
       else
@@ -5382,28 +5388,29 @@ local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
       py = py + 14 * s
     end
   else
-  if prow("TrueColor", function(fx, fy, fw, fh_)
+  if prow("Map tiles TrueColor", function(fx, fy, fw, fh_)
     local on = mapUsesTrueColor(S, map)
     if Kit.chip(fx, fy, 80 * s, fh_, on and "YES" or "NO", on, PAL.yellow,
-        nil, "Per-map only — does not fork or replace the tileset id") then
+        nil, "Terrain only; affects every map using this tileset slot") then
       map = mutate()
       local newOn = not on
-      -- Per-map flag (stock TileRenderer). Keeps OVERWORLD / CAVERN linked.
-      map.trueColor = newOn and true or nil
-      syncTilesetTrueColor(S, map, newOn)
+      -- Remove the legacy editor-only field. Runtime behavior is driven by
+      -- the persisted tileset patch created below.
+      map.trueColor = nil
+      syncTilesetTrueColor(S, map, newOn, App)
       invalidateMapPreview(S)
       App.markDirty()
       S.status = newOn
-        and ("TrueColor ON for this map — tileset stays "
+        and ("TrueColor ON for terrain using tileset "
           .. tostring(map.tileset or "?"))
-        or "TrueColor OFF — palette remap"
+        or "Tileset TrueColor OFF — terrain palette remap"
     end
   end) then return py end
   do
     local on = mapUsesTrueColor(S, map)
     Kit.text("micro",
-      on and "this map only — raw PNG (palette ignored); tileset id unchanged"
-        or "OFF = remap via map palette · GFX tab edits shared tileset TrueColor",
+      on and "terrain only · shared tileset slot · characters stay independent"
+        or "OFF = remap terrain via map palette · characters stay independent",
       px + 10 * s, py, PAL.faint)
     py = py + 14 * s
   end
@@ -5953,6 +5960,55 @@ local function assignObjectSprite(S, map, mutate, App, objIndex, id)
   return map
 end
 
+-- Gold's object palette byte can select an OBJ palette but has no TrueColor
+-- bit. Materialize that UI choice as an object-specific sprite definition so
+-- the pinned runtime, validator and preview all observe the same result.
+function Maps.enableObjectTrueColor(S, map, objIndex)
+  local obj = map and map.objects and map.objects[objIndex]
+  if not obj then return nil end
+  local sourceRef = obj.sprite
+  local sourceId = resolveObjectSpriteId(S, sourceRef)
+  local source = spriteDef(S, sourceRef)
+  if type(source) ~= "table" or not sourceId then return nil end
+
+  State.ensureProjectFields(S.project)
+  S.project.sprites = S.project.sprites or {}
+  local mapId = tostring((map and map.id) or S.mapId or "MAP")
+    :upper():gsub("%W+", "_")
+  local id = string.format("SPRITE_%s_OBJ_%d_TRUECOLOR", mapId, objIndex or 1)
+  local copy = {}
+  for key, value in pairs(source) do copy[key] = value end
+  copy.id = id
+  copy.trueColor = true
+  copy._isNew = true
+  copy._objectTrueColorSource = sourceRef
+  S.project.sprites[id] = copy
+  if S.data and S.data.sprites then S.data.sprites[id] = copy end
+  obj.sprite = id
+  obj.palette = nil
+  spriteCache[id] = nil
+  SpriteUtil.invalidateIdCache(S)
+  return id
+end
+
+function Maps.disableObjectTrueColor(S, map, objIndex)
+  local obj = map and map.objects and map.objects[objIndex]
+  local currentId = obj and resolveObjectSpriteId(S, obj.sprite)
+  local rec = currentId and S.project and S.project.sprites
+    and S.project.sprites[currentId]
+  if not (obj and rec and rec._objectTrueColorSource ~= nil) then return false end
+  local sourceRef = rec._objectTrueColorSource
+  obj.sprite = sourceRef
+  obj.palette = nil
+  S.project.sprites[currentId] = nil
+  if S.data and S.data.sprites and S.data.sprites[currentId] == rec then
+    S.data.sprites[currentId] = nil
+  end
+  spriteCache[currentId] = nil
+  SpriteUtil.invalidateIdCache(S)
+  return true
+end
+
 local function createCustomSprite(S, App, map, mutate, objIndex, withBrowse)
   local nid = SpriteUtil.createNew(S)
   if not nid then return map end
@@ -6055,7 +6111,7 @@ local function drawObjects(S, map, mutate, App, px, py, propW, listBottom, fh, s
   if py + 56 * s < listBottom then
     if def and def.image then
       Preview.draw(S, def.image, px + 10 * s, py, 48 * s, 48 * s,
-        spritePreviewPal(S, def))
+        spritePreviewPal(S, def, obj))
     else
       Theme.col(PAL.rowBg, 1)
       love.graphics.rectangle("fill", px + 10 * s, py, 48 * s, 48 * s, 6 * s, 6 * s)
@@ -6074,7 +6130,8 @@ local function drawObjects(S, map, mutate, App, px, py, propW, listBottom, fh, s
   -- Inline edit for project-owned (custom) sprites
   if SpriteUtil.isOwned(S, obj.sprite) and py + fh * 4 <= listBottom then
     local rec = S.project.sprites[obj.sprite]
-    Kit.text("micro", "Custom sprite", px + 10 * s, py, PAL.caption)
+    Kit.text("micro", "Sprite artwork (shared by every map)",
+      px + 10 * s, py, PAL.caption)
     py = py + 14 * s
     Kit.text("micro", Kit.ellipsize("micro", tostring(rec.image or ""), propW - 120 * s),
       px + 10 * s, py + 8 * s, PAL.muted)
@@ -6117,11 +6174,11 @@ local function drawObjects(S, map, mutate, App, px, py, propW, listBottom, fh, s
       App.markDirty()
     end
     py = py + fh + 6 * s
-    Kit.text("micro", "TrueColor", px + 10 * s, py + 6 * s, PAL.caption)
+    Kit.text("micro", "Sprite TrueColor", px + 10 * s, py + 6 * s, PAL.caption)
     do
       local on = rec.trueColor and true or false
       if Kit.chip(px + 90 * s, py, 80 * s, fh, on and "YES" or "NO", on, PAL.yellow,
-          nil, "YES = raw PNG colors (skip SGB palette remap)") then
+          nil, "All maps: raw sprite PNG colors; terrain setting is separate") then
         rec.trueColor = (not on) or nil
         if not rec.trueColor then rec.trueColor = nil end
         spriteCache[obj.sprite] = nil
@@ -6197,7 +6254,7 @@ local function drawObjects(S, map, mutate, App, px, py, propW, listBottom, fh, s
         local sdef = spriteDef(S, id)
         if sdef and sdef.image then
           Preview.draw(S, sdef.image, bx, py, thumb, thumb,
-            spritePreviewPal(S, sdef))
+            spritePreviewPal(S, sdef, obj))
         else
           Theme.col(PAL.rowBg, 1)
           love.graphics.rectangle("fill", bx, py, thumb, thumb, 3, 3)
@@ -6351,15 +6408,48 @@ local function drawObjects(S, map, mutate, App, px, py, propW, listBottom, fh, s
         tostring(cur), "0")) or 0
       if v ~= cur then map = mutate(); map.objects[i].eventFlag = v end
     end)
-    row("Type / palette", function(fx, fy, fw, fh_)
-      local t = tonumber(field(App, "ob_typ", fx, fy, 50 * s, fh_,
-        tostring(obj.type or 0), "0")) or 0
-      local p = tonumber(field(App, "ob_pal", fx + 60 * s, fy, 50 * s, fh_,
-        tostring(obj.palette or 0), "0")) or 0
-      if t ~= (obj.type or 0) or p ~= (obj.palette or 0) then
-        map = mutate(); map.objects[i].type = t; map.objects[i].palette = p
+    row("Object type", function(fx, fy, fw, fh_)
+      local cur = tonumber(obj.type) or 0
+      local value = tonumber(field(App, "ob_typ", fx, fy, 70 * s, fh_,
+        tostring(cur), "0")) or 0
+      if value ~= cur then map = mutate(); map.objects[i].type = value end
+    end)
+    row("NPC palette on this map", function(fx, fy, fw, fh_)
+      local names = SpriteUtil.OW_PALETTES
+      local raw = tonumber(obj.palette) or 0
+      local liveDef = spriteDef(S, obj.sprite)
+      local localTrueColor = liveDef and liveDef.trueColor
+        and liveDef._objectTrueColorSource ~= nil
+      local override = raw ~= 0
+      local slot = override and (raw % 8) or nil
+      local label = localTrueColor and "TRUE COLOR"
+        or (override and names[(slot or 0) + 1]:gsub("PAL_OW_", ""))
+        or ((liveDef and liveDef.trueColor) and "TRUE COLOR (SPRITE)" or "DEFAULT")
+      if Kit.button(fx, fy, math.min(fw, 150 * s), fh_, label, {
+          kind = (override or (liveDef and liveDef.trueColor)) and "accent" or "ghost",
+          tooltip = "DEFAULT, eight Gold OBJ palettes, then object-only TrueColor",
+        }) then
+        map = mutate()
+        obj = map.objects[i]
+        if localTrueColor then
+          Maps.disableObjectTrueColor(S, map, i)
+        elseif liveDef and liveDef.trueColor then
+          S.status = "This sprite is already TrueColor on every map — edit it in GFX"
+        elseif not override then
+          map.objects[i].palette = 8 -- PAL_NPC_RED; marker bit + slot 0
+        elseif slot >= 7 then
+          Maps.enableObjectTrueColor(S, map, i)
+        else
+          map.objects[i].palette = 8 + slot + 1
+        end
+        spriteCache[resolveObjectSpriteId(S, obj.sprite) or obj.sprite] = nil
+        Preview.invalidate()
+        App.markDirty()
       end
     end)
+    Kit.text("micro", "Per object · palettes or TRUE COLOR · DEFAULT follows sprite",
+      px + 10 * s, py, PAL.faint)
+    py = py + 14 * s
   else
   row("Movement", function(fx, fy, fw, fh_)
     if Kit.button(fx, fy, fw, fh_, tostring(obj.movement or "STAY"), { kind = "ghost" }) then

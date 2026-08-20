@@ -390,6 +390,20 @@ local OW_PALETTE_ID = {
   PAL_OW_PINK = 5, PAL_OW_EMOTE = 6, PAL_OW_TREE = 7, PAL_OW_ROCK = 8,
 }
 
+-- Resolve the palette selector exactly as Gold's MapObjectPals path does:
+-- a non-zero object_event palette overrides the sprite sheet's default.
+-- Object constants retain their PAL_NPC_* marker bit, so modulo 8 selects
+-- the corresponding PAL_OW_* row (PAL_NPC_RED = 8 -> row 0).
+function Preview.gen2ObjectPaletteRef(spriteDef, objectDef)
+  local objectPalette = objectDef and tonumber(objectDef.palette)
+  if objectPalette and objectPalette ~= 0 then return objectPalette % 8 end
+  if type(spriteDef) ~= "table" then return nil end
+  if tonumber(spriteDef.paletteId) ~= nil then
+    return math.max(0, math.min(7, math.floor(tonumber(spriteDef.paletteId))))
+  end
+  return spriteDef.palette
+end
+
 function Preview.gen2ObjectPalette(S, paletteNameOrId)
   local pals = S and S.data and (S.data.palettes or S.data.gen2Palettes)
   local set = pals and pals.objects and pals.objects.DAY
@@ -788,13 +802,26 @@ function Preview.pushPaletteShader(S, nameOrColors)
   end
   local sh = PaletteFX.shader()
   if not sh then return false end
+  local previous = love.graphics.getShader and love.graphics.getShader() or nil
   PaletteFX.sendColors(sh, colors)
   love.graphics.setShader(sh)
-  return true
+  return { previous = previous }
 end
 
-function Preview.popPaletteShader(pushed)
-  if pushed then love.graphics.setShader() end
+-- Temporarily opt true-color art out of an enclosing palette pass. This is
+-- deliberately symmetrical with pushPaletteShader: map previews draw NPCs
+-- inside a terrain shader, so clearing without restoring makes the first raw
+-- sprite turn off coloring for the remainder of the map.
+function Preview.pushUnshaded()
+  if not (love and love.graphics and love.graphics.setShader) then return false end
+  local previous = love.graphics.getShader and love.graphics.getShader() or nil
+  if not previous then return false end
+  love.graphics.setShader()
+  return { previous = previous }
+end
+
+function Preview.popPaletteShader(scope)
+  if scope then love.graphics.setShader(scope.previous) end
 end
 
 local function loadImageData(S, path)
@@ -889,10 +916,8 @@ function Preview.draw(S, path, x, y, maxW, maxH, paletteNameOrColors)
       img = Preview.imageWithPalette(S, path, paletteNameOrColors) or img
     end
   else
-    -- Clear a leaked zone shader so raw trueColor pixels are not remapped.
-    if love and love.graphics and love.graphics.setShader then
-      love.graphics.setShader()
-    end
+    -- Raw art opts out of an enclosing map/zone shader for this draw only.
+    shaded = Preview.pushUnshaded()
   end
 
   if not img then

@@ -65,6 +65,7 @@ jobs:
           lua tests/content-editor/test_mapbuilder_manifest.lua
           lua tests/content-editor/test_tileset_export.lua
           lua tests/content-editor/test_world_palette_overrides.lua
+          lua tests/content-editor/test_preview_shader_stack.lua
 
   linux-package:
     runs-on: ubuntu-latest

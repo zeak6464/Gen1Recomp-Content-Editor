@@ -348,6 +348,25 @@ Warp endpoints and links live only in **Doors & exits**. **Map setup** retains
 connections, which describe neighboring-map seams rather than coordinate
 transfer events.
 
+### Terrain and character colors
+
+Terrain and overworld characters have independent color settings:
+
+- **Map tiles TrueColor** belongs to the active tileset. It affects every map
+  that uses that tileset slot. Create a map-local tileset slot first when only
+  one map should use the raw PNG colors.
+- **Sprite TrueColor** and the sprite palette belong to the sprite definition
+  and follow that character everywhere it is used.
+- On Gold, **NPC palette on this map** is a native per-object override. Choose
+  `DEFAULT` to follow the sprite definition, or choose a named OBJ palette for
+  only that NPC placement. `TRUE COLOR` creates an object-specific sprite
+  definition because Gold's native object byte contains palette slots but no
+  TrueColor bit; selecting `DEFAULT` again removes that generated definition.
+
+The editor preview uses the same precedence as the pinned runtime: a Gold map
+object override wins over its sprite default, while TrueColor art bypasses the
+palette shader only for that individual terrain or sprite draw.
+
 ### Optional Pokemonium / Pokenet TMX import
 
 ```sh
