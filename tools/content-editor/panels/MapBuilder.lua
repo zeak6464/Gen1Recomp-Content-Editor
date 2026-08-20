@@ -89,17 +89,111 @@ local function brushRef(S)
   return { source = S.builderSourceId, tile = S.builderTile or 0 }
 end
 
+local function stampCells(S)
+  local stamp = S.builderStamp
+  if type(stamp) == "table" and type(stamp.cells) == "table" and stamp.cells[1] then
+    return stamp.cells, stamp.source or S.builderSourceId
+  end
+  if not S.builderSourceId then return nil end
+  return { { dx = 0, dy = 0, tile = S.builderTile or 0 } }, S.builderSourceId
+end
+
+local function setStamp(S, sourceId, cells)
+  S.builderSourceId = sourceId
+  S.builderStamp = { source = sourceId, cells = cells }
+  S.builderTile = cells[1] and cells[1].tile or 0
+  S.builderTool = "pencil"
+end
+
+local function clearStamp(S)
+  S.builderStamp = nil
+end
+
+local function sheetAssemblyCells(descriptor, tile0, tile1)
+  local cols = math.max(1, descriptor.columns or 1)
+  local count = math.max(0, descriptor.count or 0)
+  local function xy(tile)
+    tile = clamp(tile, 0, math.max(0, count - 1))
+    return tile % cols, math.floor(tile / cols)
+  end
+  local x0, y0 = xy(tile0)
+  local x1, y1 = xy(tile1)
+  if x0 > x1 then x0, x1 = x1, x0 end
+  if y0 > y1 then y0, y1 = y1, y0 end
+  local cells = {}
+  for y = y0, y1 do
+    for x = x0, x1 do
+      local tile = y * cols + x
+      if tile < count then
+        cells[#cells + 1] = { dx = x - x0, dy = y - y0, tile = tile }
+      end
+    end
+  end
+  return cells
+end
+
+local function runtimeAssemblyCells(block0, block1, columns, blockCount)
+  columns = math.max(1, columns)
+  blockCount = math.max(0, blockCount or 0)
+  local function xy(block)
+    block = clamp(block, 0, math.max(0, blockCount - 1))
+    return block % columns, math.floor(block / columns)
+  end
+  local x0, y0 = xy(block0)
+  local x1, y1 = xy(block1)
+  if x0 > x1 then x0, x1 = x1, x0 end
+  if y0 > y1 then y0, y1 = y1, y0 end
+  local cells = {}
+  for gy = y0, y1 do
+    for gx = x0, x1 do
+      local blockId = gy * columns + gx
+      if blockId < blockCount then
+        local ox, oy = (gx - x0) * 2, (gy - y0) * 2
+        for dy = 0, 1 do
+          for dx = 0, 1 do
+            cells[#cells + 1] = {
+              dx = ox + dx, dy = oy + dy,
+              tile = blockId * 4 + dy * 2 + dx,
+            }
+          end
+        end
+      end
+    end
+  end
+  return cells
+end
+
 -- Editing primitives
 
-local function paintCell(S, source, x, y, App, erase, deferDirty)
+local function paintCell(S, source, x, y, App, erase, deferDirty, single)
   local layer, layerIndex = activeLayer(S, source)
   if not layer then return false end
-  local before = LayeredMap.getCell(source, layerIndex, x, y)
-  local after = erase and nil or brushRef(S)
-  if refEqual(before, after) then return false end
-  LayeredMap.setCell(source, layerIndex, x, y, after)
-  if not deferDirty then App.markDirty() end
-  return true
+  if erase or single or not S.builderStamp then
+    local before = LayeredMap.getCell(source, layerIndex, x, y)
+    local after = erase and nil or brushRef(S)
+    if refEqual(before, after) then return false end
+    LayeredMap.setCell(source, layerIndex, x, y, after)
+    if not deferDirty then App.markDirty() end
+    return true
+  end
+  local cells, srcId = stampCells(S)
+  if not (cells and srcId) then return false end
+  local changed = false
+  for i = 1, #cells do
+    local cell = cells[i]
+    local px, py = x + cell.dx, y + cell.dy
+    if px >= 0 and py >= 0
+        and px < source.cellWidth and py < source.cellHeight then
+      local after = { source = srcId, tile = cell.tile }
+      local before = LayeredMap.getCell(source, layerIndex, px, py)
+      if not refEqual(before, after) then
+        LayeredMap.setCell(source, layerIndex, px, py, after)
+        changed = true
+      end
+    end
+  end
+  if changed and not deferDirty then App.markDirty() end
+  return changed
 end
 
 local function paintCollisionCell(S, source, x, y)
@@ -177,7 +271,7 @@ local function applyRectangle(S, source, rect, App, erase)
   local changed = false
   for y = y0, y1 do
     for x = x0, x1 do
-      changed = paintCell(S, source, x, y, App, erase) or changed
+      changed = paintCell(S, source, x, y, App, erase, false, true) or changed
     end
   end
   return changed
@@ -392,6 +486,26 @@ local function drawSelections(S, source)
   end
 end
 
+local function drawGhostPen(S, cx, cy)
+  local tool = S.builderTool or "pencil"
+  if tool ~= "pencil" then return end
+  local cells, srcId = stampCells(S)
+  if not (cells and srcId) then return end
+  local desc = LayeredMap.sourceDescriptor(S, srcId)
+  if not desc then return end
+  local w, h = 1, 1
+  for i = 1, #cells do
+    w = math.max(w, cells[i].dx + 1)
+    h = math.max(h, cells[i].dy + 1)
+    drawSourceTile(S, desc, cells[i].tile,
+      (cx + cells[i].dx) * CELL, (cy + cells[i].dy) * CELL, CELL, 0.45)
+  end
+  love.graphics.setColor(0.35, 0.85, 1, 0.55)
+  love.graphics.rectangle("line", cx * CELL + 0.5, cy * CELL + 0.5,
+    w * CELL - 1, h * CELL - 1)
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
 local function drawWarpNodes(S, source)
   for _, node in ipairs(LayeredMap.nodesForMap(S.project, S.builderMapId)) do
     local cx, cy = node.x * CELL + CELL / 2, node.y * CELL + CELL / 2
@@ -562,7 +676,8 @@ local function drawCanvas(S, source, x, y, w, h, App)
             or cx >= source.cellWidth or cy >= source.cellHeight then
           local tile = borderBlock * 4 + (cy % 2) * 2 + (cx % 2)
           local desc = borderDesc
-          if mapRec and type(mapRec._borderTile) == "number" then
+          if mapRec and mapRec._borderExplicit
+              and type(mapRec._borderTile) == "number" then
             tile = mapRec._borderTile
             if mapRec._borderSource then
               desc = LayeredMap.sourceDescriptor(S, mapRec._borderSource) or desc
@@ -626,6 +741,15 @@ local function drawCanvas(S, source, x, y, w, h, App)
     local Maps = require("Maps")
     Maps.drawEventOverlays(S)
   end
+  do
+    local hoverCx = math.floor(((Kit.mouseX - vx) / zoom + (S.builderCamX or 0)) / CELL)
+    local hoverCy = math.floor(((Kit.mouseY - vy) / zoom + (S.builderCamY or 0)) / CELL)
+    if Kit.hit(vx, vy, vw, vh)
+        and hoverCx >= 0 and hoverCy >= 0
+        and hoverCx < source.cellWidth and hoverCy < source.cellHeight then
+      drawGhostPen(S, hoverCx, hoverCy)
+    end
+  end
   love.graphics.pop()
   love.graphics.setScissor()
 
@@ -659,18 +783,12 @@ local function drawCanvas(S, source, x, y, w, h, App)
     if ref then
       S.builderSourceId, S.builderTile = ref.source, ref.tile
       S.builderLayer = layerIndex
+      clearStamp(S)
       if tool == "picker" then S.builderTool = "pencil" end
-      local mapRec = S.project.maps and S.project.maps[source.id]
-      if mapRec then
-        mapRec._borderTile = ref.tile
-        mapRec._borderSource = ref.source
-        App.markDirty()
-      end
       if LayeredMap.isRuntimeSource(ref.source) then
         S.mapPaletteTileset = LayeredMap.runtimeTilesetId(ref.source)
       end
-      S.status = string.format(
-        "Copied 16x16 tile %s — used as border", tostring(ref.tile))
+      S.status = string.format("Copied 16x16 tile %s", tostring(ref.tile))
     end
   end
   S._builderRmbWasDown = rmb and true or false
@@ -735,13 +853,15 @@ local function drawCanvas(S, source, x, y, w, h, App)
       if ref then
         S.builderSourceId, S.builderTile = ref.source, ref.tile
         S.builderLayer = layerIndex
+        clearStamp(S)
         S.builderTool = "pencil"
         S.status = "Picked tile — Pencil armed"
       end
     else
       completeWarp(S, App, { map = S.builderMapId, x = cx, y = cy })
     end
-  elseif Kit.mouseDown and not Kit.blockClicks and (over or S._builderDrag) then
+  elseif Kit.mouseDown and not Kit.blockClicks and not S._assemblyDrag
+      and (over or S._builderDrag) then
     if panning then
       if not S._builderDrag or not S._builderDrag.pan then
         S._builderDrag = {
@@ -864,11 +984,11 @@ local function drawNewMapForm(S, x, y, w, App)
   y = y + 30 * Kit.scale
   Kit.text("micro", "Size", x, y + 5 * Kit.scale, PAL.caption)
   draft.width = Kit.textfield("builder_new_map_w", x + 52 * Kit.scale, y,
-    48 * Kit.scale, 24 * Kit.scale, draft.width, "20")
-  Kit.text("micro", "x", x + 105 * Kit.scale, y + 5 * Kit.scale, PAL.muted)
-  draft.height = Kit.textfield("builder_new_map_h", x + 118 * Kit.scale, y,
-    48 * Kit.scale, 24 * Kit.scale, draft.height, "18")
-  Kit.text("micro", "cells", x + 171 * Kit.scale, y + 5 * Kit.scale, PAL.muted)
+    64 * Kit.scale, 24 * Kit.scale, draft.width, "20")
+  Kit.text("micro", "x", x + 121 * Kit.scale, y + 5 * Kit.scale, PAL.muted)
+  draft.height = Kit.textfield("builder_new_map_h", x + 134 * Kit.scale, y,
+    64 * Kit.scale, 24 * Kit.scale, draft.height, "18")
+  Kit.text("micro", "cells", x + 203 * Kit.scale, y + 5 * Kit.scale, PAL.muted)
   y = y + 30 * Kit.scale
 
   local tilesets = newMapTilesets(S)
@@ -1105,6 +1225,7 @@ local function drawTilePalette(S, source, x, y, w, h, App)
       { tooltip = "Previous tileset source" }) and #ids > 0 then
     sourceIndex = ((sourceIndex - 2) % #ids) + 1
     S.builderSourceId, S.builderTile, S.builderTileOffset = ids[sourceIndex], 0, 0
+    clearStamp(S)
   end
   local sourceLabel = LayeredMap.sourceDescriptor(S, S.builderSourceId)
   sourceLabel = sourceLabel and (sourceLabel.name or sourceLabel.id) or "No source"
@@ -1114,13 +1235,28 @@ local function drawTilePalette(S, source, x, y, w, h, App)
       { tooltip = "Next tileset source" }) and #ids > 0 then
     sourceIndex = (sourceIndex % #ids) + 1
     S.builderSourceId, S.builderTile, S.builderTileOffset = ids[sourceIndex], 0, 0
+    clearStamp(S)
   end
 
   Kit.text("micro", string.format("source %d / %d", sourceIndex, #ids),
     x + 10 * Kit.scale, sy + 25 * Kit.scale, PAL.faint)
 
   local descriptor = LayeredMap.sourceDescriptor(S, S.builderSourceId)
-  local gridY = sy + 42 * Kit.scale
+  S.builderPalette = S.builderPalette or "tiles"
+  local palY = sy + 42 * Kit.scale
+  local chipW = (w - 20 * Kit.scale) / 2
+  if Kit.chip(x + 8 * Kit.scale, palY, chipW - 2 * Kit.scale, 22 * Kit.scale, "Tiles",
+      S.builderPalette == "tiles", PAL.blue, PAL.steel,
+      "Pick a single 16x16 tile") then
+    S.builderPalette = "tiles"
+  end
+  if Kit.chip(x + 10 * Kit.scale + chipW, palY, chipW - 2 * Kit.scale, 22 * Kit.scale,
+      "Assembly", S.builderPalette == "assembly", PAL.blue, PAL.steel,
+      "Stamp a house or decoration from its upper-left tile") then
+    S.builderPalette = "assembly"
+  end
+
+  local gridY = palY + 26 * Kit.scale
   local footerH = (S.builderSourceOptions and 118 or 34) * Kit.scale
   local gridH = math.max(20 * Kit.scale,
     h - (gridY - y) - footerH - 8 * Kit.scale)
@@ -1129,49 +1265,129 @@ local function drawTilePalette(S, source, x, y, w, h, App)
       "Import a 16x16 PNG tileset")
     return
   end
-  local tileSize = 34 * Kit.scale
+
+  local assembly = S.builderPalette == "assembly"
+  local runtime = descriptor.runtimeTileset and true or false
+  local tileSize = (assembly and runtime) and 40 * Kit.scale or 34 * Kit.scale
   local columns = math.max(1, math.floor((w - 28 * Kit.scale) / tileSize))
+  if assembly and not runtime then
+    columns = math.max(1, descriptor.columns or 1)
+    tileSize = math.max(12 * Kit.scale,
+      math.floor((w - 28 * Kit.scale) / columns))
+  end
   local rows = math.max(1, math.floor(gridH / tileSize))
   local perPage = columns * rows
-  local count = descriptor.count or 0
-  local offset = clamp(S.builderTileOffset or 0, 0, math.max(0, count - perPage))
-  local scrollId = "builderTileOffset"
+  local blockCount = runtime and #(descriptor.tileset and descriptor.tileset.blocks or {}) or 0
+  local count = assembly and runtime and blockCount or (descriptor.count or 0)
+  local scrollKey = assembly and "builderAssemblyOffset" or "builderTileOffset"
+  local offset = clamp(S[scrollKey] or 0, 0, math.max(0, count - perPage))
   offset = Kit.scroll(x + 8 * Kit.scale, gridY, w - 16 * Kit.scale, gridH,
-    offset, count, perPage, columns, scrollId)
+    offset, count, perPage, columns, scrollKey)
   offset = math.floor(offset / columns) * columns
+
+  local function stampHasTile(tile)
+    local cells = S.builderStamp and S.builderStamp.cells
+    if not cells then return (S.builderTile or 0) == tile end
+    for i = 1, #cells do
+      if cells[i].tile == tile then return true end
+    end
+    return false
+  end
+  local function stampHasBlock(blockId)
+    local cells = S.builderStamp and S.builderStamp.cells
+    if not cells then return math.floor((S.builderTile or 0) / 4) == blockId end
+    for i = 1, #cells do
+      if math.floor(cells[i].tile / 4) == blockId then return true end
+    end
+    return false
+  end
+
+  local drag = S._assemblyDrag
+  if assembly and Kit.mouseDown and not Kit.blockClicks
+      and Kit.hit(x + 8 * Kit.scale, gridY, w - 28 * Kit.scale, gridH) then
+    local col = math.floor((Kit.mouseX - (x + 8 * Kit.scale)) / tileSize)
+    local row = math.floor((Kit.mouseY - gridY) / tileSize)
+    if col >= 0 and row >= 0 and col < columns then
+      local index = offset + row * columns + col
+      if index >= 0 and index < count then
+        if not drag or drag.source ~= S.builderSourceId then
+          drag = { source = S.builderSourceId, runtime = runtime,
+            columns = columns, first = index }
+          S._assemblyDrag = drag
+        end
+        drag.last = index
+        if runtime then
+          setStamp(S, S.builderSourceId,
+            runtimeAssemblyCells(drag.first, drag.last, columns, blockCount))
+        else
+          setStamp(S, S.builderSourceId,
+            sheetAssemblyCells(descriptor, drag.first, drag.last))
+        end
+      end
+    end
+  elseif drag and not Kit.mouseDown then
+    S._assemblyDrag = nil
+  end
+
   Kit.pushClip(x + 8 * Kit.scale, gridY, w - 28 * Kit.scale, gridH)
   for slot = 0, perPage - 1 do
-    local tile = offset + slot
-    if tile >= count then break end
+    local index = offset + slot
+    if index >= count then break end
     local col, row = slot % columns, math.floor(slot / columns)
     local tx, ty = x + 8 * Kit.scale + col * tileSize, gridY + row * tileSize
-    local selected = (S.builderTile or 0) == tile
+    local selected
+    if assembly and runtime then
+      selected = stampHasBlock(index)
+    else
+      selected = stampHasTile(index)
+    end
     if selected then
       love.graphics.setColor(0.2, 0.65, 1, 0.35)
       love.graphics.rectangle("fill", tx, ty, tileSize - 2, tileSize - 2, 4, 4)
     end
-    drawChecker(tx + 3 * Kit.scale, ty + 3 * Kit.scale, 28 * Kit.scale)
-    drawSourceTile(S, descriptor, tile,
-      tx + 3 * Kit.scale, ty + 3 * Kit.scale, 28 * Kit.scale, 1)
-    if descriptor.animations and descriptor.animations[tile] then
-      love.graphics.setColor(PAL.green)
-      love.graphics.circle("fill", tx + tileSize - 8 * Kit.scale,
-        ty + 7 * Kit.scale, 5 * Kit.scale)
-      Kit.textCenter("micro", "A", tx + tileSize - 13 * Kit.scale,
-        ty + 1 * Kit.scale, 10 * Kit.scale, PAL.greenInk)
+    local inner = tileSize - 6 * Kit.scale
+    drawChecker(tx + 3 * Kit.scale, ty + 3 * Kit.scale, inner)
+    if assembly and runtime then
+      local half = inner / 2
+      for dy = 0, 1 do
+        for dx = 0, 1 do
+          drawSourceTile(S, descriptor, index * 4 + dy * 2 + dx,
+            tx + 3 * Kit.scale + dx * half,
+            ty + 3 * Kit.scale + dy * half, half, 1)
+        end
+      end
+    else
+      drawSourceTile(S, descriptor, index,
+        tx + 3 * Kit.scale, ty + 3 * Kit.scale, inner, 1)
+      if descriptor.animations and descriptor.animations[index] then
+        love.graphics.setColor(PAL.green)
+        love.graphics.circle("fill", tx + tileSize - 8 * Kit.scale,
+          ty + 7 * Kit.scale, 5 * Kit.scale)
+        Kit.textCenter("micro", "A", tx + tileSize - 13 * Kit.scale,
+          ty + 1 * Kit.scale, 10 * Kit.scale, PAL.greenInk)
+      end
     end
-    if Kit.press(tx, ty, tileSize - 2, tileSize - 2) then
-      S.builderTile = tile
+    if not assembly and Kit.press(tx, ty, tileSize - 2, tileSize - 2) then
+      S.builderTile = index
+      clearStamp(S)
     end
   end
   Kit.popClip()
-  S.builderTileOffset = Kit.scrollbar(x + w - 18 * Kit.scale, gridY,
-    10 * Kit.scale, gridH, offset, count, perPage, scrollId)
+  S[scrollKey] = Kit.scrollbar(x + w - 18 * Kit.scale, gridY,
+    10 * Kit.scale, gridH, offset, count, perPage, scrollKey)
 
   local fy = y + h - footerH + 4 * Kit.scale
   local bw = (w - 20 * Kit.scale) / 2
   local custom = descriptor and not descriptor.runtimeTileset
-  if Kit.button(x + 8 * Kit.scale, fy, bw, 24 * Kit.scale,
+  if assembly and custom then
+    if Kit.button(x + 8 * Kit.scale, fy, bw, 24 * Kit.scale,
+        "Full image", { kind = "accent",
+          tooltip = "Stamp this whole PNG from its upper-left tile" }) then
+      local last = math.max(0, (descriptor.count or 1) - 1)
+      setStamp(S, S.builderSourceId, sheetAssemblyCells(descriptor, 0, last))
+      S.status = "Assembly: full image"
+    end
+  elseif Kit.button(x + 8 * Kit.scale, fy, bw, 24 * Kit.scale,
       custom and "Animate selected" or "Edit game tileset", { kind = "accent",
         tooltip = custom
           and "Create or edit an animation for the selected tile"
@@ -1843,8 +2059,8 @@ local function drawProperties(S, source, x, y, w, h, App)
       stepSize("w", -2)
     end
     draft.w = Kit.textfield("builder_map_w", px + 76 * Kit.scale, py,
-      54 * Kit.scale, 25 * Kit.scale, draft.w, "20")
-    if Kit.stepper(px + 134 * Kit.scale, py, 24 * Kit.scale, 25 * Kit.scale, "+") then
+      72 * Kit.scale, 25 * Kit.scale, draft.w, "20")
+    if Kit.stepper(px + 152 * Kit.scale, py, 24 * Kit.scale, 25 * Kit.scale, "+") then
       stepSize("w", 2)
     end
     py = py + 31 * Kit.scale
@@ -1853,8 +2069,8 @@ local function drawProperties(S, source, x, y, w, h, App)
       stepSize("h", -2)
     end
     draft.h = Kit.textfield("builder_map_h", px + 76 * Kit.scale, py,
-      54 * Kit.scale, 25 * Kit.scale, draft.h, "18")
-    if Kit.stepper(px + 134 * Kit.scale, py, 24 * Kit.scale, 25 * Kit.scale, "+") then
+      72 * Kit.scale, 25 * Kit.scale, draft.h, "18")
+    if Kit.stepper(px + 152 * Kit.scale, py, 24 * Kit.scale, 25 * Kit.scale, "+") then
       stepSize("h", 2)
     end
 

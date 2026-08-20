@@ -1573,10 +1573,9 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
     local id = tileIds[key]
     if id ~= nil then return id end
     id = #tiles
-    -- GBC sheets cap at 256; true-color atlases are just a PNG.
-    if id >= 256 and not trueColor then
-      error(mapId .. ": composed graphics need more than 256 unique 8x8 tiles", 0)
-    end
+    -- Unique 8x8 count can exceed the Gen I 256-tile sheet; bake true-color
+    -- so large maps are not rejected.
+    if id >= 256 then trueColor = true end
     tileIds[key] = id
     tiles[#tiles + 1] = { layers = spec, class = class }
     local baseClass = class and class:gsub("%+warp$", "") or nil
@@ -1693,9 +1692,7 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
     local id = blockIds[key]
     if id ~= nil then return id end
     id = #blocks
-    if id >= 256 and not trueColor then
-      error(mapId .. ": map needs more than 256 blocks", 0)
-    end
+    if id >= 256 then trueColor = true end
     blockIds[key] = id
     blocks[#blocks + 1] = block
     collisionQuads[#collisionQuads + 1] = quad
@@ -1771,7 +1768,7 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   end
   map.width, map.height = width / 2, height / 2
   map.blocks = mapBlocks
-  if type(map._borderTile) == "number" then
+  if map._borderExplicit and type(map._borderTile) == "number" then
     local wantSrc, wantTile = map._borderSource, map._borderTile
     local micros
     for index = 1, width * height do
@@ -1929,11 +1926,19 @@ function LayeredMap.ensureEditorAtlas(S, mapId)
   if not (ts and ts._layeredGenerated and type(ts.image) == "string") then
     return
   end
-  if love.filesystem.getInfo(ts.image) then return end
+  local image = ts.image
+  if love.filesystem.getInfo(image) then return end
+  if image:sub(1, 11) == "mapbuilder/" then
+    local derived = "save/mod-derived/" .. tostring(S.project.id) .. "/" .. image
+    if love.filesystem.getInfo(derived) then
+      ts.image = derived
+      return
+    end
+  end
   if S._editorAtlasBaking then return end
   S._editorAtlasBake = S._editorAtlasBake or {}
-  if S._editorAtlasBake[ts.image] then return end
-  S._editorAtlasBake[ts.image] = true
+  if S._editorAtlasBake[image] then return end
+  S._editorAtlasBake[image] = true
   S._editorAtlasBaking = true
   pcall(LayeredMap.compileProject, S)
   S._editorAtlasBaking = nil

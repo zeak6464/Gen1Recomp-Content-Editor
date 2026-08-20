@@ -86,10 +86,10 @@ local function drawNewMapForm(S, x, y, w, App)
     bx = bx + 86 * s
   end
   Kit.text("micro", "Custom", bx + 2 * s, py + 5 * s, PAL.caption)
-  d.width = Kit.textfield("maps_new_w", bx + 50 * s, py, 40 * s, 26 * s,
+  d.width = Kit.textfield("maps_new_w", bx + 50 * s, py, 56 * s, 26 * s,
     d.width, "20")
-  Kit.text("micro", "x", bx + 94 * s, py + 6 * s, PAL.muted)
-  d.height = Kit.textfield("maps_new_h", bx + 106 * s, py, 40 * s, 26 * s,
+  Kit.text("micro", "x", bx + 110 * s, py + 6 * s, PAL.muted)
+  d.height = Kit.textfield("maps_new_h", bx + 122 * s, py, 56 * s, 26 * s,
     d.height, "18")
   py = py + 32 * s
   local ids, selected = sortedTilesets(S), 1

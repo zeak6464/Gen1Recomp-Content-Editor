@@ -2762,8 +2762,16 @@ local function lovePathForModAsset(S, rel)
     return rel
   end
   if not (S and S.path) then return rel end
-  if not (rel:sub(1, 7) == "assets/" or rel:sub(1, 9) == "tilesets/") then
+  if not (rel:sub(1, 7) == "assets/" or rel:sub(1, 9) == "tilesets/"
+      or rel:sub(1, 11) == "mapbuilder/") then
     return rel
+  end
+  if rel:sub(1, 11) == "mapbuilder/" then
+    local pid = S.project and S.project.id
+    if pid and love and love.filesystem and love.filesystem.getInfo then
+      local derived = "save/mod-derived/" .. tostring(pid) .. "/" .. rel
+      if love.filesystem.getInfo(derived) then return derived end
+    end
   end
   local function norm(p)
     return (p or ""):gsub("\\", "/"):gsub("/+$", "")
@@ -5119,13 +5127,13 @@ local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
       }
       S._mapSizeDraft = draft
     end
-    local ww = Kit.textfield("mp_w", fx, fy, 60 * s, fh_, draft.w, "10")
-    local hh = Kit.textfield("mp_h", fx + 70 * s, fy, 60 * s, fh_, draft.h, "9")
+    local ww = Kit.textfield("mp_w", fx, fy, 72 * s, fh_, draft.w, "10")
+    local hh = Kit.textfield("mp_h", fx + 82 * s, fy, 72 * s, fh_, draft.h, "9")
     -- Clicking the canvas or another control does not steal text focus by
     -- itself; blur so the pair actually commits on click-away.
     if Kit.mouseClicked and (Kit.focus == "mp_w" or Kit.focus == "mp_h")
-        and not Kit.hit(fx, fy, 60 * s, fh_)
-        and not Kit.hit(fx + 70 * s, fy, 60 * s, fh_) then
+        and not Kit.hit(fx, fy, 72 * s, fh_)
+        and not Kit.hit(fx + 82 * s, fy, 72 * s, fh_) then
       Kit.blur()
     end
     local sizing = (Kit.focus == "mp_w" or Kit.focus == "mp_h")
@@ -5231,7 +5239,7 @@ local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
     if layered then
       brush = tonumber(S.builderTile) or 0
     end
-    if layered and type(cellTile) == "number" then
+    if layered and map._borderExplicit and type(cellTile) == "number" then
       local srcId = map._borderSource
         or LM.runtimeSourceId(authoredTileset())
       local desc = LM.sourceDescriptor(S, srcId)
@@ -5251,6 +5259,7 @@ local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
       map = mutate()
       if layered then
         map._borderTile = v
+        map._borderExplicit = true
         map._borderSource = map._borderSource
           or S.builderSourceId
           or LM.runtimeSourceId(authoredTileset())
@@ -5271,6 +5280,7 @@ local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
       map = mutate()
       if layered then
         map._borderTile = brush
+        map._borderExplicit = true
         map._borderSource = S.builderSourceId
           or LM.runtimeSourceId(authoredTileset())
       else
