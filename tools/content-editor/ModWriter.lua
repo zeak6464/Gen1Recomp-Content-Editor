@@ -197,6 +197,10 @@ local function emitPackedAtlasBlocks(rows)
     end]], rows)
 end
 
+-- Project id for the emit in progress. mapbuilder/ atlases are transform
+-- output under save/mod-derived/<id>/, not files inside the mod folder.
+local emitProjectId = ""
+
 -- Turn relative asset strings into mod.path joins for runtime loading.
 -- NOTE: Lua patterns have no "|"; match assets/ and tilesets/ separately.
 local function rewriteModPaths(lit)
@@ -205,16 +209,22 @@ local function rewriteModPaths(lit)
     if rel:sub(1, #"assets/generated/") == "assets/generated/" then
       return '"' .. rel .. '"'
     end
+    -- Layered atlases: AssetTransform writes save/mod-derived/<id>/mapbuilder/.
+    if rel:sub(1, 11) == "mapbuilder/" and emitProjectId ~= "" then
+      return '"save/mod-derived/' .. emitProjectId .. '/' .. rel .. '"'
+    end
     return 'mod.path .. "/' .. rel .. '"'
   end
   -- Rewrite nested path arrays too (for example animatedTiles.images).
   lit = lit:gsub('"(assets/[^"]+)"', rewrite)
   lit = lit:gsub('"(tilesets/[^"]+)"', rewrite)
   lit = lit:gsub('"(mapbuilder/[^"]+)"', rewrite)
-  -- Editor preview stores atlases under save/mod-derived; ship the transform path.
-  lit = lit:gsub('"save/mod%-derived/[^"]-/(mapbuilder/[^"]+)"', function(rel)
-    return 'mod.path .. "/' .. rel .. '"'
-  end)
+  -- Editor preview stores the derived path; keep it pointing at the cache.
+  if emitProjectId ~= "" then
+    lit = lit:gsub('"save/mod%-derived/[^"]-/(mapbuilder/[^"]+)"', function(rel)
+      return '"save/mod-derived/' .. emitProjectId .. '/' .. rel .. '"'
+    end)
+  end
   return lit
 end
 
@@ -1212,6 +1222,7 @@ end
 
 function ModWriter.emitMain(project, baseData)
   baseData = baseData or {}
+  emitProjectId = tostring((project and project.id) or "")
   local gen2 = Generation.isGen2({
     version = project.game or project.version,
     data = baseData,
