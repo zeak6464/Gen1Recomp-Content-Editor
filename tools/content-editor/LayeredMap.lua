@@ -13,8 +13,16 @@ local LayeredMap = {}
 LayeredMap.CELL_SIZE = 16
 LayeredMap.COLOR_MODES = { "palette", "true_color" }
 LayeredMap.COLLISION_MODES = {
-  "solid", "walk", "grass", "water", "shore",
+  "solid", "walk", "grass", "water", "shore", "ledge",
 }
+
+function LayeredMap.collisionBase(mode)
+  if type(mode) == "string" then
+    local dir = mode:match("^ledge_(%w+)$")
+    if dir then return "ledge", dir end
+  end
+  return mode
+end
 
 local RUNTIME_PREFIX = "@runtime:"
 
@@ -269,6 +277,16 @@ local function collisionMode(tileset, tile, map, x, y)
       if okP and Permissions then
         if Permissions.isGrass and Permissions.isGrass(coll) then return "grass" end
         if Permissions.isWater and Permissions.isWater(coll) then return "water" end
+        if Permissions.isLedge and Permissions.isLedge(coll) then
+          local facings = Permissions.ledgeFacings and Permissions.ledgeFacings(coll)
+          if type(facings) == "table" then
+            if facings.down then return "ledge_down" end
+            if facings.right then return "ledge_right" end
+            if facings.left then return "ledge_left" end
+            if facings.up then return "ledge_up" end
+          end
+          return "ledge_down"
+        end
         if Permissions.isWalkable and Permissions.isWalkable(coll) then
           return "walk"
         end
@@ -561,8 +579,9 @@ function LayeredMap.setCollision(source, x, y, mode)
     return false
   end
   local valid = false
+  local base = LayeredMap.collisionBase(mode)
   for _, value in ipairs(LayeredMap.COLLISION_MODES) do
-    if value == mode then valid = true; break end
+    if value == mode or value == base then valid = true; break end
   end
   if not valid then return false end
   source.collision[cellIndex(source, x, y)] = mode
@@ -1558,6 +1577,73 @@ local function applyCompiledWarps(map, warpRecords)
   map.warps = type(warpRecords) == "table" and warpRecords or {}
 end
 
+local LEDGE_STANDING = {
+  down = { 0, -1 }, up = { 0, 1 }, left = { 1, 0 }, right = { -1, 0 },
+}
+
+local function syncLiveLedges(S)
+  if not (S and S.data and S.data.field) then return end
+  if not S._vanillaLedgesBackup then
+    local copy = {}
+    for i, row in ipairs(S.data.field.ledges or {}) do
+      if type(row) == "table" then
+        local r = {}
+        for k, v in pairs(row) do r[k] = v end
+        copy[i] = r
+      end
+    end
+    S._vanillaLedgesBackup = copy
+  end
+  local out = {}
+  for _, row in ipairs(S._vanillaLedgesBackup) do out[#out + 1] = row end
+  for _, row in ipairs((S.project and S.project.ledges) or {}) do
+    out[#out + 1] = row
+  end
+  S.data.field.ledges = out
+end
+
+-- Gen 1 hops from standingTile over ledgeTile. Feet 8x8 is micro 2.
+local function emitGen1Ledges(project, S, tilesetId, mapSource, cells)
+  project.ledges = project.ledges or {}
+  local kept = {}
+  for _, row in ipairs(project.ledges) do
+    if type(row) == "table" and row.tileset ~= tilesetId then
+      kept[#kept + 1] = row
+    end
+  end
+  local seen = {}
+  local width, height = mapSource.cellWidth, mapSource.cellHeight
+  for y = 0, height - 1 do
+    for x = 0, width - 1 do
+      local index = y * width + x + 1
+      local _, dir = LayeredMap.collisionBase(mapSource.collision[index])
+      local off = dir and LEDGE_STANDING[dir]
+      local micros = cells[index]
+      local ledgeTile = type(micros) == "table" and micros[3]
+      if off and type(ledgeTile) == "number" then
+        local sx, sy = x + off[1], y + off[2]
+        if sx >= 0 and sy >= 0 and sx < width and sy < height then
+          local standing = cells[sy * width + sx + 1]
+          local standingTile = type(standing) == "table" and standing[3]
+          if type(standingTile) == "number" then
+            local key = dir .. ":" .. standingTile .. ":" .. ledgeTile
+            if not seen[key] then
+              seen[key] = true
+              kept[#kept + 1] = {
+                facing = dir, input = dir,
+                standingTile = standingTile, ledgeTile = ledgeTile,
+                tileset = tilesetId,
+              }
+            end
+          end
+        end
+      end
+    end
+  end
+  project.ledges = kept
+  syncLiveLedges(S)
+end
+
 local function compilePassthrough(context, mapId, mapSource, warpRecords,
     tilesetId, mapBlocks)
   local project, S, map = context.project, context.S, context.project.maps[mapId]
@@ -1782,6 +1868,8 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   collisionQuads[1] = { 0xff, 0xff, 0xff, 0xff }
   local COLL = {
     solid = 0x07, walk = 0x00, grass = 0x18, water = 0x21, shore = 0x23,
+    ledge_right = 0xa0, ledge_left = 0xa1, ledge_up = 0xa2, ledge_down = 0xa3,
+    ledge = 0xa3,
   }
   -- Gold only takes a warp if the cell's COLL_* is a warp kind (door, carpet,
   -- stairs). Gen 1 uses warpTiles on the 8x8 sheet; that list is not enough.
@@ -1884,6 +1972,9 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
     map.callbacks = kept
   end
   applyCompiledWarps(map, warpRecords)
+  if not gen2 then
+    emitGen1Ledges(project, S, tilesetId, mapSource, cells)
+  end
   -- Carry this on both records.  The tileset flag is the canonical link, but
   -- editor/world previews can temporarily retain an older tileset object
   -- while a generated map is being rebuilt.  The map-level override makes

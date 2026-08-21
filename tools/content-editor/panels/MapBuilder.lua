@@ -312,6 +312,9 @@ end
 local function paintCollisionCell(S, source, x, y)
   local index = y * source.cellWidth + x + 1
   local mode = S.builderCollision or "solid"
+  if mode == "ledge" then
+    mode = "ledge_" .. (S.builderLedgeDir or "down")
+  end
   if source.collision[index] == mode then return false end
   LayeredMap.setCollision(source, x, y, mode)
   return true
@@ -823,6 +826,9 @@ local function drawCanvas(S, source, x, y, w, h, App)
           solid = { 1, 0.2, 0.2 }, walk = { 0.2, 1, 0.4 },
           grass = { 1, 0.2, 0.9 }, water = { 0.15, 0.55, 1 },
           shore = { 0.95, 0.75, 0.25 },
+          ledge_down = { 1, 0.55, 0.15 }, ledge_up = { 1, 0.55, 0.15 },
+          ledge_left = { 1, 0.55, 0.15 }, ledge_right = { 1, 0.55, 0.15 },
+          ledge = { 1, 0.55, 0.15 },
         }
         local color = colors[mode] or colors.solid
         love.graphics.setColor(color[1], color[2], color[3], 0.28)
@@ -1743,10 +1749,35 @@ local function drawToolbar(S, source, x, y, w, App)
         barBottom = modeY + 24 * s
       end
       if Kit.chip(bx, modeY, bw, 24 * s, mode,
-          (S.builderCollision or "solid") == mode, PAL.green, PAL.steel) then
+          LayeredMap.collisionBase(S.builderCollision or "solid") == mode,
+          PAL.green, PAL.steel) then
         S.builderCollision = mode
+        if mode == "ledge" then
+          S.builderLedgeDir = S.builderLedgeDir or "down"
+        end
       end
       bx = bx + bw + 3 * s
+    end
+    if LayeredMap.collisionBase(S.builderCollision or "solid") == "ledge" then
+      if bx + 120 * s > x + w and bx > x + 56 * s then
+        modeY, bx = modeY + 27 * s, x + 56 * s
+        barBottom = modeY + 24 * s
+      end
+      for _, d in ipairs({
+        { id = "down", label = "v" },
+        { id = "left", label = "<" },
+        { id = "right", label = ">" },
+        { id = "up", label = "^" },
+      }) do
+        if Kit.chip(bx, modeY, 24 * s, 24 * s, d.label,
+            (S.builderLedgeDir or "down") == d.id,
+            { 255, 140, 40 }, PAL.steel,
+            "Hop " .. d.id) then
+          S.builderLedgeDir = d.id
+          S.builderCollision = "ledge"
+        end
+        bx = bx + 27 * s
+      end
     end
   elseif (S.builderTool or "pencil") == "select" then
     local count = #(S.builderSelections or {})
@@ -2476,6 +2507,7 @@ function MapBuilder.draw(S, x, y, w, h, App)
   S.builderTool = S.builderTool or "pencil"
   S.builderTile = S.builderTile or 0
   S.builderCollision = S.builderCollision or "solid"
+  S.builderLedgeDir = S.builderLedgeDir or "down"
   S.builderWarpMode = S.builderWarpMode or "two_way"
 
   local s = Kit.scale
