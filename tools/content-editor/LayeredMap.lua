@@ -13,7 +13,7 @@ local LayeredMap = {}
 LayeredMap.CELL_SIZE = 16
 LayeredMap.COLOR_MODES = { "palette", "true_color" }
 LayeredMap.COLLISION_MODES = {
-  "solid", "walk", "grass", "water", "shore", "ledge",
+  "solid", "walk", "grass", "water", "shore", "ledge", "cut",
 }
 
 function LayeredMap.collisionBase(mode)
@@ -1258,6 +1258,36 @@ local function cellRefs(context, mapSource, index)
   return refs
 end
 
+-- CUT replacement: drop the top painted layer so an overlay tree leaves the
+-- ground. A tree painted only on ground keeps its graphic (walkable).
+local function cutAwayRefs(context, mapSource, index)
+  local lastI
+  for i, layer in ipairs(mapSource.layers or {}) do
+    if layer.export ~= false and layer.cells and layer.cells[index] then
+      lastI = i
+    end
+  end
+  if not lastI then return {} end
+  local refs = {}
+  for i, layer in ipairs(mapSource.layers or {}) do
+    if layer.export ~= false and i ~= lastI then
+      local ref = layer.cells and layer.cells[index]
+      if ref then
+        local source = LayeredMap.sourceDescriptor(context.S, ref.source)
+        if not source then
+          error("unknown map tileset source " .. tostring(ref.source), 0)
+        end
+        refs[#refs + 1] = {
+          source = source,
+          tile = math.max(0, math.floor(tonumber(ref.tile) or 0)),
+          opacity = clamp(layer.opacity or 1, 0, 1),
+        }
+      end
+    end
+  end
+  return refs
+end
+
 local function frameInfo(refs)
   local animatedIndex, frames
   for index, ref in ipairs(refs) do
@@ -1752,60 +1782,74 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   end
 
   local cellGraphicCache = {}
+  local function packCell(refs, class, index, tag)
+    local animatedIndex, frames, frameErr = frameInfo(refs)
+    if frameErr then return nil, frameErr end
+    local cacheKey
+    if not frames then
+      local parts = { class, tag or "" }
+      for ri = 1, #refs do
+        local r = refs[ri]
+        parts[#parts + 1] = tostring(r.source.id or r.source.image)
+        parts[#parts + 1] = tostring(r.tile)
+        parts[#parts + 1] = tostring(r.opacity)
+      end
+      cacheKey = table.concat(parts, "\0")
+    end
+    local cached = cacheKey and cellGraphicCache[cacheKey]
+    if cached then return cached end
+    local microIds = {}
+    for micro = 0, 3 do
+      local firstFrame = frames and frames[1].tile or nil
+      local spec = transformSpec(
+        context, refs, micro, animatedIndex, firstFrame, paletteColors)
+      local tileClass = micro == 2 and class or nil
+      local animationImages
+      if frames then
+        animationImages = {}
+        for frameIndex, frame in ipairs(frames) do
+          local frameSpec = transformSpec(context, refs, micro,
+            animatedIndex, frame.tile, paletteColors)
+          local rel = ("mapbuilder/%s/animations/%s_%d_%d_%d%s.png")
+            :format(safeFilename(project.id), safeFilename(mapId),
+              index, micro, frameIndex, tag or "")
+          addTransformOutput(context, rel, 8, 8, {
+            { x = 0, y = 0, layers = frameSpec },
+          })
+          animationImages[#animationImages + 1] = derivedAssetPath(project, rel)
+        end
+      end
+      microIds[micro + 1] = addTile(spec, tileClass, animationImages, frames)
+    end
+    if cacheKey then cellGraphicCache[cacheKey] = microIds end
+    return microIds
+  end
+
+  local cellsCut = {}
   for y = 0, height - 1 do
     for x = 0, width - 1 do
       local index = y * width + x + 1
       local refs = cellRefs(context, mapSource, index)
-      local animatedIndex, frames, frameErr = frameInfo(refs)
-      if frameErr then
-        error(("%s (%d,%d): %s"):format(mapId, x, y, frameErr), 0)
-      end
       local class = mapSource.collision[index] or "solid"
       if activeWarpCells and activeWarpCells[index] then
         class = class .. "+warp"
       end
-      local cacheKey
-      if frames then
-        cacheKey = nil
-      else
-        local parts = { class }
-        for ri = 1, #refs do
-          local r = refs[ri]
-          parts[#parts + 1] = tostring(r.source.id or r.source.image)
-          parts[#parts + 1] = tostring(r.tile)
-          parts[#parts + 1] = tostring(r.opacity)
-        end
-        cacheKey = table.concat(parts, "\0")
+      local microIds, frameErr = packCell(refs, class, index)
+      if frameErr then
+        error(("%s (%d,%d): %s"):format(mapId, x, y, frameErr), 0)
       end
-      local cached = cacheKey and cellGraphicCache[cacheKey]
-      if cached then
-        cells[index] = cached
-      else
-        local microIds = {}
-        for micro = 0, 3 do
-          local firstFrame = frames and frames[1].tile or nil
-          local spec = transformSpec(
-            context, refs, micro, animatedIndex, firstFrame, paletteColors)
-          local tileClass = micro == 2 and class or nil
-          local animationImages
-          if frames then
-            animationImages = {}
-            for frameIndex, frame in ipairs(frames) do
-              local frameSpec = transformSpec(context, refs, micro,
-                animatedIndex, frame.tile, paletteColors)
-              local rel = ("mapbuilder/%s/animations/%s_%d_%d_%d.png")
-                :format(safeFilename(project.id), safeFilename(mapId),
-                  index, micro, frameIndex)
-              addTransformOutput(context, rel, 8, 8, {
-                { x = 0, y = 0, layers = frameSpec },
-              })
-              animationImages[#animationImages + 1] = derivedAssetPath(project, rel)
-            end
+      cells[index] = microIds
+      if class == "cut" or class:sub(1, 4) == "cut+" then
+        local away = cutAwayRefs(context, mapSource, index)
+        if #away == 0 then
+          cellsCut[index] = microIds
+        else
+          local cutMicros, cutErr = packCell(away, "walk", index, "_cut")
+          if cutErr then
+            error(("%s (%d,%d): %s"):format(mapId, x, y, cutErr), 0)
           end
-          microIds[micro + 1] = addTile(spec, tileClass, animationImages, frames)
+          cellsCut[index] = cutMicros
         end
-        if cacheKey then cellGraphicCache[cacheKey] = microIds end
-        cells[index] = microIds
       end
     end
   end
@@ -1868,6 +1912,7 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   collisionQuads[1] = { 0xff, 0xff, 0xff, 0xff }
   local COLL = {
     solid = 0x07, walk = 0x00, grass = 0x18, water = 0x21, shore = 0x23,
+    cut = 0x12,
     ledge_right = 0xa0, ledge_left = 0xa1, ledge_up = 0xa2, ledge_down = 0xa3,
     ledge = 0xa3,
   }
@@ -1885,10 +1930,12 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
     collisionQuads[#collisionQuads + 1] = quad
     return id
   end
-  local mapBlocks = {}
+  local mapBlocks, cutBlocks = {}, {}
   for blockY = 0, height / 2 - 1 do
     for blockX = 0, width / 2 - 1 do
       local block, quad = {}, {}
+      local cutBlock, cutQuad = {}, {}
+      local hasCut = false
       for cellY = 0, 1 do
         for cellX = 0, 1 do
           local index = (blockY * 2 + cellY) * width
@@ -1900,16 +1947,33 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
           if activeWarpCells and activeWarpCells[index] then
             collByte = COLL_DOOR
           end
-          quad[cellY * 2 + cellX + 1] = collByte
+          local slot = cellY * 2 + cellX + 1
+          quad[slot] = collByte
+          local cutMicros = cellsCut[index]
+          if cutMicros then
+            hasCut = true
+            cutQuad[slot] = (activeWarpCells and activeWarpCells[index])
+              and COLL_DOOR or 0x00
+          else
+            cutMicros = microIds
+            cutQuad[slot] = collByte
+          end
           for microY = 0, 1 do
             for microX = 0, 1 do
-              block[(cellY * 2 + microY) * 4
-                + cellX * 2 + microX + 1] = microIds[microY * 2 + microX + 1]
+              local bi = (cellY * 2 + microY) * 4
+                + cellX * 2 + microX + 1
+              local mi = microY * 2 + microX + 1
+              block[bi] = microIds[mi]
+              cutBlock[bi] = cutMicros[mi]
             end
           end
         end
       end
-      mapBlocks[#mapBlocks + 1] = addBlock(block, quad)
+      local beforeId = addBlock(block, quad)
+      mapBlocks[#mapBlocks + 1] = beforeId
+      if hasCut then
+        cutBlocks[beforeId] = { addBlock(cutBlock, cutQuad), 0 }
+      end
     end
   end
 
@@ -1940,6 +2004,7 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
       and collisionQuads or nil,
     _isNew = true,
     _layeredGenerated = true,
+    cutBlocks = next(cutBlocks) and cutBlocks or nil,
   }
   project.tilesets[tilesetId] = tileset
 

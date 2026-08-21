@@ -1491,7 +1491,7 @@ local function drawGen2(S, x, y, w, h, App)
   if mode == "moves" then S.battleAnimId = id end
   if not id then
     Kit.emptyBox(formX, listY, formW, listH,
-      "No Gold battle_anims (Import Gold ROM / Link Recomp)")
+      "No battle_anims (Import Gold/Silver ROM / Link Recomp)")
     return
   end
 

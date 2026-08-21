@@ -2591,7 +2591,7 @@ local function drawPhone(S, x, y, w, h, App)
   local rec, index, owned = phoneResolved(S, id)
   if not id or not rec then
     Kit.emptyBox(formX, listY, formW, listH,
-      "No phone contacts (import Gold ROM cache)")
+      "No phone contacts (import Gold/Silver ROM cache)")
     return
   end
 

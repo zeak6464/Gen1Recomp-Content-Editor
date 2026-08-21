@@ -38,7 +38,7 @@ function DataSource.hasLocalCache(version)
     prefix .. "data/generated/maps.lua",
     prefix .. "data/generated/constants.lua",
   }
-  -- Legacy root cache is Red only (migrateLegacyRedCache); Blue/Yellow/Gold
+  -- Legacy root cache is Red only (migrateLegacyRedCache); Blue/Yellow/Gold/Silver
   -- must live under their prefix or a wrong Kanto table wins the switch.
   if version == "red" or prefix == "" then
     candidates[#candidates + 1] = "data/generated/maps.lua"
@@ -81,7 +81,7 @@ end
 -- a Red/legacy data/generated at the root).
 -- Latest Recomp checkouts often only extract Red at data/generated. Blue and
 -- Yellow share that Gen 1 table shape, so they may use the Red/root extract.
--- Gold must have its own gold/ tree.
+-- Gold and Silver must have their own gold/ or silver/ tree.
 function DataSource.recompHasVersion(root, version)
   if type(root) ~= "string" or root == "" then return false end
   root = root:gsub("[/\\]+$", "")
@@ -138,7 +138,7 @@ function DataSource.isValidRecompRoot(path)
     return true
   end
   -- Legacy un-prefixed cache, or any GameVersion cachePrefix tree
-  -- (red/, blue/, yellow/, gold/).
+  -- (red/, blue/, yellow/, gold/, silver/).
   if fileExists(join(path, "data" .. SEP .. "generated" .. SEP .. "maps.lua")) then
     return true
   end
@@ -215,7 +215,7 @@ end
 
 function DataSource.mountRecomp(path)
   if not DataSource.isValidRecompRoot(path) then
-    return false, "Not a Gen1Recomp folder with data/generated (or red|blue|yellow|gold/)"
+    return false, "Not a Gen1Recomp folder with data/generated (or red|blue|yellow|gold|silver/)"
   end
   path = path:gsub("[/\\]+$", "")
   DataSource.unmountLinked()
@@ -354,8 +354,8 @@ local GEN2_SHELL = {
   "title", "intro", "field", "text_pointers", "trainer_headers",
 }
 
-local function loadEmptyGold()
-  remountVersion("gold")
+local function loadEmptyGen2(version)
+  remountVersion(version or "gold")
   if Data._pristineKeys then pcall(function() Data:unloadGenerated() end) end
   local ok, err = pcall(function()
     for i = 1, #GEN2_SHELL do Data[GEN2_SHELL[i]] = {} end
@@ -404,8 +404,8 @@ end
 
 local function tryImported(version)
   if not hasImportedCache(version) then return false end
-  -- Imported Gold lives in the save dir; keep a Red-only linked Recomp from
-  -- shadowing gold/data/generated via a root data/generated mount.
+  -- Imported Gold/Silver lives in the save dir; keep a Red-only linked Recomp from
+  -- shadowing gold/data/generated or silver/data/generated via a root data/generated mount.
   DataSource.unmountLinked()
   remountVersion(version)
   return finishLoad(version)
@@ -434,12 +434,14 @@ function DataSource.apply(opts)
   if mode == "fixtures" then
     remountVersion(version)
     if GameVersion.generation(version) == 2 then
-      local okEmpty, emptyErr = loadEmptyGold()
+      local okEmpty, emptyErr = loadEmptyGen2(version)
       if not okEmpty then
-        error("content editor Gold shell failed:\n" .. tostring(emptyErr))
+        error("content editor Gen 2 shell failed:\n" .. tostring(emptyErr))
       end
       return "empty", prefs,
-        "No Gold fixtures — Import a Gold ROM or Link a Recomp with gold/"
+        "No " .. verLabel .. " fixtures — Import a " .. verLabel
+          .. " ROM or Link a Recomp with "
+          .. (GameVersion.cachePrefix(version) or "")
     end
     local ok, err = loadFixtures()
     if not ok then
@@ -489,14 +491,17 @@ function DataSource.apply(opts)
 
   remountVersion(version)
   if GameVersion.generation(version) == 2 then
-    local okEmpty, emptyErr = loadEmptyGold()
+    local okEmpty, emptyErr = loadEmptyGen2(version)
     if not okEmpty then
-      error("content editor needs a Gold cache (Import a Gold ROM or Link a "
-        .. "Recomp with gold/):\n" .. tostring(emptyErr))
+      error("content editor needs a " .. verLabel
+        .. " cache (Import a " .. verLabel .. " ROM or Link a Recomp with "
+        .. (GameVersion.cachePrefix(version) or "") .. "):\n"
+        .. tostring(emptyErr))
     end
     return "empty", prefs,
-      "No Gold cache for " .. verLabel
-        .. " — Import a Gold ROM or Link a Recomp with gold/"
+      "No " .. verLabel .. " cache — Import a " .. verLabel
+        .. " ROM or Link a Recomp with "
+        .. (GameVersion.cachePrefix(version) or "")
   end
   local ok, err = loadFixtures()
   if not ok then
@@ -522,7 +527,7 @@ function DataSource.label(source)
   if source == "recomp" then return "Linked Gen1Recomp folder" end
   if source == "imported" then return "Imported ROM (save directory)" end
   if source == "fixtures" then return "Fixtures (stub data)" end
-  if source == "empty" then return "Empty Gold shell (no cache)" end
+  if source == "empty" then return "Empty Gen 2 shell (no cache)" end
   return tostring(source or "?")
 end
 

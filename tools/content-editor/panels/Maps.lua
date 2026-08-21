@@ -3932,7 +3932,7 @@ local function drawMapPreview(S, mapDef, x, y, w, h, App)
       vx + 8 * s, vy + 8 * s, PAL.red)
     Kit.text("micro",
       Generation.isGen2(S)
-        and "Project → Import a Gold ROM or Link a Recomp with gold/ cache"
+        and "Project → Import a Gold/Silver ROM or Link a Recomp with gold/ or silver/ cache"
         or "Project → Import ROM or Link Recomp so tilesets (e.g. OVERWORLD) load",
       vx + 8 * s, vy + 28 * s, PAL.faint)
     return

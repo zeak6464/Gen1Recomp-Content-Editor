@@ -14,7 +14,8 @@ function Generation.num(S)
   if ok and GameVersion and GameVersion.generation then
     return GameVersion.generation(Generation.id(S))
   end
-  return Generation.id(S) == "gold" and 2 or 1
+  local id = Generation.id(S)
+  return (id == "gold" or id == "silver") and 2 or 1
 end
 
 function Generation.dataLooksGen2(data)
@@ -54,7 +55,9 @@ function Generation.coversGen2(games)
   if type(games) ~= "table" then return false end
   for _, token in ipairs(games) do
     local key = tostring(token or ""):lower()
-    if key == "all" or key == "gen2" or key == "gold" then return true end
+    if key == "all" or key == "gen2" or key == "gold" or key == "silver" then
+      return true
+    end
   end
   return false
 end

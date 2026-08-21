@@ -181,7 +181,7 @@ function Trades.draw(S, x, y, w, h, App)
     Kit.emptyBox(formX, listY, formW, listH,
       #trades == 0
         and (gen2
-          and "No NPC trades (Import Gold ROM / Link Recomp gold cache)"
+          and "No NPC trades (Import Gold/Silver ROM / Link Recomp cache)"
           or "No trades (Link Recomp / Import ROM for vanilla, or + Trade)")
         or "Select a trade")
     return

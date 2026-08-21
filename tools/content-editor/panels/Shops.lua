@@ -434,7 +434,7 @@ function Shops.draw(S, x, y, w, h, App)
     if not rec then
       Kit.emptyBox(formX, listY, formW, listH,
         #keys == 0
-          and "No marts (Import Gold ROM / Link Recomp gold cache)"
+          and "No marts (Import Gold/Silver ROM / Link Recomp cache)"
           or "Select a mart")
       return
     end

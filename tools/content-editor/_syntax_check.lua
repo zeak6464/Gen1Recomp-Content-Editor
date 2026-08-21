@@ -204,7 +204,7 @@ local ok, err = pcall(function()
     package.preload["src.core.GameVersion"] = function()
       return {
         get = function() return "gold" end,
-        generation = function(id) return id == "gold" and 2 or 1 end,
+        generation = function(id) return (id == "gold" or id == "silver") and 2 or 1 end,
       }
     end
     package.loaded["Generation"] = nil

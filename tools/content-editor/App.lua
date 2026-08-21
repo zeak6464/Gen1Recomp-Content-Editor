@@ -322,7 +322,7 @@ function App.resetCatalogSelection()
   end
 end
 
--- Switch active game (Red/Blue/Yellow/Gold): remount cache + reload Data.
+-- Switch active game (Red/Blue/Yellow/Gold/Silver): remount cache + reload Data.
 function App.setGameVersion(version)
   local GameVersion = require("src.core.GameVersion")
   if not (GameVersion.VERSIONS and GameVersion.VERSIONS[version]) then
@@ -789,7 +789,7 @@ function App.validateMod()
   local function runValidate(py)
     local modPath = S.path or ModIO.modDir(id)
     local ver = tostring(S.version or "red"):lower()
-    if ver ~= "red" and ver ~= "blue" and ver ~= "yellow" and ver ~= "gold" then
+    if not (GameVersion.VERSIONS and GameVersion.VERSIONS[ver]) then
       ver = "red"
     end
     local inner = string.format(
@@ -923,7 +923,7 @@ function App.playtestMod()
     options.mods[id] = true
     options.modsByVersion = options.modsByVersion or {}
     -- Latest Recomp reads per-game enablement. Turn this mod on for every
-    -- supported game so Playtest works after switching Red/Blue/Yellow/Gold.
+    -- supported game so Playtest works after switching Red/Blue/Yellow/Gold/Silver.
     for _, vid in ipairs(GameVersion.ORDER or { version }) do
       local bucket = options.modsByVersion[vid] or {}
       options.modsByVersion[vid] = bucket

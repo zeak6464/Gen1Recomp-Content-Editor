@@ -825,7 +825,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
         local colors = {
           solid = { 1, 0.2, 0.2 }, walk = { 0.2, 1, 0.4 },
           grass = { 1, 0.2, 0.9 }, water = { 0.15, 0.55, 1 },
-          shore = { 0.95, 0.75, 0.25 },
+          shore = { 0.95, 0.75, 0.25 }, cut = { 0.45, 0.7, 0.15 },
           ledge_down = { 1, 0.55, 0.15 }, ledge_up = { 1, 0.55, 0.15 },
           ledge_left = { 1, 0.55, 0.15 }, ledge_right = { 1, 0.55, 0.15 },
           ledge = { 1, 0.55, 0.15 },
@@ -1750,7 +1750,9 @@ local function drawToolbar(S, source, x, y, w, App)
       end
       if Kit.chip(bx, modeY, bw, 24 * s, mode,
           LayeredMap.collisionBase(S.builderCollision or "solid") == mode,
-          PAL.green, PAL.steel) then
+          PAL.green, PAL.steel,
+          mode == "cut"
+            and "CUT tree — put the tree on a layer above ground" or nil) then
         S.builderCollision = mode
         if mode == "ledge" then
           S.builderLedgeDir = S.builderLedgeDir or "down"

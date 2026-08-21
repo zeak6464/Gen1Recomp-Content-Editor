@@ -360,7 +360,7 @@ function ModIO.load(modDir)
   return project
 end
 
--- Which game this mod is authored against (red/blue/yellow/gold).
+-- Which game this mod is authored against (red/blue/yellow/gold/silver).
 -- Stored on editor_project.game; inferred from maps or a pinned manifest.games.
 function ModIO.authoringGame(project, modDir)
   local GameVersion = require("src.core.GameVersion")
@@ -398,10 +398,12 @@ function ModIO.authoringGame(project, modDir)
     any = true
     local key = tostring(token or ""):lower()
     if valid(key) then pinned[#pinned + 1] = key end
-    if key ~= "gold" and key ~= "gen2" then onlyGen2 = false end
+    if key ~= "gold" and key ~= "silver" and key ~= "gen2" then
+      onlyGen2 = false
+    end
   end
   if #pinned == 1 then return pinned[1] end
-  if any and onlyGen2 then return "gold" end
+  if any and onlyGen2 then return pinned[1] or "gold" end
   return nil
 end
 

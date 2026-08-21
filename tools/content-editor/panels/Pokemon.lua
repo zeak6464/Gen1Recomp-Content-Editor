@@ -459,7 +459,7 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
       Preview.drawSwatches(gen2Colors, frontX, chipY + 18 * s,
         prevSize * 2 + gap, 10 * s)
     else
-      Kit.text("micro", "missing palettes.lua (re-import Gold ROM)",
+      Kit.text("micro", "missing palettes.lua (re-import Gold/Silver ROM)",
         frontX, chipY + 18 * s, PAL.danger or PAL.yellow)
     end
     previewBottom = fy + prevSize + 48 * s
@@ -855,7 +855,7 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
     fy = fy + 16 * s
     if not entry then
       Kit.text("micro",
-        "No palettes.pokemon row — Import / Link a Gold ROM cache with palettes.lua",
+        "No palettes.pokemon row — Import / Link a Gold/Silver ROM cache with palettes.lua",
         formX, fy, PAL.danger or PAL.yellow)
       fy = fy + 18 * s
     else
