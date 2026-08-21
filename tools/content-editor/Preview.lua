@@ -445,6 +445,31 @@ function Preview.paletteIds(S)
     end
   end
   local data = S and S.data and S.data.palettes
+  if Preview.useGbcPalettes(S) then
+    local ok, PaletteFX = pcall(require, "src.render.PaletteFX")
+    -- Hardware GBC (Red/Blue boot ROM) and Yellow CGBBasePalettes first so
+    -- they are pickable without scrolling past SGB / Red++ names.
+    add("OG_RED")
+    add("OG_BLUE")
+    if ok and PaletteFX and PaletteFX.yellowPack then
+      local yel = PaletteFX.yellowPack()
+      if yel and type(yel.cgbBase) == "table" then
+        if type(yel.order) == "table" then
+          for _, id in ipairs(yel.order) do
+            if yel.cgbBase[id] then add("CGB_" .. id) end
+          end
+        end
+        local extra = {}
+        for id in pairs(yel.cgbBase) do
+          if type(id) == "string" and not seen["CGB_" .. id] then
+            extra[#extra + 1] = id
+          end
+        end
+        table.sort(extra)
+        for i = 1, #extra do add("CGB_" .. extra[i]) end
+      end
+    end
+  end
   -- Gen1 nested .palettes map; Gold's table is context-keyed (no .palettes).
   addTable(data and data.order, data and data.palettes)
   if Preview.useGbcPalettes(S) then
@@ -469,6 +494,19 @@ function Preview.paletteIds(S)
   return ids
 end
 
+local function rbyGbcColors(name)
+  local ok, PaletteFX = pcall(require, "src.render.PaletteFX")
+  if not (ok and PaletteFX) then return nil end
+  if name == "OG_RED" then return normalizeColors(PaletteFX.GBC_BG) end
+  if name == "OG_BLUE" then return normalizeColors(PaletteFX.GBC_BG_BLUE) end
+  local cgb = name:match("^CGB_(.+)$")
+  if not cgb then return nil end
+  local pack = PaletteFX.yellowPack and PaletteFX.yellowPack()
+  local y = pack and pack.cgbBase and pack.cgbBase[cgb]
+  if y then return normalizeColors(y) end
+  return nil
+end
+
 -- Resolve named palette colors (project override wins).
 -- GBC ON: GBC pack before ROM/cache. GBC OFF: ROM/cache only.
 function Preview.paletteColors(S, name)
@@ -477,6 +515,8 @@ function Preview.paletteColors(S, name)
     local cols = normalizeColors(S.project.palettes[name])
     if cols then return cols end
   end
+  local rby = rbyGbcColors(name)
+  if rby then return rby end
   local useGbc = Preview.useGbcPalettes(S)
   if useGbc then
     local ok, PaletteFX = pcall(require, "src.render.PaletteFX")
