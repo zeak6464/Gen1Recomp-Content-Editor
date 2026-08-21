@@ -616,6 +616,50 @@ function LayeredMap.installTileSource(project, wantedId, image, width, height)
   return source
 end
 
+-- Turn a PNG into this map: one 16x16 cell per image tile, even cell size.
+function LayeredMap.applyPngAsMap(S, mapId, imagePath, pixelWidth, pixelHeight)
+  local project = ensureProject(assert(S and S.project, "no project"))
+  local source = project.layeredMaps and project.layeredMaps[mapId]
+  if not source then return nil, "no layered map" end
+  pixelWidth = tonumber(pixelWidth) or 0
+  pixelHeight = tonumber(pixelHeight) or 0
+  local cols = math.floor(pixelWidth / 16)
+  local rows = math.floor(pixelHeight / 16)
+  if cols < 1 or rows < 1 then
+    return nil, "PNG must be at least 16x16 pixels"
+  end
+  local cellWidth = cols + (cols % 2)
+  local cellHeight = rows + (rows % 2)
+  local stem = tostring(imagePath or mapId):match("([^/\\]+)%.[Pp][Nn][Gg]$")
+    or tostring(mapId) .. "_png"
+  local tileSource, err = LayeredMap.installTileSource(
+    project, stem, imagePath, cols * 16, rows * 16)
+  if not tileSource then return nil, err end
+  local ok, resizeErr = LayeredMap.resizeMap(project, mapId, cellWidth, cellHeight)
+  if not ok then return nil, resizeErr end
+  local ground = source.layers and source.layers[1]
+  if not ground then return nil, "map has no Ground layer" end
+  local cells, collision = {}, {}
+  for y = 0, cellHeight - 1 do
+    for x = 0, cellWidth - 1 do
+      local index = y * cellWidth + x + 1
+      local sx = math.min(x, cols - 1)
+      local sy = math.min(y, rows - 1)
+      cells[index] = internCellRef({
+        source = tileSource.id,
+        tile = sy * cols + sx,
+      })
+      collision[index] = "walk"
+    end
+  end
+  ground.cells = cells
+  source.collision = collision
+  for layerIndex = 2, #(source.layers or {}) do
+    source.layers[layerIndex].cells = {}
+  end
+  return tileSource, cellWidth, cellHeight
+end
+
 function LayeredMap.sourceDescriptor(S, sourceId)
   if LayeredMap.isRuntimeSource(sourceId) then
     local tilesetId = LayeredMap.runtimeTilesetId(sourceId)
@@ -1046,6 +1090,9 @@ local function transformSpec(context, refs, micro, animatedIndex, frameTile,
     if pal and source.colorMode ~= "true_color" then
       layer.palette = pal
     end
+    -- Upper layers keep PNG color 0 transparent so grass shows through
+    -- building/sign tiles. Only the bottom layer fills GBC holes.
+    if index > 1 then layer.overlay = true end
     layers[#layers + 1] = layer
   end
   return layers
@@ -1057,6 +1104,7 @@ local function transformSpecKey(spec)
     parts[#parts + 1] = table.concat({
       layer.base or "", layer.pixels or "", tostring(layer.tile or ""),
       tostring(layer.columns or ""), tostring(layer.opacity or 1),
+      layer.overlay and "ov" or "",
     }, ":")
     if layer.palette then
       for _, color in ipairs(layer.palette) do
@@ -1096,9 +1144,11 @@ local function sampleTransformLayer(layer, baseImages, pixelsById, x, y)
   -- GBC sheets store color 0 as transparent in the PNG. The editor shader
   -- still paints that as palette[1]. Skipping it here punches holes in the
   -- trueColor atlas, and Gold's world canvas is white behind them.
+  -- Overlay layers (buildings on grass) must keep that transparency;
+  -- filling it with palette[1] paints white boxes on Yellow/Gen1 maps.
   if layer.palette then
     if a <= 0 then
-      if not layer.base then
+      if not layer.base or layer.overlay then
         return 0, 0, 0, a * (layer.opacity or 1)
       end
       a = 1
@@ -1388,7 +1438,7 @@ local function emitTransform(context)
     "  end",
     "  if layer.palette then",
     "    if a <= 0 then",
-    "      if not layer.base then",
+    "      if not layer.base or layer.overlay then",
     "        return 0, 0, 0, a * (layer.opacity or 1)",
     "      end",
     "      a = 1",
@@ -1845,9 +1895,94 @@ end
 
 -- Compiler entry point ------------------------------------------------------
 
+local function tilesetResolves(S, tilesetId)
+  return type(tilesetId) == "string" and tilesetId ~= ""
+    and resolveTileset(S, tilesetId) ~= nil
+end
+
+local function generatedTilesetName(tilesetId)
+  return type(tilesetId) == "string"
+    and tilesetId:find("_LAYERED", 1, true) ~= nil
+end
+
+-- ROM map / tileset when live Data still holds another mod's generated atlas.
+local function vanillaMapFor(S, mapId)
+  local bak = S and S._vanillaMapBackup and S._vanillaMapBackup[mapId]
+  if type(bak) == "table" and tilesetResolves(S, bak.tileset) then
+    return bak
+  end
+  return nil
+end
+
+local function vanillaTilesetForMap(S, mapId, map)
+  local vanilla = vanillaMapFor(S, mapId)
+  if vanilla then return vanilla.tileset, vanilla end
+  local index = map and tonumber(map.tilesetId)
+  if index ~= nil then
+    if type(S._vanillaTilesetIds) == "table" then
+      for id in pairs(S._vanillaTilesetIds) do
+        local rec = resolveTileset(S, id)
+        if rec and rec.index == index then return id, nil end
+      end
+    end
+    local constants = S.data and (S.data.gen2Constants or S.data.constants)
+    local order = constants and constants.tilesetOrder
+    if type(order) == "table" then
+      local id = order[index + 1] or order[index]
+      if tilesetResolves(S, id) then return id, nil end
+    end
+  end
+  return nil, nil
+end
+
+-- Every owned map must point at a tileset this mod can emit. Leftover
+-- TEST_MAP_*_LAYERED ids from another project fail validation otherwise.
+function LayeredMap.ensureMissingMapTilesets(S, project)
+  project = ensureProject(project or (S and S.project))
+  for mapId, source in pairs(project.layeredMaps) do
+    if not project.maps[mapId] then
+      if not ownedMap(S, mapId) then
+        return false, "layered map has no map record: " .. tostring(mapId)
+      end
+    end
+    if type(source) == "table" and source.baseTileset
+        and not tilesetResolves(S, source.baseTileset) then
+      local tid = vanillaTilesetForMap(S, mapId, project.maps[mapId])
+      if tid then LayeredMap.assignTileset(S, mapId, tid) end
+    end
+  end
+  for _, mapId in ipairs(sortedKeys(project.maps)) do
+    local map = project.maps[mapId]
+    if type(map) == "table" and not tilesetResolves(S, map.tileset) then
+      local missing = map.tileset
+      if not project.layeredMaps[mapId] then
+        local tid, vanilla = vanillaTilesetForMap(S, mapId, map)
+        if not tid then
+          return false, mapId .. ": unresolved tileset "
+            .. tostring(missing)
+        end
+        if generatedTilesetName(missing) and vanilla
+            and type(vanilla.blocks) == "table" then
+          map.blocks = deepCopy(vanilla.blocks)
+          if vanilla.width then map.width = vanilla.width end
+          if vanilla.height then map.height = vanilla.height end
+        end
+        map.tileset = tid
+        local source, err = LayeredMap.convertMap(S, mapId)
+        if not source then
+          return false, err or (mapId .. ": could not generate tileset")
+        end
+      end
+    end
+  end
+  return true
+end
+
 function LayeredMap.compileProject(S)
   if not (S and S.project and S.path) then return false, "no open mod" end
   local project = ensureProject(S.project)
+  local okTilesets, tilesetErr = LayeredMap.ensureMissingMapTilesets(S, project)
+  if not okTilesets then return false, tilesetErr end
   if not next(project.layeredMaps) then
     if project.layeredTransform then
       local removed, removeErr = ModIO.removeMapBuilderTransform(S.path)

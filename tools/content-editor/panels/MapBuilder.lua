@@ -6,6 +6,7 @@ local Preview = require("Preview")
 local LayeredMap = require("LayeredMap")
 local TilesetExport = require("TilesetExport")
 local Generation = require("Generation")
+local FormPane = require("FormPane")
 
 local MapBuilder = {}
 local PAL = Theme.PAL
@@ -39,6 +40,37 @@ local EVENT_TOOLS = {
 local EVENT_TOOL_BY_ID = {}
 for _, tool in ipairs(EVENT_TOOLS) do EVENT_TOOL_BY_ID[tool.id] = tool end
 
+local function stencilFitScale(source, iw, ih)
+  if iw < 1 or ih < 1 then return 1 end
+  local mapW = (source.cellWidth or 1) * CELL
+  local mapH = (source.cellHeight or 1) * CELL
+  return math.min(mapW / iw, mapH / ih)
+end
+
+local function stencilScaleValue(source, iw, ih)
+  local scale = tonumber(source.stencilScale)
+  if scale and scale > 0 then return scale end
+  return stencilFitScale(source, iw, ih)
+end
+
+local function drawMapStencil(S, source)
+  if not source or source.stencilVisible == false then return end
+  local path = source.stencilImage
+  if type(path) ~= "string" or path == "" then return end
+  local image = Preview.image(S, path)
+  if not image then return end
+  local iw, ih = image:getDimensions()
+  if iw < 1 or ih < 1 then return end
+  local scale = stencilScaleValue(source, iw, ih)
+  if love.graphics.setShader then love.graphics.setShader() end
+  love.graphics.setColor(1, 1, 1, math.max(0, math.min(1,
+    tonumber(source.stencilOpacity) or 0.45)))
+  love.graphics.draw(image,
+    tonumber(source.stencilX) or 0, tonumber(source.stencilY) or 0,
+    0, scale, scale)
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
 local BASIC_TERRAIN_TOOLS = { pencil = true, eraser = true, fill = true, pan = true }
 local BASIC_EVENT_TOOLS = { object = true, sign = true, event_select = true }
 
@@ -47,6 +79,87 @@ local BASIC_EVENT_TOOLS = { object = true, sign = true, event_select = true }
 local function clamp(value, low, high)
   value = tonumber(value) or low
   return math.max(low, math.min(high, value))
+end
+
+local function importStencil(S, source, App)
+  if not (S.project and S.path and source and App and App.pickFile) then return end
+  App.pickFile("Map stencil PNG", "PNG (*.png)|*.png|All files (*.*)|*.*",
+    function(picked)
+      local stem = tostring(source.id or "map"):lower() .. "_stencil.png"
+      local base = App.assetBaseName(picked, stem)
+      if not base:lower():match("%.png$") then base = base .. ".png" end
+      local rel = "assets/mapbuilder/stencils/" .. base
+      App.importToMod(picked, rel, function(imported)
+        source.stencilImage = imported
+        if source.stencilOpacity == nil then source.stencilOpacity = 0.45 end
+        source.stencilVisible = true
+        source.stencilX, source.stencilY = 0, 0
+        App.markDirty()
+        local image = Preview.image(S, imported)
+        if image then
+          local iw, ih = image:getDimensions()
+          source.stencilScale = stencilFitScale(source, iw, ih)
+          S.status = "Stencil over the map — Scale it, or Fit to the map"
+        else
+          local err = Preview.lastError and Preview.lastError() or "unknown error"
+          S.status = "Stencil copied but did not load: " .. tostring(err)
+        end
+      end)
+    end)
+end
+
+local function applyImagePathAsMap(S, source, App, path, iw, ih)
+  App.beginEditBatch()
+  local tileSource, widthOrErr, height = LayeredMap.applyPngAsMap(
+    S, source.id or S.builderMapId, path, iw, ih)
+  if not tileSource then
+    App.endEditBatch()
+    S.status = "Could not use PNG as map: " .. tostring(widthOrErr)
+    return
+  end
+  source.stencilVisible = false
+  S.builderSourceId = tileSource.id
+  S.builderTile = 0
+  S.builderLayer = 1
+  S.builderSelections = {}
+  S._builderDoFit = true
+  App.markDirty()
+  App.endEditBatch()
+  S.status = string.format(
+    "Map is the PNG — %dx%d cells. Paint collision as needed.",
+    widthOrErr, height)
+end
+
+local function usePngAsMap(S, source, App)
+  if not (S.project and source and App) then return end
+  local path = source.stencilImage
+  if type(path) == "string" and path ~= "" then
+    local image = Preview.image(S, path)
+    if not image then
+      S.status = "PNG could not be loaded"
+      return
+    end
+    local iw, ih = image:getDimensions()
+    applyImagePathAsMap(S, source, App, path, iw, ih)
+    return
+  end
+  if not (S.path and App.pickFile) then return end
+  App.pickFile("Map PNG", "PNG (*.png)|*.png|All files (*.*)|*.*",
+    function(picked)
+      local stem = App.assetBaseName(picked, "map.png")
+      if not stem:lower():match("%.png$") then stem = stem .. ".png" end
+      local rel = "assets/mapbuilder/sources/" .. stem
+      App.importToMod(picked, rel, function(imported)
+        if Preview.invalidatePath then Preview.invalidatePath(imported) end
+        local image = Preview.image(S, imported)
+        if not image then
+          S.status = "Imported PNG could not be decoded"
+          return
+        end
+        local iw, ih = image:getDimensions()
+        applyImagePathAsMap(S, source, App, imported, iw, ih)
+      end)
+    end)
 end
 
 local function sortedKeys(bucket)
@@ -717,6 +830,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
       end
     end
   end
+  drawMapStencil(S, source)
   if S.mapShowGrid ~= false then
     love.graphics.setColor(1, 1, 1, 0.18)
     local mapW, mapH = source.cellWidth * CELL, source.cellHeight * CELL
@@ -774,9 +888,42 @@ local function drawCanvas(S, source, x, y, w, h, App)
   local rmb = love.mouse and love.mouse.isDown and love.mouse.isDown(2)
   local space = love.keyboard and love.keyboard.isDown
     and (love.keyboard.isDown("space") or love.keyboard.isDown("lalt"))
+  local ctrl = love.keyboard and love.keyboard.isDown
+    and (love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl")
+      or love.keyboard.isDown("lgui") or love.keyboard.isDown("rgui"))
   local tool = S.builderTool or "pencil"
   local eventTool = EVENT_TOOL_BY_ID[tool]
   local panning = tool == "pan" or middle or space
+  local stencilReady = type(source.stencilImage) == "string"
+    and source.stencilImage ~= ""
+    and source.stencilVisible ~= false
+  local movingStencil = stencilReady and not panning
+    and (S.builderStencilMove or ctrl)
+  local stencilDrag = S._builderDrag and S._builderDrag.stencil
+  local stencilHandled = false
+  if not Kit.blockClicks and (over or stencilDrag)
+      and (stencilDrag or (Kit.mouseDown and movingStencil)) then
+    if Kit.mouseDown then
+      if not stencilDrag then
+        App.beginEditBatch()
+        S._builderDrag = {
+          stencil = true, mx = Kit.mouseX, my = Kit.mouseY,
+          x = tonumber(source.stencilX) or 0,
+          y = tonumber(source.stencilY) or 0,
+        }
+      else
+        source.stencilX = S._builderDrag.x
+          + (Kit.mouseX - S._builderDrag.mx) / zoom
+        source.stencilY = S._builderDrag.y
+          + (Kit.mouseY - S._builderDrag.my) / zoom
+      end
+    elseif stencilDrag then
+      App.markDirty()
+      App.endEditBatch()
+      S._builderDrag = nil
+    end
+    stencilHandled = true
+  end
   if over and inMap and rmb and not S._builderRmbWasDown
       and not Kit.blockClicks and not space then
     local ref, layerIndex = sourceAtCell(S, source, cx, cy)
@@ -793,7 +940,9 @@ local function drawCanvas(S, source, x, y, w, h, App)
   end
   S._builderRmbWasDown = rmb and true or false
   local eventHandled = false
-  if eventTool and not Kit.blockClicks then
+  if stencilHandled then
+    -- Stencil drag owns this pointer gesture.
+  elseif eventTool and not Kit.blockClicks then
     local Maps = require("Maps")
     local drag = S._builderEvent
     if over and inMap and Kit.mouseClicked and not drag then
@@ -840,7 +989,9 @@ local function drawCanvas(S, source, x, y, w, h, App)
     App.endEditBatch()
     S._builderEvent = nil
   end
-  if eventHandled then
+  if stencilHandled then
+    -- Stencil drag owns this pointer gesture.
+  elseif eventHandled then
     -- Event interaction owns this pointer gesture.
   elseif over and inMap and Kit.mouseClicked and not Kit.blockClicks
       and (tool == "fill" or tool == "picker" or tool == "warp") then
@@ -1669,53 +1820,127 @@ local function drawToolbar(S, source, x, y, w, App)
   return barBottom + 5 * s
 end
 
+local function drawStencilSection(S, source, x, y, w, App)
+  Kit.text("micro", "STENCIL", x, y, PAL.caption)
+  if type(source.stencilImage) == "string" and source.stencilImage ~= "" then
+    if Kit.chip(x + w - 84 * Kit.scale, y - 3 * Kit.scale,
+        40 * Kit.scale, 20 * Kit.scale, "Move",
+        S.builderStencilMove == true, PAL.blue, PAL.steel,
+        "Drag the stencil on the canvas. Ctrl-drag also works.") then
+      S.builderStencilMove = not S.builderStencilMove
+      S.status = S.builderStencilMove
+        and "Drag on the canvas to move the stencil"
+        or "Pencil paints tiles again"
+    end
+    if Kit.chip(x + w - 40 * Kit.scale, y - 3 * Kit.scale,
+        40 * Kit.scale, 20 * Kit.scale, "Eye",
+        source.stencilVisible ~= false, PAL.green, PAL.steel,
+        "Show or hide the stencil") then
+      source.stencilVisible = source.stencilVisible == false
+      App.markDirty()
+    end
+  else
+    Kit.textRight("micro", "Editor only", x + w, y, PAL.muted)
+  end
+  y = y + 16 * Kit.scale
+  local half = (w - 4 * Kit.scale) / 2
+  if Kit.button(x, y, half, 25 * Kit.scale, "Use PNG", {
+      kind = "accent",
+      tooltip = "Trace a screenshot over the tiles. Scale it to match." }) then
+    importStencil(S, source, App)
+  end
+  if Kit.button(x + half + 4 * Kit.scale, y, half, 25 * Kit.scale, "Clear", {
+      kind = "ghost",
+      enabled = type(source.stencilImage) == "string" and source.stencilImage ~= "",
+      tooltip = "Remove the stencil image" }) then
+    source.stencilImage = nil
+    App.markDirty()
+  end
+  y = y + 30 * Kit.scale
+  if Kit.button(x, y, w, 25 * Kit.scale, "Use as map", {
+      kind = "good",
+      tooltip = "Resize this map to the PNG and paint Ground as 16x16 tiles" }) then
+    usePngAsMap(S, source, App)
+  end
+  y = y + 30 * Kit.scale
+  local stencilName = source.stencilImage
+  if type(stencilName) == "string" and stencilName ~= "" then
+    stencilName = stencilName:match("[^/\\]+$") or stencilName
+    Kit.text("micro", Kit.ellipsize("micro", stencilName, w), x, y, PAL.faint)
+    y = y + 16 * Kit.scale
+    Kit.text("micro", "Opacity", x, y + 5 * Kit.scale, PAL.caption)
+    if Kit.stepper(x + 70 * Kit.scale, y, 26 * Kit.scale, 24 * Kit.scale, "-") then
+      source.stencilOpacity = clamp((source.stencilOpacity or 0.45) - 0.1, 0, 1)
+      App.markDirty()
+    end
+    Kit.text("mono", string.format("%.0f%%",
+        (source.stencilOpacity or 0.45) * 100),
+      x + 102 * Kit.scale, y + 5 * Kit.scale, PAL.heading)
+    if Kit.stepper(x + 154 * Kit.scale, y, 26 * Kit.scale, 24 * Kit.scale, "+") then
+      source.stencilOpacity = clamp((source.stencilOpacity or 0.45) + 0.1, 0, 1)
+      App.markDirty()
+    end
+    y = y + 32 * Kit.scale
+    local stencilImage = Preview.image(S, source.stencilImage)
+    local iw, ih = 1, 1
+    if stencilImage then iw, ih = stencilImage:getDimensions() end
+    local scale = stencilScaleValue(source, iw, ih)
+    Kit.text("micro", "Scale", x, y + 5 * Kit.scale, PAL.caption)
+    if Kit.stepper(x + 70 * Kit.scale, y, 26 * Kit.scale, 24 * Kit.scale, "-") then
+      source.stencilScale = clamp(scale * 0.9, 0.05, 8)
+      App.markDirty()
+    end
+    Kit.text("mono", string.format("%.0f%%", scale * 100),
+      x + 102 * Kit.scale, y + 5 * Kit.scale, PAL.heading)
+    if Kit.stepper(x + 154 * Kit.scale, y, 26 * Kit.scale, 24 * Kit.scale, "+") then
+      source.stencilScale = clamp(scale * 1.1, 0.05, 8)
+      App.markDirty()
+    end
+    if Kit.chip(x + w - 40 * Kit.scale, y + 2 * Kit.scale,
+        40 * Kit.scale, 20 * Kit.scale, "Fit",
+        false, PAL.green, PAL.steel,
+        "Fit the stencil inside the map") then
+      source.stencilScale = stencilFitScale(source, iw, ih)
+      source.stencilX, source.stencilY = 0, 0
+      App.markDirty()
+    end
+    y = y + 32 * Kit.scale
+  else
+    Kit.text("micro", "Optional trace image over the tiles", x, y, PAL.muted)
+    y = y + 18 * Kit.scale
+  end
+  return y + 10 * Kit.scale
+end
+
 local function drawLayersPane(S, source, x, y, w, h, App)
+  FormPane.track(S, "builderLayersScroll", source.id)
+  local contentY, view = FormPane.begin(S, "builderLayersScroll", x, y, w, h)
+  w = view.contentW
+  local by = drawStencilSection(S, source, x, contentY, w, App)
   local rowH = 28 * Kit.scale
-  local listH = math.max(rowH, math.min(
-    math.max(rowH, h - 134 * Kit.scale),
-    math.max(rowH, #source.layers * rowH)))
-  local perPage = math.max(1, math.floor(listH / rowH))
-  local offset = clamp(S.builderLayerOffset or 0, 0,
-    math.max(0, #source.layers - perPage))
-  local scrollId = "builderLayerOffset"
-  offset = Kit.scroll(x, y, w, listH, offset, #source.layers,
-    perPage, 2, scrollId)
-  local rowW = w - (#source.layers > perPage and 14 * Kit.scale or 0)
-  Kit.pushClip(x, y, w, listH)
-  for row = 1, perPage do
-    local index = offset + row
-    local layer = source.layers[index]
-    if not layer then break end
-    local ry = y + (row - 1) * rowH
-    if Kit.row(x, ry, rowW, rowH - 2 * Kit.scale,
+  for index, layer in ipairs(source.layers) do
+    local ry = by + (index - 1) * rowH
+    if Kit.row(x, ry, w, rowH - 2 * Kit.scale,
         S.builderLayer == index, PAL.blue, 5 * Kit.scale) then
       S.builderLayer = index
     end
-    Kit.text("micro", Kit.ellipsize("micro", layer.name, rowW - 88 * Kit.scale),
+    Kit.text("micro", Kit.ellipsize("micro", layer.name, w - 88 * Kit.scale),
       x + 7 * Kit.scale, ry + 7 * Kit.scale,
       layer.visible == false and PAL.faint or PAL.heading)
-    if Kit.chip(x + rowW - 80 * Kit.scale, ry + 2 * Kit.scale,
+    if Kit.chip(x + w - 80 * Kit.scale, ry + 2 * Kit.scale,
         34 * Kit.scale, 22 * Kit.scale, "Eye", layer.visible ~= false,
         PAL.green, PAL.steel) then
       layer.visible = layer.visible == false and true or false
       App.markDirty()
     end
-    if Kit.chip(x + rowW - 42 * Kit.scale, ry + 2 * Kit.scale,
+    if Kit.chip(x + w - 42 * Kit.scale, ry + 2 * Kit.scale,
         40 * Kit.scale, 22 * Kit.scale, "Out", layer.export ~= false,
         PAL.blue, PAL.steel, "Included in the saved game map by default") then
       layer.export = layer.export == false and true or false
       App.markDirty()
     end
   end
-  Kit.popClip()
-  if #source.layers > perPage then
-    S.builderLayerOffset = Kit.scrollbar(x + w - 11 * Kit.scale, y,
-      10 * Kit.scale, listH, offset, #source.layers, perPage,
-      scrollId)
-  else
-    S.builderLayerOffset = 0
-  end
-  local by = y + listH + 5 * Kit.scale
+  by = by + math.max(1, #source.layers) * rowH + 5 * Kit.scale
   local bw = (w - 4 * Kit.scale) / 2
   if Kit.button(x, by, bw, 25 * Kit.scale, "Add layer", { kind = "good" }) then
     local _, index = LayeredMap.addLayer(source, "Decoration")
@@ -1761,7 +1986,9 @@ local function drawLayersPane(S, source, x, y, w, h, App)
       layer.opacity = clamp((layer.opacity or 1) + 0.1, 0, 1)
       App.markDirty()
     end
+    by = by + 32 * Kit.scale
   end
+  FormPane.finish(S, "builderLayersScroll", contentY, by, view)
 end
 
 local function drawTilesetPane(S, x, y, w, h, App)

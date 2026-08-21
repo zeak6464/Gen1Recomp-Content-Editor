@@ -256,7 +256,15 @@ function Preview.syncGbcWorldRuntime(S)
   WorldPaletteOverrides.install(PaletteFX)
   local use = Preview.useGbcPalettes(S)
   local pack = use and PaletteFX.gbcPack and PaletteFX.gbcPack()
-  if use and pack then
+  local ver = S and S.version
+  -- Yellow has no pokered-gbc world pack. ADVANCED/redpp on Yellow whites
+  -- out the player and draws opaque boxes behind houses.
+  if ver == "yellow" then
+    if PaletteFX.setWorldGroupOverrides then
+      PaletteFX.setWorldGroupOverrides(nil)
+    end
+    if PaletteFX.setMode then PaletteFX.setMode(use and "ogred" or "gbc") end
+  elseif use and pack then
     if PaletteFX.setMode then PaletteFX.setMode("redpp") end
     local gw = S and S.project and S.project.gbcWorld
     local groups = gw and gw.groupColors

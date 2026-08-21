@@ -8378,6 +8378,64 @@ function Maps.deleteMap(S, App)
   return true
 end
 
+function Maps.resetToOriginal(S, App)
+  local id = S.mapId
+  if not (id and S.project and S.project.maps and S.project.maps[id]) then
+    S.status = "Map is already original"
+    return false
+  end
+  if S.project.maps[id]._isNew == true then
+    S.status = "New maps have no original to restore"
+    return false
+  end
+  local original
+  local fs = love and love.filesystem
+  if fs and fs.load then
+    local chunk = fs.load("data/generated/maps.lua")
+    if chunk then
+      local ok, maps = pcall(chunk)
+      if ok and type(maps) == "table" and type(maps[id]) == "table" then
+        original = maps[id]
+      end
+    end
+  end
+  if not original then
+    local bak = S._vanillaMapBackup and S._vanillaMapBackup[id]
+    if type(bak) == "table" then original = bak end
+  end
+  if not original then
+    S.status = "Could not load original " .. id
+    return false
+  end
+  if S._vanillaMapIds and S._vanillaMapIds[id] ~= true then
+    S.status = "Only original game maps can be reset"
+    return false
+  end
+  App.beginEditBatch()
+  local okLayered, LayeredMap = pcall(require, "LayeredMap")
+  if okLayered then LayeredMap.removeMap(S.project, id) end
+  local copy = deepCloneMap(original)
+  copy.id = id
+  copy._isNew = false
+  S.project.maps[id] = copy
+  if okLayered then LayeredMap.convertMap(S, id) end
+  if S.data and S.data.maps then S.data.maps[id] = copy end
+  if S.data and S.data.gen2Maps and S.data.gen2Maps ~= S.data.maps then
+    S.data.gen2Maps[id] = copy
+  end
+  S._vanillaMapBackup = S._vanillaMapBackup or {}
+  S._vanillaMapBackup[id] = deepCloneMap(original)
+  MapLoader.invalidate(id)
+  Maps.invalidateGoldPreview(S, id)
+  Preview.invalidate()
+  S._mapCenteredFor = nil
+  S._builderFitFor = nil
+  App.markDirty()
+  App.endEditBatch()
+  S.status = "Reset " .. id .. " to original"
+  return true
+end
+
 -- Map/event settings drawer used beside the canvas.
 function Maps.drawDetails(S, x, y, w, h, App)
   acS = S

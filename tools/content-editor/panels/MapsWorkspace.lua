@@ -217,17 +217,25 @@ function MapsWorkspace.draw(S, x, y, w, h, App)
   end
   local owned = selected and S.project and S.project.maps
     and S.project.maps[selected] ~= nil
-  if S.mapMoreActions and Kit.button(x + 130 * s, y + 76 * s, 104 * s, 26 * s,
+  local rec = owned and S.project.maps[selected]
+  local canReset = owned and rec and rec._isNew ~= true
+    and (not S._vanillaMapIds or S._vanillaMapIds[selected] == true)
+  if S.mapMoreActions and Kit.button(x + 130 * s, y + 76 * s, 118 * s, 26 * s,
+      "Reset original", { kind = "ghost", enabled = canReset,
+        tooltip = "Restore this game map's blocks, tileset, and events from the ROM" }) then
+    Maps.resetToOriginal(S, App)
+  end
+  if S.mapMoreActions and Kit.button(x + 254 * s, y + 76 * s, 104 * s, 26 * s,
       "Delete map", { kind = "danger", enabled = owned,
         tooltip = "Delete this project-owned map (vanilla maps revert to source)" }) then
     Maps.deleteMap(S, App)
   end
-  if S.mapMoreActions and Kit.button(x + 240 * s, y + 76 * s, 96 * s, 26 * s,
+  if S.mapMoreActions and Kit.button(x + 364 * s, y + 76 * s, 96 * s, 26 * s,
       "Export TMX", { kind = "good", enabled = selected ~= nil,
         tooltip = "Write this map as a Tiled .tmx (one tile = one block)" }) then
     Maps.exportTmx(S, App)
   end
-  if S.mapMoreActions and Kit.button(x + 342 * s, y + 76 * s, 96 * s, 26 * s,
+  if S.mapMoreActions and Kit.button(x + 466 * s, y + 76 * s, 96 * s, 26 * s,
       "Import TMX", { kind = "accent", enabled = S.project ~= nil,
         tooltip = "Import engine TMX, or convert Pokemonium TMX to blocks" }) then
     App.pickFile("Tiled TMX", "Tiled map (*.tmx)|*.tmx|All (*.*)|*.*",
@@ -235,7 +243,7 @@ function MapsWorkspace.draw(S, x, y, w, h, App)
         Maps.importTmx(S, path, App)
       end)
   end
-  if S.mapMoreActions and Kit.button(x + 444 * s, y + 76 * s, 118 * s, 26 * s,
+  if S.mapMoreActions and Kit.button(x + 568 * s, y + 76 * s, 118 * s, 26 * s,
       "TMX folder", { kind = "accent", enabled = S.project ~= nil,
         tooltip = "Convert a Pokemonium maps folder to engine blocks" }) then
     local picked = require("ModIO").chooseFolder("Pokemonium / Tiled maps folder", S.path)
