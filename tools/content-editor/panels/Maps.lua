@@ -2997,9 +2997,10 @@ function Maps.loadEditorMap(S, mapId)
         end
       end
     end
-    -- True-color / composed atlases: draw windowed. A full-map canvas for a
-    -- large import is what pushed the editor past a gigabyte.
-    if def.trueColor or (tileset and tileset.trueColor) then
+    -- Gold trueColor atlases go through MapPreview.bake so ToD palettes swap.
+    -- Gen 1 true-color / huge imports stay windowed (full-map canvas blew RAM).
+    if (def.trueColor or (tileset and tileset.trueColor))
+        and not Generation.isGen2(S) then
       local TileRenderer = require("src.render.TileRenderer")
       local okR, renderer = pcall(TileRenderer.new, map, S.data)
       if not okR or not renderer then return false, renderer end
@@ -3062,15 +3063,40 @@ function Maps.loadEditorMap(S, mapId)
       end
     end
     local daytime = Preview.gen2PreviewDaytime(S, def) or "DAY"
-    local bgSet = select(1, Preview.gen2MapBgSet(S, def, daytime))
     -- World View clips the canvas; MapPreview.bake uses renderTo and would
     -- inherit that scissor, so the gym canvas is painted empty.
+    -- MapPreview.renderer always bakes DAY; call bake with the preview ToD.
     local sx, sy, sw, sh
     if love.graphics.getScissor then
       sx, sy, sw, sh = love.graphics.getScissor()
       if sx then love.graphics.setScissor() end
     end
-    local okR, renderer = pcall(MapPreview.renderer, baker, map, daytime, bgSet)
+    local todKey = tostring(mapId) .. "|" .. tostring(daytime)
+    local img = baker.mapImages and baker.mapImages[todKey]
+    local okR, renderer = true, nil
+    if img then
+      renderer = {
+        draw = function(_, camX, camY)
+          love.graphics.setColor(1, 1, 1, 1)
+          love.graphics.draw(img, -math.floor(camX or 0), -math.floor(camY or 0))
+        end,
+      }
+    else
+      okR, img = pcall(MapPreview.bake, baker, map, daytime)
+      if okR and img then
+        baker.mapImages = baker.mapImages or {}
+        baker.mapImages[todKey] = img
+        renderer = {
+          draw = function(_, camX, camY)
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.draw(img, -math.floor(camX or 0), -math.floor(camY or 0))
+          end,
+        }
+      else
+        renderer = img
+        okR = false
+      end
+    end
     if sx then love.graphics.setScissor(sx, sy, sw, sh) end
     if not okR then return false, renderer end
     map.renderer = renderer
@@ -3088,7 +3114,7 @@ function Maps.loadEditorMap(S, mapId)
       for _ in pairs(images) do n = n + 1 end
       if n > 6 then
         for id, img in pairs(images) do
-          if id ~= mapId and n > 6 then
+          if id ~= todKey and n > 6 then
             if img and img.release then pcall(img.release, img) end
             images[id] = nil
             n = n - 1
@@ -5402,7 +5428,9 @@ local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
   do
     local on = mapUsesTrueColor(S, map)
     Kit.text("micro",
-      on and "this map only — raw PNG (palette ignored); tileset id unchanged"
+      on and (Generation.isGen2(S)
+        and "Gold trueColor — baked GBC RGB, palettes follow time of day"
+        or "this map only — raw PNG (palette ignored); tileset id unchanged")
         or "OFF = remap via map palette · GFX tab edits shared tileset TrueColor",
       px + 10 * s, py, PAL.faint)
     py = py + 14 * s

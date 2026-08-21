@@ -870,6 +870,98 @@ local function loadImageData(S, path)
   return ok and id or nil
 end
 
+local function flattenBgSet(bgSet)
+  if not bgSet then return nil end
+  local colors, seen = {}, {}
+  for slot = 1, 8 do
+    local pal = bgSet[slot]
+    if pal then
+      for i = 1, 4 do
+        local c = pal[i]
+        if c then
+          local r = math.floor(c[1] or 0)
+          local g = math.floor(c[2] or 0)
+          local b = math.floor(c[3] or 0)
+          local key = r * 65536 + g * 256 + b
+          if not seen[key] then
+            seen[key] = true
+            colors[#colors + 1] = { r, g, b }
+          end
+        end
+      end
+    end
+  end
+  return #colors > 0 and colors or nil
+end
+
+local function snapImageDataToGbc(data, colors)
+  if not (data and data.mapPixel and colors and #colors > 0) then return end
+  data:mapPixel(function(_, _, r, g, b, a)
+    if a <= 0 then return r, g, b, a end
+    local r8 = math.floor(r * 255 + 0.5)
+    local g8 = math.floor(g * 255 + 0.5)
+    local b8 = math.floor(b * 255 + 0.5)
+    local best, br, bg, bb
+    for i = 1, #colors do
+      local c = colors[i]
+      local dr, dg, db = r8 - c[1], g8 - c[2], b8 - c[3]
+      local d = dr * dr + dg * dg + db * db
+      if d == 0 then return c[1] / 255, c[2] / 255, c[3] / 255, a end
+      if not best or d < best then
+        best, br, bg, bb = d, c[1], c[2], c[3]
+      end
+    end
+    if not br then return r, g, b, a end
+    return br / 255, bg / 255, bb / 255, a
+  end)
+end
+
+-- TrueColor PNG restamped onto this map's current ToD palettes.
+function Preview.gen2TrueColorImage(S, path, mapDef)
+  if type(path) ~= "string" or path == "" or type(mapDef) ~= "table" then
+    return nil
+  end
+  local daytime = Preview.gen2PreviewDaytime(S, mapDef) or "DAY"
+  local key = "g2tc:" .. cacheKey(S, path) .. "|" .. daytime
+    .. "|" .. tostring(mapDef.id or mapDef.environment or "")
+  if cache[key] ~= nil then return cache[key] or nil end
+  local src = loadImageData(S, path)
+  if not (src and src.clone) then
+    cache[key] = false
+    return nil
+  end
+  local okClone, data = pcall(src.clone, src)
+  if src.release then pcall(src.release, src) end
+  if not (okClone and data) then
+    cache[key] = false
+    return nil
+  end
+  local pals = S and S.data and (S.data.palettes or S.data.gen2Palettes)
+  local okP, Palettes = pcall(require, "src.world.gen2.Palettes")
+  local okG, GbcPalette = pcall(require, "src.render.GbcPalette")
+  local img
+  if pals and okP and Palettes and Palettes.bgSet then
+    local bakeMap = Preview.gen2BakeMap(mapDef, mapDef.tileset)
+    snapImageDataToGbc(data, flattenBgSet(Palettes.bgSet(pals, bakeMap, "DAY")))
+    local swap = Palettes.trueColorSwapTable
+      and Palettes.trueColorSwapTable(pals, bakeMap, daytime)
+    if swap and okG and GbcPalette and GbcPalette.recolorImage then
+      img = GbcPalette.recolorImage(swap, data)
+    end
+    if not img then
+      snapImageDataToGbc(data, flattenBgSet(Palettes.bgSet(pals, bakeMap, daytime)))
+    end
+  end
+  if not img and love and love.graphics and love.graphics.newImage then
+    local okImg, result = pcall(love.graphics.newImage, data)
+    img = okImg and result or nil
+  end
+  if data.release then pcall(data.release, data) end
+  if img and img.setFilter then img:setFilter("nearest", "nearest") end
+  cache[key] = img or false
+  return img
+end
+
 -- CPU shade-remap like BattleState.getImage (DMG r → palette color).
 function Preview.imageWithPalette(S, path, colorsOrName)
   if type(path) ~= "string" or path == "" then return nil end

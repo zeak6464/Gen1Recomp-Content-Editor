@@ -981,14 +981,59 @@ local function runtimeMicroTile(tileset, cellTile, micro)
   return block[(qy * 2 + my) * 4 + qx * 2 + mx + 1]
 end
 
+-- Flatten one BG set into 8-bit {r,g,b} entries the ToD swap table can match.
+local function gbcSnapColors(bgSet)
+  if not bgSet then return nil end
+  local colors, seen = {}, {}
+  for slot = 1, 8 do
+    local pal = bgSet[slot]
+    if pal then
+      for i = 1, 4 do
+        local c = pal[i]
+        if c then
+          local r = math.floor(c[1] or 0)
+          local g = math.floor(c[2] or 0)
+          local b = math.floor(c[3] or 0)
+          local key = r * 65536 + g * 256 + b
+          if not seen[key] then
+            seen[key] = true
+            colors[#colors + 1] = { r, g, b }
+          end
+        end
+      end
+    end
+  end
+  return #colors > 0 and colors or nil
+end
+
+local function snapToGbc(r, g, b, colors)
+  if not colors or #colors == 0 then return r, g, b end
+  local r8 = math.floor(r * 255 + 0.5)
+  local g8 = math.floor(g * 255 + 0.5)
+  local b8 = math.floor(b * 255 + 0.5)
+  local best, br, bg, bb
+  for i = 1, #colors do
+    local c = colors[i]
+    local dr, dg, db = r8 - c[1], g8 - c[2], b8 - c[3]
+    local d = dr * dr + dg * dg + db * db
+    if d == 0 then return c[1] / 255, c[2] / 255, c[3] / 255 end
+    if not best or d < best then
+      best, br, bg, bb = d, c[1], c[2], c[3]
+    end
+  end
+  if not br then return r, g, b end
+  return br / 255, bg / 255, bb / 255
+end
+
 -- Gold: 4 GBC shades for one 8x8 in a runtime tileset, using the map's BG set.
+-- Always DAY so the PNG matches Palettes.trueColorSwapTable at runtime.
 local function gbcMicroPalette(S, map, source, cellTile, micro)
   if not (source and source.runtimeTileset) then return nil end
   if source.colorMode == "true_color" then return nil end
   local Generation = require("Generation")
   if not Generation.isGen2(S) then return nil end
   local bakeMap = Preview.gen2BakeMap(map, source.runtimeTileset)
-  local bgSet = select(1, Preview.gen2MapBgSet(S, bakeMap))
+  local bgSet = select(1, Preview.gen2MapBgSet(S, bakeMap, "DAY"))
   if not bgSet then return nil end
   local microTile = runtimeMicroTile(source.tileset, cellTile, micro)
   if microTile == nil then return nil end
@@ -999,6 +1044,26 @@ local function gbcMicroPalette(S, map, source, cellTile, micro)
   end
   local slot = (pals and pals[microTile + 1]) or 1
   return bgSet[slot]
+end
+
+-- PalMap slot for one 8x8, from the lowest runtime-tileset layer (ground).
+local function gbcMicroSlot(S, refs, micro, animatedIndex, frameTile)
+  local Generation = require("Generation")
+  for index, ref in ipairs(refs or {}) do
+    local source = ref.source
+    if source and source.runtimeTileset then
+      local tile = index == animatedIndex and frameTile or ref.tile
+      local microTile = runtimeMicroTile(source.tileset, tile, micro)
+      if microTile == nil then return 1 end
+      local pals = source.tileset and source.tileset.tilePalettes
+      if not pals then
+        local vanilla = Generation.dataTilesets(S)[source.runtimeTileset]
+        pals = vanilla and vanilla.tilePalettes
+      end
+      return (pals and pals[microTile + 1]) or 1
+    end
+  end
+  return 1
 end
 
 local function animationFor(source, tile)
@@ -1106,7 +1171,7 @@ local function transformSpec(context, refs, micro, animatedIndex, frameTile,
     if not pal then
       pal = gbcMicroPalette(context.S, context.map, source, tile, micro)
     end
-    if pal and source.colorMode ~= "true_color" then
+    if pal and source.colorMode ~= "true_color" and context.bakeGbc ~= false then
       layer.palette = pal
     end
     -- Upper layers keep PNG color 0 transparent so grass shows through
@@ -1137,6 +1202,7 @@ end
 local function addTransformOutput(context, relative, width, height, placements)
   context.outputs[relative] = {
     path = relative, width = width, height = height, placements = placements,
+    snap = context.gbcSnap,
   }
 end
 
@@ -1220,6 +1286,9 @@ local function writeEditorDerivedImages(context)
           end
           if outA > 0 then
             outR, outG, outB = premulR / outA, premulG / outA, premulB / outA
+            if output.snap then
+              outR, outG, outB = snapToGbc(outR, outG, outB, output.snap)
+            end
           end
           image:setPixel(placement.x + x, placement.y + y,
             outR, outG, outB, outA)
@@ -1524,6 +1593,23 @@ local function emitTransform(context)
     "          end",
     "          if outA > 0 then",
     "            outR, outG, outB = premulR / outA, premulG / outA, premulB / outA",
+    "            local colors = output.snap",
+    "            if colors and #colors > 0 then",
+    "              local r8 = math.floor(outR * 255 + 0.5)",
+    "              local g8 = math.floor(outG * 255 + 0.5)",
+    "              local b8 = math.floor(outB * 255 + 0.5)",
+    "              local best, br, bg, bb",
+    "              for i = 1, #colors do",
+    "                local c = colors[i]",
+    "                local dr, dg, db = r8 - c[1], g8 - c[2], b8 - c[3]",
+    "                local d = dr * dr + dg * dg + db * db",
+    "                if d == 0 then br, bg, bb, best = c[1], c[2], c[3], 0; break end",
+    "                if not best or d < best then",
+    "                  best, br, bg, bb = d, c[1], c[2], c[3]",
+    "                end",
+    "              end",
+    "              if br then outR, outG, outB = br / 255, bg / 255, bb / 255 end",
+    "            end",
     "          end",
     "          image:setPixel(placement.x + x, placement.y + y,",
     "            outR, outG, outB, outA)",
@@ -1723,26 +1809,32 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   local tilesetId = generatedTilesetId(project, mapId)
   local previousTileset = project.tilesets[tilesetId]
   context.map = map
-  -- GFX/Tilesets is allowed to force a generated atlas to TrueColor. Preserve
-  -- that authored override across recompiles instead of replacing it with the
-  -- color modes inferred from the painted sources.
-  -- Gold layered maps bake GBC shades into the atlas so playtest matches the
-  -- editor (the game will not remap a generated unique-tile sheet correctly).
+  -- Gold layered atlases bake GBC RGB (trueColor). The runtime swap table
+  -- restamps those DAY shades onto MORN / DAY / NITE / DARK.
   local gen2 = require("Generation").isGen2(S)
   local trueColor = usesTrueColor(context, mapSource)
-    or (previousTileset and previousTileset.trueColor) or gen2 or false
+    or (previousTileset and previousTileset.trueColor)
+    or gen2
+    or false
+  context.bakeGbc = trueColor and true or false
+  if gen2 then
+    local bakeMap = Preview.gen2BakeMap(map, mapSource.baseTileset or map.tileset)
+    context.gbcSnap = gbcSnapColors(select(1, Preview.gen2MapBgSet(S, bakeMap, "DAY")))
+  else
+    context.gbcSnap = nil
+  end
   local paletteColors, paletteName = paletteForMap(S, map, mapSource)
   -- Mixed atlases are emitted as true color, so palette-mode layers must be
   -- baked. Fully palette-mode atlases keep grayscale pixels for runtime remap.
   -- Gen2 uses per-8x8 GBC palettes in transformSpec instead of one SGB set.
   if gen2 or not trueColor then paletteColors = nil end
-  local tiles, tileIds = {}, {}
+  local tiles, tileIds, tilePalettes = {}, {}, {}
   local cells = {}
   local animatedTiles = {}
   local walkable, water, shore, warp = {}, {}, {}, {}
   local grassTile
 
-  local function addTile(spec, class, animationImages, frames)
+  local function addTile(spec, class, animationImages, frames, palSlot)
     local animKey = ""
     if frames then
       local parts = {}
@@ -1753,14 +1845,16 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
     end
     local key = transformSpecKey(spec)
       .. "|class=" .. tostring(class or "") .. animKey
+    if palSlot then key = key .. "|slot=" .. tostring(palSlot) end
     local id = tileIds[key]
     if id ~= nil then return id end
     id = #tiles
     -- Unique 8x8 count can exceed the Gen I 256-tile sheet; bake true-color
-    -- so large maps are not rejected.
-    if id >= 256 then trueColor = true end
+    -- so large maps are not rejected. Gold uses tilePalettes on a taller sheet.
+    if id >= 256 and not gen2 then trueColor = true end
     tileIds[key] = id
     tiles[#tiles + 1] = { layers = spec, class = class }
+    tilePalettes[id + 1] = palSlot or 1
     local baseClass = class and class:gsub("%+warp$", "") or nil
     if baseClass == "walk" then walkable[id] = true
     elseif baseClass == "grass" then
@@ -1803,6 +1897,8 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
       local firstFrame = frames and frames[1].tile or nil
       local spec = transformSpec(
         context, refs, micro, animatedIndex, firstFrame, paletteColors)
+      local palSlot = (gen2 and not trueColor)
+        and gbcMicroSlot(S, refs, micro, animatedIndex, firstFrame) or nil
       local tileClass = micro == 2 and class or nil
       local animationImages
       if frames then
@@ -1819,7 +1915,7 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
           animationImages[#animationImages + 1] = derivedAssetPath(project, rel)
         end
       end
-      microIds[micro + 1] = addTile(spec, tileClass, animationImages, frames)
+      microIds[micro + 1] = addTile(spec, tileClass, animationImages, frames, palSlot)
     end
     if cacheKey then cellGraphicCache[cacheKey] = microIds end
     return microIds
@@ -1881,7 +1977,8 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
             context, refs, micro, nil, nil, paletteColors)
           local microY, microX = math.floor(micro / 2), micro % 2
           graphic[(cellY * 2 + microY) * 4 + cellX * 2 + microX + 1]
-            = addTile(spec, "solid")
+            = addTile(spec, "solid", nil, nil,
+              (gen2 and not trueColor) and gbcMicroSlot(S, refs, micro) or nil)
         end
       end
       borderGraphic = graphic
@@ -1999,6 +2096,8 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
     counterTiles = {},
     animation = "TILEANIM_NONE",
     trueColor = trueColor and true or nil,
+    tilePalettes = (gen2 and not trueColor and #tilePalettes > 0)
+      and tilePalettes or nil,
     animatedTiles = #animatedTiles > 0 and animatedTiles or nil,
     collision = (trueColor or require("Generation").isGen2(context.S))
       and collisionQuads or nil,
@@ -2305,12 +2404,17 @@ function LayeredMap.drawSourceTile(S, source, tile, x, y, size, alpha, mapId)
   tile = animationTile(source, math.max(0, math.floor(tonumber(tile) or 0)))
   local shaded = false
   local gbc, bgSet, tilePals
+  local Generation = require("Generation")
+  mapId = mapId or S.builderMapId or S.mapId
+  local map = (S.project and S.project.maps and S.project.maps[mapId])
+    or Generation.dataMaps(S)[mapId]
+  if source.colorMode == "true_color" and Generation.isGen2(S)
+      and type(map) == "table" and Preview.gen2TrueColorImage then
+    local remapped = Preview.gen2TrueColorImage(S, source.image, map)
+    if remapped then image = remapped end
+  end
   if source.colorMode ~= "true_color" and source.runtimeTileset then
-    local Generation = require("Generation")
     if Generation.isGen2(S) then
-      mapId = mapId or S.builderMapId or S.mapId
-      local map = (S.project and S.project.maps and S.project.maps[mapId])
-        or Generation.dataMaps(S)[mapId]
       if type(map) == "table" then
         bgSet = select(1, Preview.gen2MapBgSet(S, map))
       end
