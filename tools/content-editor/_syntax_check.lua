@@ -31,6 +31,26 @@ local ok, err = pcall(function()
   local EncounterEdit = require("EncounterEdit")
   local Encounters = require("Encounters")
   local ModWriter = require("ModWriter")
+  local EventScriptEditor = require("EventScriptEditor")
+  local OpcodeHelp = require("OpcodeHelp")
+  assert(OpcodeHelp.label("checkevent") == "Check story flag")
+  assert(OpcodeHelp.label("end") == "End script")
+  assert(EventScriptEditor.draw)
+  assert(EventScriptEditor.defaultStep)
+  assert(EventScriptEditor.stepLine)
+  assert(ModWriter.encodeLua)
+  do
+    local encoded = ModWriter.encodeLua({
+      format = "gen1recomp-event-script",
+      version = 1,
+      scriptKey = "TEST_NPC",
+      steps = { { kind = "show_text", text = "Hi" } },
+      text = { TEST_NPC_TEXT = "Hello!" },
+    })
+    assert(encoded:find("gen1recomp%-event%-script"), encoded)
+    assert(encoded:find("show_text"), encoded)
+    assert(encoded:find("TEST_NPC_TEXT"), encoded)
+  end
   assert(SpriteUtil.createNew)
   assert(EncounterEdit.drawWild)
   assert(Encounters.draw)

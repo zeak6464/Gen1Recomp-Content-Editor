@@ -1327,8 +1327,18 @@ local function cellRefs(context, mapSource, index)
   return refs
 end
 
+-- Leftover ground metatile after vanilla CUT (field_move_blocks.asm).
+local CUT_GROUND_BLOCK = {
+  TILESET_KANTO = 0x0a,
+  TILESET_JOHTO = 0x02,
+  TILESET_JOHTO_MODERN = 0x02,
+  TILESET_PARK = 0x04,
+  TILESET_FOREST = 0x17,
+}
+
 -- CUT replacement: drop the top painted layer so an overlay tree leaves the
--- ground. A tree painted only on ground keeps its graphic (walkable).
+-- ground. A tree on the only layer uses nearby walk/grass, then the base
+-- tileset leftover, so the stump is not the same graphic.
 local function cutAwayRefs(context, mapSource, index)
   local lastI
   for i, layer in ipairs(mapSource.layers or {}) do
@@ -1355,6 +1365,53 @@ local function cutAwayRefs(context, mapSource, index)
     end
   end
   return refs
+end
+
+local function isGroundCollision(mode)
+  mode = LayeredMap.collisionBase(mode)
+  return mode == "walk" or mode == "grass"
+end
+
+local function cutGroundRefs(context, mapSource, index)
+  local away = cutAwayRefs(context, mapSource, index)
+  if #away > 0 then return away end
+  local width = mapSource.cellWidth or 0
+  local height = mapSource.cellHeight or 0
+  local x = (index - 1) % width
+  local y = math.floor((index - 1) / width)
+  local function refsAt(cx, cy)
+    if cx < 0 or cy < 0 or cx >= width or cy >= height then return nil end
+    local i = cy * width + cx + 1
+    if i == index then return nil end
+    if not isGroundCollision(mapSource.collision and mapSource.collision[i]) then
+      return nil
+    end
+    local refs = cellRefs(context, mapSource, i)
+    if #refs > 0 then return refs end
+    return nil
+  end
+  local bx, by = math.floor(x / 2) * 2, math.floor(y / 2) * 2
+  for oy = 0, 1 do
+    for ox = 0, 1 do
+      local found = refsAt(bx + ox, by + oy)
+      if found then return found end
+    end
+  end
+  for _, d in ipairs({
+    { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 },
+    { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 },
+  }) do
+    local found = refsAt(x + d[1], y + d[2])
+    if found then return found end
+  end
+  local srcId = LayeredMap.runtimeSourceId(mapSource.baseTileset)
+  local source = srcId and LayeredMap.sourceDescriptor(context.S, srcId)
+  local metatile = CUT_GROUND_BLOCK[mapSource.baseTileset or ""]
+  if source and metatile then
+    local q = (y % 2) * 2 + (x % 2)
+    return { { source = source, tile = metatile * 4 + q, opacity = 1 } }
+  end
+  return {}
 end
 
 local function frameInfo(refs)
@@ -1809,13 +1866,16 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   local tilesetId = generatedTilesetId(project, mapId)
   local previousTileset = project.tilesets[tilesetId]
   context.map = map
-  -- Gold layered atlases bake GBC RGB (trueColor). The runtime swap table
-  -- restamps those DAY shades onto MORN / DAY / NITE / DARK.
+  -- Gold bakeMapImage remaps a grayscale atlas through tilePalettes + the
+  -- current ToD bgSet (0.2.19 has no trueColor swap table). Only bake RGB
+  -- when a layer is actually true_color art.
   local gen2 = require("Generation").isGen2(S)
   local trueColor = usesTrueColor(context, mapSource)
-    or (previousTileset and previousTileset.trueColor)
-    or gen2
-    or false
+  if not gen2 then
+    trueColor = trueColor
+      or (previousTileset and previousTileset.trueColor)
+      or false
+  end
   context.bakeGbc = trueColor and true or false
   if gen2 then
     local bakeMap = Preview.gen2BakeMap(map, mapSource.baseTileset or map.tileset)
@@ -1936,16 +1996,21 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
       end
       cells[index] = microIds
       if class == "cut" or class:sub(1, 4) == "cut+" then
-        local away = cutAwayRefs(context, mapSource, index)
-        if #away == 0 then
-          cellsCut[index] = microIds
-        else
-          local cutMicros, cutErr = packCell(away, "walk", index, "_cut")
-          if cutErr then
-            error(("%s (%d,%d): %s"):format(mapId, x, y, cutErr), 0)
-          end
-          cellsCut[index] = cutMicros
+        local away = cutGroundRefs(context, mapSource, index)
+        local cutMicros, cutErr = packCell(away, "walk", index, "_cut")
+        if cutErr then
+          error(("%s (%d,%d): %s"):format(mapId, x, y, cutErr), 0)
         end
+        local same = cutMicros and microIds
+        if same then
+          for mi = 1, 4 do
+            if cutMicros[mi] ~= microIds[mi] then same = false; break end
+          end
+        end
+        if same then
+          cutMicros = packCell({}, "walk", index, "_cutempty")
+        end
+        cellsCut[index] = cutMicros
       end
     end
   end
@@ -2021,7 +2086,7 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
     local id = blockIds[key]
     if id ~= nil then return id end
     id = #blocks
-    if id >= 256 then trueColor = true end
+    if id >= 256 and not gen2 then trueColor = true end
     blockIds[key] = id
     blocks[#blocks + 1] = block
     collisionQuads[#collisionQuads + 1] = quad

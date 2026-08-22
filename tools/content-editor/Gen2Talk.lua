@@ -168,12 +168,19 @@ end
 
 function Gen2Talk.getSays(S, textKey)
   if type(textKey) ~= "string" or textKey == "" then return "" end
-  if S.project and S.project.text and S.project.text[textKey] ~= nil then
-    return tostring(S.project.text[textKey])
+  local vanilla = S.data and S.data.text and S.data.text[textKey]
+  local vanillaStr = type(vanilla) == "string" and vanilla or nil
+  local bucket = S.project and S.project.text
+  local proj = bucket and bucket[textKey]
+  -- commitSteps used to stamp "..." over every Gold key; that hid ROM text.
+  if type(proj) == "string" then
+    if proj == "..." and vanillaStr and vanillaStr ~= "" and vanillaStr ~= "..." then
+      bucket[textKey] = nil
+      return vanillaStr
+    end
+    return proj
   end
-  if S.data and S.data.text and S.data.text[textKey] ~= nil then
-    return tostring(S.data.text[textKey])
-  end
+  if vanillaStr then return vanillaStr end
   return ""
 end
 
@@ -445,7 +452,14 @@ function Gen2Talk.stepsToCmds(S, scriptKey, steps)
     if S and S.project then
       State.ensureProjectFields(S.project)
       S.project.text = S.project.text or {}
-      if S.project.text[key] == nil then
+      local vanilla = S.data and S.data.text and S.data.text[key]
+      local cur = S.project.text[key]
+      if cur == "..." and type(vanilla) == "string"
+          and vanilla ~= "" and vanilla ~= "..." then
+        S.project.text[key] = nil
+        cur = nil
+      end
+      if cur == nil and (type(vanilla) ~= "string" or vanilla == "") then
         S.project.text[key] = fallback or "..."
       end
     end

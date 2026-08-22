@@ -284,6 +284,7 @@ end
 local GOLD_EXTRAS = {
   { file = "marts", keys = { "marts", "gen2Marts" } },
   { file = "scripts", keys = { "scripts", "gen2Scripts" } },
+  { file = "text", keys = { "text", "gen2Text" } },
   { file = "std_scripts", keys = { "std_scripts", "gen2StdScripts" } },
   { file = "events", keys = { "events", "gen2EventTables" } },
   { file = "initial_events", keys = { "initial_events", "gen2InitialEvents" } },

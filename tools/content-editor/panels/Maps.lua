@@ -8680,4 +8680,12 @@ function Maps.drawClassicTerrain(S, x, y, w, h, App)
   drawMapPreview(S, map, x, canvasY, w, h - 32 * s - extraH, App)
 end
 
+function Maps.resolveMap(S, mapId)
+  return resolveMapDef(S, mapId)
+end
+
+function Maps.ensureOwnedMap(S, mapId)
+  return ensureOwned(S, mapId)
+end
+
 return Maps

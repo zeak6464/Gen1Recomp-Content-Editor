@@ -13,9 +13,12 @@ local ModWriter = require("ModWriter")
 local RegList = require("RegList")
 local SpeciesPicker = require("SpeciesPicker")
 local Autocomplete = require("Autocomplete")
+local ChoicePicker = require("ChoicePicker")
 local Code = require("Code")
 local ModIO = require("ModIO")
 local Generation = require("Generation")
+local EventScriptEditor = require("EventScriptEditor")
+local OpcodeHelp = require("OpcodeHelp")
 local PAL = Theme.PAL
 
 local Events = {}
@@ -30,8 +33,8 @@ local STEP_KINDS = {
   { id = "jump", label = "Jump to label", gen1Only = true },
   { id = "jump_if_yes", label = "Jump if yes", gen1Only = true },
   { id = "jump_if_no", label = "Jump if no", gen1Only = true },
-  { id = "jump_script", label = "Jump script", gen2Only = true },
-  { id = "opcode", label = "Opcode", gen2Only = true },
+  { id = "jump_script", label = "Go to script", gen2Only = true },
+  { id = "opcode", label = "Other command", gen2Only = true },
   { id = "face_player", label = "Face player" },
   { id = "give_item", label = "Give item" },
   { id = "take_item", label = "Take item" },
@@ -167,8 +170,8 @@ local function shortcutDefs(S)
       make = function()
         return { kind = "opcode", cmd = { op = "end" }, op = "end" }
       end },
-    { label = "+ Jump scr", kind = "ghost", gen2Only = true,
-      tip = "iftrue / iffalse / sjump to another scriptKey",
+    { label = "+ Go to", kind = "ghost", gen2Only = true,
+      tip = "Continue in another script (if yes / if no / always)",
       make = function()
         return {
           kind = "jump_script", script = "", when = "true", op = "iftrue",
@@ -316,7 +319,12 @@ local function drawShortcutStrip(shortcuts, x, y, w, h, s, onAdd, opts)
   Kit.popClip()
 end
 
-local function stepLabel(kind)
+local function stepLabel(kind, step)
+  if kind == "opcode" then
+    local cmd = type(step) == "table" and (step.cmd or step) or nil
+    local op = cmd and (cmd.op or step.op)
+    return OpcodeHelp.label(op)
+  end
   for _, k in ipairs(STEP_KINDS) do
     if k.id == kind then return k.label end
   end
@@ -627,13 +635,7 @@ end
 
 local function resolveTextBody(S, strId)
   if not strId then return "" end
-  if S.project and S.project.text and S.project.text[strId] ~= nil then
-    return tostring(S.project.text[strId])
-  end
-  if S.data and S.data.text and S.data.text[strId] ~= nil then
-    return tostring(S.data.text[strId])
-  end
-  return ""
+  return Gen2Talk.getSays(S, strId)
 end
 
 local function encodeTextBody(body)
@@ -642,7 +644,115 @@ end
 
 local function decodeTextBody(display)
   return tostring(display or "")
-    :gsub("\\n", "\n"):gsub("\\f", "\f"):gsub("\\v", "\v"):gsub("\\/", "/")
+    :gsub("\\n", "\n"):gsub("\\f", "\f"):gsub("\\v", "\\v"):gsub("\\/", "/")
+end
+
+-- Gold bank:addr keys (55:4e7c). Keep TEXT_* / mod:… visible.
+local function looksLikeAddr(s)
+  return type(s) == "string" and s:match("^%x+:%x+$") ~= nil
+end
+
+local WHEN_LABEL = {
+  ["true"] = "If yes",
+  ["false"] = "If no",
+  always = "Always",
+}
+
+local function firstScriptLine(S, scriptKey)
+  local bag = Gen2Talk.getScriptSteps(S, scriptKey)
+  local mapId = (bag and bag.mapId)
+    or S.eventMapId
+    or select(1, parseKey(S.eventScriptKey))
+  if bag and type(bag.steps) == "table" then
+    for _, step in ipairs(bag.steps) do
+      if type(step) == "table"
+          and (step.kind == "show_text" or step.kind == "ask") then
+        local strId = resolveStringIdForText(S, step.text, mapId)
+        local body = strId and resolveTextBody(S, strId) or tostring(step.text or "")
+        body = body:gsub("[\r\n\f\v]+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+        if body ~= "" and body ~= "..." then
+          return body
+        end
+      end
+    end
+  end
+  local tid = Gen2Talk.textKeyForScript(S, scriptKey)
+  if tid then
+    local body = resolveTextBody(S, tid)
+    body = body:gsub("[\r\n\f\v]+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+    if body ~= "" and body ~= "..." then
+      return body
+    end
+  end
+  return nil
+end
+
+local function scriptDisplayName(S, scriptKey)
+  if type(scriptKey) ~= "string" or scriptKey == "" then
+    return "Pick a person or sign"
+  end
+  local mapId = S.eventMapId or select(1, parseKey(S.eventScriptKey))
+  if mapId then
+    for _, e in ipairs(TalkIndex.collect(S, mapId) or {}) do
+      if e.scriptKey == scriptKey or e.textId == scriptKey then
+        return e.label
+      end
+    end
+  end
+  if scriptKey:match("^mod:") then
+    return scriptKey:gsub("^mod:", ""):gsub("_", " ")
+  end
+  local line = firstScriptLine(S, scriptKey)
+  if line then return line end
+  if looksLikeAddr(scriptKey) then
+    return "Other lines"
+  end
+  return scriptKey
+end
+
+local function addJumpTargetsFrom(add, src)
+  if type(src) ~= "table" then return end
+  for _, item in ipairs(src) do
+    if type(item) == "table" then
+      if type(item.script) == "string" and item.script ~= "" then
+        add(item.script)
+      end
+      if type(item.cmd) == "table" and type(item.cmd.script) == "string"
+          and item.cmd.script ~= "" then
+        add(item.cmd.script)
+      end
+    end
+  end
+end
+
+local function collectScriptChoices(S, extraKey)
+  local mapId = S.eventMapId or select(1, parseKey(S.eventScriptKey))
+  local ids, labels, seen = {}, {}, {}
+  local function add(id, label)
+    if type(id) ~= "string" or id == "" or seen[id] then return end
+    seen[id] = true
+    ids[#ids + 1] = id
+    labels[id] = label or scriptDisplayName(S, id)
+  end
+  local curKey = select(2, parseKey(S.eventScriptKey))
+  if mapId then
+    for _, e in ipairs(TalkIndex.collect(S, mapId) or {}) do
+      local id = e.scriptKey or e.textId
+      local label = e.label
+      if id == curKey and label then
+        label = label .. " (this one)"
+      end
+      add(id, label)
+    end
+  end
+  if curKey then
+    add(curKey, scriptDisplayName(S, curKey) .. " (this one)")
+  end
+  local bag = curKey and Gen2Talk.getScriptSteps(S, curKey)
+  if bag then addJumpTargetsFrom(add, bag.steps) end
+  addJumpTargetsFrom(add, curKey and Gen2Talk.commands(S, curKey))
+  if extraKey then add(extraKey) end
+  return ids, labels
 end
 
 -- Edit show_text / ask: TEXT_* / _FooText edit project.text; literals decode \n.
@@ -672,10 +782,13 @@ local function drawDialogTextFields(S, App, step, i, fx, fw, fh, s, row)
         end
       end
     end
-    local yKey = row()
-    Kit.text("micro", "key", fx, yKey + 8 * s, PAL.faint)
-    step.text = field(App, "ev_t_" .. i, fx + 34 * s, yKey, fw - 34 * s, fh,
-      value, "TEXT_* or _FooText")
+    -- Gold bank:addr text ids are engine plumbing; the body above is the edit.
+    if not looksLikeAddr(value) then
+      local yKey = row()
+      Kit.text("micro", "key", fx, yKey + 8 * s, PAL.faint)
+      step.text = field(App, "ev_t_" .. i, fx + 34 * s, yKey, fw - 34 * s, fh,
+        value, "TEXT_* or _FooText")
+    end
   else
     local display = encodeTextBody(value)
     local edited = field(App, "ev_t_" .. i, fx, y, fw, fh, display,
@@ -696,6 +809,74 @@ local function previewDialogText(S, value, maxW)
     end
   end
   return fitIn("micro", value or "", maxW)
+end
+
+local function stepPreview(S, step, maxW)
+  if type(step) ~= "table" then return "" end
+  local kind = step.kind or "show_text"
+  maxW = maxW or 240
+  if kind == "raw" then
+    return fitIn("micro", step.note or "", maxW)
+  elseif kind == "show_image" then
+    local line = tostring(step.path or step.image or "")
+    if step.text and step.text ~= "" then
+      line = line .. "  ·  " .. tostring(step.text)
+    end
+    return fitIn("micro", line, maxW)
+  elseif kind == "show_text" or kind == "ask" then
+    local body = previewDialogText(S, step.text, maxW)
+    if body:sub(1, 1) ~= '"' and body ~= "" then
+      return '"' .. body .. '"'
+    end
+    return body
+  elseif kind == "label" or kind == "jump" or kind == "jump_if_yes"
+      or kind == "jump_if_no" then
+    return fitIn("micro", step.name or step.label or "", maxW)
+  elseif kind == "jump_script" then
+    local when = WHEN_LABEL[step.when or "true"] or tostring(step.when or "")
+    local dest = scriptDisplayName(S, step.script)
+    return fitIn("micro", when .. " → " .. dest, maxW)
+  elseif kind == "opcode" then
+    local cmd = type(step.cmd) == "table" and step.cmd or step
+    local shown = OpcodeHelp.preview(cmd)
+    if type(cmd.script) == "string" and cmd.script ~= "" then
+      local name = scriptDisplayName(S, cmd.script)
+      if shown == cmd.script or shown == "" then
+        shown = name
+      else
+        shown = shown:gsub(cmd.script, name, 1)
+      end
+    end
+    return fitIn("micro", shown, maxW)
+  elseif kind == "set_flag" or kind == "clear_flag"
+      or kind == "check_flag_skip" or kind == "check_flag_missing" then
+    return tostring(step.flag or step.event or "")
+  elseif kind == "give_item" or kind == "take_item"
+      or kind == "check_item_skip" or kind == "check_item_missing" then
+    return tostring(step.item or "") .. " x" .. tostring(step.count or 1)
+  elseif kind == "oneshot_gift" then
+    return tostring(step.item or "") .. " x" .. tostring(step.count or 1)
+  elseif kind == "give_pokemon" or kind == "give_starter"
+      or kind == "oneshot_pokemon" or kind == "wild_battle" then
+    return tostring(step.species or "") .. " Lv" .. tostring(step.level or 5)
+  elseif kind == "give_money" then
+    return tostring(step.amount or 0)
+  elseif kind == "warp" then
+    return fitIn("micro", string.format("%s (%s,%s)",
+      tostring(step.map or ""), tostring(step.x or 0), tostring(step.y or 0)),
+      maxW)
+  elseif kind == "trainer_battle" or kind == "oneshot_trainer" then
+    if step.class then
+      return "class " .. tostring(step.class) .. " / " .. tostring(step.member or 1)
+    end
+    return tostring(step.trainer or "") .. " #" .. tostring(step.party or 1)
+  elseif kind == "set_field" then
+    return fitIn("micro",
+      tostring(step.field or "") .. " = " .. tostring(step.value or ""), maxW)
+  elseif kind == "trade" then
+    return "#" .. tostring(step.index or 1)
+  end
+  return ""
 end
 
 local function drawStepFields(S, App, step, i, kind, fx, fy, fw, fh, s)
@@ -735,28 +916,86 @@ local function drawStepFields(S, App, step, i, kind, fx, fy, fw, fh, s)
       end
     end
   elseif kind == "opcode" then
-    local y = row()
     local cmd = type(step.cmd) == "table" and step.cmd or {}
     step.cmd = cmd
-    cmd.op = field(App, "ev_op_" .. i, fx, y, 140 * s, fh,
-      tostring(cmd.op or step.op or "end"), "op")
-    step.op = cmd.op
-    local y2 = row()
-    local text = cmd.text
-    local edited = field(App, "ev_opc_t_" .. i, fx, y2, fw, fh,
-      text ~= nil and tostring(text) or "", "text (optional)")
-    if edited ~= "" then cmd.text = edited elseif text then cmd.text = nil end
-    local y3 = row()
-    local script = cmd.script
-    local sed = field(App, "ev_opc_s_" .. i, fx, y3, fw, fh,
-      script ~= nil and tostring(script) or "", "script (optional)")
-    if sed ~= "" then cmd.script = sed elseif script then cmd.script = nil end
+    local op = tostring(cmd.op or step.op or "end")
+    cmd.op = op
+    step.op = op
+    local y = row()
+    ChoicePicker.field(S, {
+      x = fx, y = y, w = fw, h = fh,
+      current = op,
+      ids = OpcodeHelp.ops(),
+      labels = OpcodeHelp.labels(),
+      title = "COMMAND",
+      tooltip = "What this command does",
+      onPick = function(id)
+        step.cmd = { op = id or "end" }
+        step.op = step.cmd.op
+        App.markDirty()
+      end,
+    })
+    local fields = OpcodeHelp.fields(op, cmd)
+    for fi, spec in ipairs(fields) do
+      local fy = row()
+      local cap = spec.caption or spec.key
+      local capW = math.min(110 * s, fw * 0.38)
+      Kit.text("micro", cap, fx, fy + 8 * s, PAL.faint)
+      if spec.kind == "script" then
+        local ids, labels = collectScriptChoices(S, cmd.script)
+        ChoicePicker.field(S, {
+          x = fx + capW, y = fy, w = fw - capW, h = fh,
+          current = type(cmd.script) == "string" and cmd.script or "",
+          ids = ids,
+          labels = labels,
+          emptyLabel = "Pick a talk",
+          title = "WHICH TALK",
+          tooltip = "Which lines to run",
+          onPick = function(id)
+            cmd.script = type(id) == "string" and id or nil
+            App.markDirty()
+          end,
+        })
+      else
+        local raw = field(App, "ev_opc_" .. spec.key .. "_" .. i .. "_" .. fi,
+          fx + capW, fy, fw - capW, fh,
+          cmd[spec.key] ~= nil and tostring(cmd[spec.key]) or "",
+          spec.ph or spec.key)
+        if spec.numeric then
+          local n = tonumber(raw)
+          cmd[spec.key] = n or (raw ~= "" and raw or nil)
+        elseif raw ~= "" then
+          cmd[spec.key] = raw
+        else
+          cmd[spec.key] = nil
+        end
+      end
+    end
+    local hint = OpcodeHelp.hint(op)
+    if hint then
+      local hy = row()
+      Kit.text("micro", hint, fx, hy + 6 * s, PAL.muted)
+    end
   elseif kind == "jump_script" then
     local y = row()
-    step.script = field(App, "ev_js_" .. i, fx, y, fw - 100 * s, fh,
-      step.script or "", "bank:addr or mod:…")
+    local ids, labels = collectScriptChoices(S, step.script)
     local when = step.when or "true"
-    if Kit.chip(fx + fw - 90 * s, y, 90 * s, fh, when, true, PAL.yellow) then
+    local whenW = 90 * s
+    ChoicePicker.field(S, {
+      x = fx, y = y, w = fw - whenW - 8 * s, h = fh,
+      current = step.script or "",
+      ids = ids,
+      labels = labels,
+      emptyLabel = "Pick a person or sign",
+      title = "GO TO",
+      tooltip = "Who to talk to next",
+      onPick = function(id)
+        step.script = type(id) == "string" and id or ""
+        App.markDirty()
+      end,
+    })
+    local whenLabel = WHEN_LABEL[when] or when
+    if Kit.chip(fx + fw - whenW, y, whenW, fh, whenLabel, true, PAL.yellow) then
       step.when = (when == "true" and "false")
         or (when == "false" and "always")
         or "true"
@@ -800,7 +1039,7 @@ local function drawStepFields(S, App, step, i, kind, fx, fy, fw, fh, s)
       if kind == "check_flag_skip" or kind == "check_flag_missing" then
         local y2 = row()
         step.script = field(App, "ev_fs_" .. i, fx, y2, fw, fh,
-          step.script or "", "jump scriptKey")
+          step.script or "", "target script")
       end
     else
       step.flag = field(App, "ev_f_" .. i, fx, y, 160 * s, fh,
@@ -1105,7 +1344,7 @@ local function drawEditableStep(S, App, steps, i, listKey, viewX, fy, innerW, ki
     -- Visual only; drag starts via mouseClicked on the handle hit rect.
   end
 
-  if Kit.button(kindX, fy, kindW, fh, stepLabel(kind),
+  if Kit.button(kindX, fy, kindW, fh, stepLabel(kind, step),
       { kind = "accent", font = "small",
         tooltip = kind == "raw"
           and "Engine cmd — edit the line, or click to change step type"
@@ -1525,10 +1764,7 @@ local function drawScripts(S, x, y, w, h, App)
     meta = { owned = true, source = "mod", readOnly = false, gen2 = true }
   end
   local readOnly = not owned
-  local shortcuts = (not readOnly) and shortcutDefs(S) or {}
-  -- Size footer to fit every shortcut chip (old fixed 120px clipped Warp etc.).
-  local footerH = readOnly and 40 * s
-    or math.max(120 * s, shortcutStripHeight(shortcuts, formW, s, 124 * s))
+  local footerH = readOnly and 40 * s or 0
   local advH = advOn and math.min(210 * s, math.floor(listH * 0.42)) or 0
   local pad = 12 * s
   local viewX = formX + pad
@@ -1537,7 +1773,7 @@ local function drawScripts(S, x, y, w, h, App)
   local viewH = math.max(40 * s,
     listH - pad - footerH - 36 * s - advH - (advOn and 6 * s or 0))
 
-  Kit.text("micro", fitIn("micro", S.eventScriptKey, formW - 24 * s),
+  Kit.text("micro", fitIn("micro", S.eventScriptKey, formW - (readOnly and 24 or 200) * s),
     formX + 12 * s, listY + 10 * s, PAL.faint)
   local src = (meta and meta.source) or (owned and "mod") or "?"
   Kit.text("micro",
@@ -1552,83 +1788,17 @@ local function drawScripts(S, x, y, w, h, App)
         or "Mod override — edit steps here; Dialog edits the TEXT_* body"),
     formX + 12 * s, listY + 22 * s, readOnly and PAL.yellow or PAL.green)
 
-  FormPane.track(S, "eventFormScroll", S.eventScriptKey .. (readOnly and ":v" or ":m"))
-  local fy, view = FormPane.begin(S, "eventFormScroll", viewX, viewY, viewW, viewH)
-  local contentTop = fy
-  local fh = 28 * s
-  local kindW = 150 * s
-  local innerW = view.contentW or view.w
-
-  if #steps == 0 then
-    Kit.text("small", "No script rows for this object.", viewX, fy, PAL.muted)
-    fy = fy + 24 * s
-  end
-
   local listKey = "script:" .. tostring(S.eventScriptKey or "")
-  if not readOnly then beginStepListReorder(S, listKey) end
-  for i, step in ipairs(steps) do
-    local kind = step.kind or "show_text"
-    if readOnly then
-      Kit.text("micro", stepLabel(kind), viewX, fy + 8 * s, PAL.caption)
-      if kind == "raw" then
-        Kit.text("micro", fitIn("micro", step.note or "", innerW - kindW - 8 * s),
-          viewX + kindW + 8 * s, fy + 8 * s, PAL.muted)
-      elseif kind == "show_image" then
-        local line = tostring(step.path or step.image or "")
-        if step.text and step.text ~= "" then
-          line = line .. "  ·  " .. tostring(step.text)
-        end
-        Kit.text("micro", fitIn("micro", line, innerW - kindW - 8 * s),
-          viewX + kindW + 8 * s, fy + 8 * s, PAL.text)
-      elseif kind == "show_text" or kind == "ask" then
-        Kit.text("micro",
-          previewDialogText(S, step.text, innerW - kindW - 8 * s),
-          viewX + kindW + 8 * s, fy + 8 * s, PAL.text)
-      elseif kind == "label" or kind == "jump" or kind == "jump_if_yes"
-          or kind == "jump_if_no" then
-        Kit.text("micro", fitIn("micro", step.name or step.label or "",
-            innerW - kindW - 8 * s),
-          viewX + kindW + 8 * s, fy + 8 * s, PAL.text)
-      elseif kind == "jump_script" then
-        Kit.text("micro", fitIn("micro",
-            tostring(step.when or "") .. " → " .. tostring(step.script or ""),
-            innerW - kindW - 8 * s),
-          viewX + kindW + 8 * s, fy + 8 * s, PAL.text)
-      elseif kind == "opcode" then
-        local cmd = step.cmd or {}
-        Kit.text("micro", fitIn("micro",
-            tostring(cmd.op or step.op or "?"),
-            innerW - kindW - 8 * s),
-          viewX + kindW + 8 * s, fy + 8 * s, PAL.muted)
-      elseif kind == "set_flag" or kind == "clear_flag"
-          or kind == "check_flag_skip" or kind == "check_flag_missing" then
-        Kit.text("micro", tostring(step.flag or ""),
-          viewX + kindW + 8 * s, fy + 8 * s, PAL.text)
-      elseif kind == "give_item" or kind == "take_item"
-          or kind == "check_item_skip" or kind == "check_item_missing" then
-        Kit.text("micro",
-          tostring(step.item or "") .. " x" .. tostring(step.count or 1),
-          viewX + kindW + 8 * s, fy + 8 * s, PAL.text)
-      elseif kind == "give_pokemon" or kind == "give_starter"
-          or kind == "oneshot_pokemon" or kind == "wild_battle" then
-        Kit.text("micro",
-          tostring(step.species or "") .. " Lv" .. tostring(step.level or 5),
-          viewX + kindW + 8 * s, fy + 8 * s, PAL.text)
-      else
-        Kit.text("micro", stepLabel(kind),
-          viewX + kindW + 8 * s, fy + 8 * s, PAL.faint)
-      end
-      fy = fy + fh + 6 * s
-    else
-      fy = drawEditableStep(S, App, steps, i, listKey,
-        viewX, fy, innerW, kindW, fh, s)
-    end
-  end
-  if not readOnly then
-    finishStepListReorder(S, steps, listKey, App)
-  end
-
-  FormPane.finish(S, "eventFormScroll", contentTop, fy, view)
+  EventScriptEditor.draw(S, App, {
+    x = viewX, y = viewY, w = viewW, h = viewH,
+    steps = steps,
+    scriptId = textId,
+    listKey = listKey,
+    readOnly = readOnly,
+    onChange = function()
+      if gen2 then Gen2Talk.commitSteps(S, textId) end
+    end,
+  })
 
   if advOn and advH > 0 then
     drawAdvancedTalk(S, App, viewX, viewY + viewH + 4 * s, viewW, advH,
@@ -1648,41 +1818,27 @@ local function drawScripts(S, x, y, w, h, App)
       S.status = (gen2 and "Overrode " or "Cloned ") .. S.eventScriptKey
         .. (gen2 and " — edit steps here" or " — edit steps here; Dialog edits the TEXT_* body")
     end
-    if Kit.button(formX + 200 * s, by, 70 * s, 28 * s, "Copy", {
-        kind = "ghost", font = "small",
-        tooltip = "Copy these steps (Ctrl+C) — paste into another script after Clone",
+    if Kit.button(formX + 200 * s, by, 70 * s, 28 * s, "Dialog", {
+        kind = "accent", font = "small",
+        tooltip = "Open this line on the Dialog tab",
       }) then
-      local ok, msg = copyCurrentEvent(S)
-      S.status = msg or (ok and "Copied" or "Copy failed")
+      if gen2 then
+        openDialogForScript(S, mapId, textId)
+      else
+        S.tab = "dialog"
+        S.dialogMapId = mapId
+        S.dialogTextId = textId
+      end
     end
     return
   end
 
   local script = owned
-  local bh = 26 * s
-  local bx = formX + 12 * s
-  local by = listY + listH - footerH + 6 * s
-  if Kit.button(bx, by, 56 * s, bh, "Copy", {
-      kind = "ghost", font = "small",
-      tooltip = "Copy all steps (Ctrl+C)",
-    }) then
-    local ok, msg = copyCurrentEvent(S)
-    S.status = msg or (ok and "Copied" or "Copy failed")
-  end
-  bx = bx + 60 * s
-  if Kit.button(bx, by, 56 * s, bh, "Paste", {
-      kind = "good", font = "small",
-      tooltip = "Replace steps with clipboard (Ctrl+V)",
-    }) then
-    local ok, msg = pasteEventClip(S, App)
-    S.status = msg or (ok and "Pasted" or "Paste failed")
-  end
   if gen2 then
-    bx = bx + 60 * s
-    if Kit.button(bx, by, 80 * s, bh, "Simplify", {
-        kind = "ghost", font = "small",
-        tooltip = "Replace with a single jumptextfaceplayer (destructive)",
-      }) then
+    local sx = formX + formW - 90 * s
+    local sy = listY + 8 * s
+    if Kit.chip(sx, sy, 80 * s, 20 * s, "Simplify", false, PAL.yellow, PAL.steel,
+        "Replace with a single jumptextfaceplayer (destructive)") then
       local n = script.steps and #script.steps or 0
       if n > 1 and not S._confirmSimplify then
         S._confirmSimplify = textId
@@ -1697,16 +1853,22 @@ local function drawScripts(S, x, y, w, h, App)
     elseif S._confirmSimplify and S._confirmSimplify ~= textId then
       S._confirmSimplify = nil
     end
-  end
-  drawShortcutStrip(shortcuts, formX + 12 * s, by, formW - 24 * s, footerH - 8 * s, s,
-    function(step)
-      script.steps = script.steps or {}
-      script.steps[#script.steps + 1] = step
-      if gen2 then Gen2Talk.commitSteps(S, textId) end
-      App.markDirty()
-    end, { firstRowSkip = gen2 and 210 * s or 124 * s })
-  if gen2 and not readOnly then
+    if Kit.button(formX + formW - 180 * s, listY + 8 * s, 82 * s, 20 * s, "Dialog", {
+        kind = "ghost", font = "small",
+        tooltip = "Open this script's text on the Dialog tab",
+      }) then
+      openDialogForScript(S, mapId, textId)
+    end
     Gen2Talk.commitSteps(S, textId)
+  else
+    if Kit.button(formX + formW - 90 * s, listY + 8 * s, 80 * s, 20 * s, "Dialog", {
+        kind = "ghost", font = "small",
+        tooltip = "Edit the TEXT_* body on the Dialog tab",
+      }) then
+      S.tab = "dialog"
+      S.dialogMapId = mapId
+      S.dialogTextId = textId
+    end
   end
 end
 
@@ -2409,7 +2571,7 @@ local function drawHooks(S, x, y, w, h, App)
       local show = ModWriter.rowsToSteps(rows)
       for _, step in ipairs(show) do
         local sk = step.kind or "raw"
-        Kit.text("micro", stepLabel(sk), viewX, fy + 6 * s, PAL.caption)
+        Kit.text("micro", stepLabel(sk, step), viewX, fy + 6 * s, PAL.caption)
         local detail = step.note or step.text or step.flag or step.name or ""
         Kit.text("micro",
           fitIn("micro", tostring(detail), innerW - kindW - 8 * s),
@@ -2706,6 +2868,70 @@ function Events.keypressed(S, key, App)
     return true
   end
   return false
+end
+
+function Events.bindSession(S)
+  acS = S
+end
+
+function Events.stepLabel(kind, step)
+  return stepLabel(kind, step)
+end
+
+function Events.stepKinds()
+  return STEP_KINDS
+end
+
+function Events.stepKindAllowed(S, rec)
+  return stepKindAllowed(S, rec)
+end
+
+function Events.drawStepFields(S, App, step, i, kind, fx, fy, fw, fh, s)
+  return drawStepFields(S, App, step, i, kind, fx, fy, fw, fh, s)
+end
+
+function Events.stepPreview(S, step, maxW)
+  return stepPreview(S, step, maxW)
+end
+
+function Events.cloneSteps(steps)
+  return cloneSteps(steps)
+end
+
+function Events.replaceSteps(dest, src)
+  return replaceSteps(dest, src)
+end
+
+function Events.parseKey(key)
+  return parseKey(key)
+end
+
+-- Own a talk script bag (Gold scriptSteps / Gen1 talkScripts) for editing.
+function Events.ownTalkScript(S, mapId, scriptId)
+  if not (S and S.project and scriptId and scriptId ~= "") then return nil end
+  State.ensureProjectFields(S.project)
+  if Generation.isGen2(S) then
+    local bag = Gen2Talk.getScriptSteps(S, scriptId)
+    if bag then return bag.steps end
+    bag = Gen2Talk.ensureScriptSteps(S, scriptId, mapId)
+    if bag then Gen2Talk.commitSteps(S, scriptId) end
+    return bag and bag.steps or nil
+  end
+  local key = mapId .. "/" .. scriptId
+  local script = S.project.talkScripts[key]
+  if not script then
+    TalkIndex.cloneToProject(S, mapId, scriptId)
+    script = S.project.talkScripts[key]
+  end
+  if not script then
+    script = {
+      mapId = mapId,
+      textId = scriptId,
+      steps = { { kind = "show_text", text = scriptId or "Hello!" } },
+    }
+    S.project.talkScripts[key] = script
+  end
+  return script.steps
 end
 
 function Events.draw(S, x, y, w, h, App)

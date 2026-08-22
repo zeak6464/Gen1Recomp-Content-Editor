@@ -7,6 +7,8 @@ local LayeredMap = require("LayeredMap")
 local TilesetExport = require("TilesetExport")
 local Generation = require("Generation")
 local FormPane = require("FormPane")
+local EventScriptEditor = require("EventScriptEditor")
+local Gen2Talk = require("Gen2Talk")
 
 local MapBuilder = {}
 local PAL = Theme.PAL
@@ -79,6 +81,80 @@ local BASIC_EVENT_TOOLS = { object = true, sign = true, event_select = true }
 local function clamp(value, low, high)
   value = tonumber(value) or low
   return math.max(low, math.min(high, value))
+end
+
+-- Selected NPC / sign → mapId + script id (Gold scriptKey or Gen1 TEXT_*).
+local function selectedTalkTarget(S)
+  local Maps = require("Maps")
+  local map = Maps.resolveMap(S, S.mapId)
+  if not map then return nil end
+  local section = S.mapSection or ""
+  if section == "objects" and S.mapObjectIndex then
+    local obj = map.objects and map.objects[S.mapObjectIndex]
+    if not obj then return nil end
+    if Generation.isGen2(S) then
+      return {
+        map = map, kind = "object", index = S.mapObjectIndex,
+        mapId = map.id or S.mapId, scriptId = obj.scriptKey,
+      }
+    end
+    return {
+      map = map, kind = "object", index = S.mapObjectIndex,
+      mapId = map.id or S.mapId, scriptId = obj.text,
+    }
+  end
+  if section == "signs" and S.mapSignIndex then
+    if Generation.isGen2(S) then
+      local ev = map.bgEvents and map.bgEvents[S.mapSignIndex]
+      if not ev then return nil end
+      return {
+        map = map, kind = "sign", index = S.mapSignIndex,
+        mapId = map.id or S.mapId, scriptId = ev.scriptKey,
+      }
+    end
+    local sign = map.signs and map.signs[S.mapSignIndex]
+    if not sign then return nil end
+    return {
+      map = map, kind = "sign", index = S.mapSignIndex,
+      mapId = map.id or S.mapId, scriptId = sign.text,
+    }
+  end
+  return nil
+end
+
+local function ownSelectedTalk(S, App)
+  local target = selectedTalkTarget(S)
+  if not target then return nil, "Select an NPC or sign" end
+  local Maps = require("Maps")
+  local Events = require("Events")
+  local map = Maps.ensureOwnedMap(S, target.mapId)
+  if not map then return nil, "Could not own map" end
+  local scriptId = target.scriptId
+  if type(scriptId) ~= "string" or scriptId == "" then
+    if Generation.isGen2(S) then
+      local kind = target.kind == "sign" and "SIGN" or "OBJ"
+      scriptId = select(1, Gen2Talk.allocTalk(S, target.mapId, kind,
+        target.index, target.kind ~= "sign"))
+      if target.kind == "object" and map.objects and map.objects[target.index] then
+        map.objects[target.index].scriptKey = scriptId
+      elseif target.kind == "sign" and map.bgEvents and map.bgEvents[target.index] then
+        map.bgEvents[target.index].scriptKey = scriptId
+      end
+    else
+      scriptId = string.format("TEXT_%s_%s%d", target.mapId,
+        target.kind == "sign" and "SIGN" or "OBJ", target.index)
+      if target.kind == "object" and map.objects and map.objects[target.index] then
+        map.objects[target.index].text = scriptId
+      elseif target.kind == "sign" and map.signs and map.signs[target.index] then
+        map.signs[target.index].text = scriptId
+      end
+    end
+    if App and App.markDirty then App.markDirty() end
+  end
+  local steps = Events.ownTalkScript(S, target.mapId, scriptId)
+  S.eventMapId = target.mapId
+  S.eventScriptKey = target.mapId .. "/" .. scriptId
+  return steps, scriptId, target.mapId
 end
 
 local function importStencil(S, source, App)
@@ -1709,9 +1785,18 @@ local function drawToolbar(S, source, x, y, w, App)
       local Dialog = require("Dialog")
       Dialog.openMap(S, S.mapId)
     end
+    if Kit.chip(x + 66 * s, barY, 58 * s, 24 * s, "Script",
+        S.builderShowScript == true, PAL.yellow, PAL.steel,
+        "Edit the selected NPC/sign command list") then
+      S.builderShowScript = not S.builderShowScript
+      if S.builderShowScript then
+        S._builderScriptFor = nil
+        ownSelectedTalk(S, App)
+      end
+    end
     Kit.text("micro", Kit.ellipsize("micro",
-      "Click a cell to place; drag an existing marker to move it", w - 76 * s),
-      x + 70 * s, barY + 5 * s, PAL.muted)
+      "Click a cell to place; drag an existing marker to move it", w - 140 * s),
+      x + 130 * s, barY + 5 * s, PAL.muted)
     local bx = x
     if S.builderTool == "trainer" then
       local fieldY = barY + 29 * s
@@ -1752,7 +1837,7 @@ local function drawToolbar(S, source, x, y, w, App)
           LayeredMap.collisionBase(S.builderCollision or "solid") == mode,
           PAL.green, PAL.steel,
           mode == "cut"
-            and "CUT tree — put the tree on a layer above ground" or nil) then
+            and "CUT tree — overlay on grass, or a tree on ground next to grass" or nil) then
         S.builderCollision = mode
         if mode == "ledge" then
           S.builderLedgeDir = S.builderLedgeDir or "down"
@@ -2559,8 +2644,55 @@ function MapBuilder.draw(S, x, y, w, h, App)
   end
 
   local canvasY = drawToolbar(S, source, centerX, y, centerW, App)
-  Kit.card(centerX, canvasY, centerW, y + h - canvasY, 10 * s)
-  drawCanvas(S, source, centerX, canvasY, centerW, y + h - canvasY, App)
+  local scriptH = 0
+  if S.mapEditMode == "events" and S.builderShowScript then
+    scriptH = math.min(280 * s, math.max(180 * s, (y + h - canvasY) * 0.42))
+  end
+  local canvasH = y + h - canvasY - (scriptH > 0 and (scriptH + 6 * s) or 0)
+  Kit.card(centerX, canvasY, centerW, canvasH, 10 * s)
+  drawCanvas(S, source, centerX, canvasY, centerW, canvasH, App)
+  if scriptH > 0 then
+    local sy = canvasY + canvasH + 6 * s
+    Kit.card(centerX, sy, centerW, scriptH, 10 * s)
+    local pad = 8 * s
+    local target = selectedTalkTarget(S)
+    local selKey = target
+      and (tostring(target.mapId) .. "/" .. tostring(target.kind)
+        .. "/" .. tostring(target.index))
+      or nil
+    if selKey and S._builderScriptFor ~= selKey then
+      S._builderScriptFor = selKey
+      ownSelectedTalk(S, App)
+    end
+    local steps, scriptId, mapId
+    if target and type(target.scriptId) == "string" and target.scriptId ~= "" then
+      local Events = require("Events")
+      steps = Events.ownTalkScript(S, target.mapId, target.scriptId)
+      scriptId, mapId = target.scriptId, target.mapId
+      S.eventMapId = mapId
+      S.eventScriptKey = mapId .. "/" .. scriptId
+    elseif target then
+      steps, scriptId, mapId = ownSelectedTalk(S, App)
+    end
+    if not steps then
+      Kit.emptyBox(centerX + pad, sy + pad, centerW - 2 * pad, scriptH - 2 * pad,
+        "Select an NPC or sign")
+    else
+      EventScriptEditor.draw(S, App, {
+        x = centerX + pad, y = sy + pad,
+        w = centerW - 2 * pad, h = scriptH - 2 * pad,
+        steps = steps,
+        scriptId = scriptId,
+        listKey = "builder:" .. tostring(mapId) .. "/" .. tostring(scriptId),
+        readOnly = false,
+        onChange = function()
+          if Generation.isGen2(S) then
+            Gen2Talk.commitSteps(S, scriptId)
+          end
+        end,
+      })
+    end
+  end
   drawProperties(S, source, rightX, y, rightW, h, App)
 end
 

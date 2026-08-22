@@ -28,6 +28,7 @@ function ChoicePicker.open(S, opts)
     focus = cur,
     current = cur,
     ids = opts.ids or {},
+    labels = opts.labels or {},
     title = opts.title or "CHOOSE",
     allowClear = opts.allowClear and true or false,
     clearLabel = opts.clearLabel or "(none)",
@@ -56,7 +57,8 @@ function ChoicePicker.field(S, opts)
   local s = Kit.scale
   local x, y, w, h = opts.x, opts.y, opts.w, opts.h
   local cur = opts.current or ""
-  local label = cur ~= "" and cur or (opts.emptyLabel or "(pick)")
+  local shown = (opts.labels and opts.labels[cur]) or cur
+  local label = shown ~= "" and shown or (opts.emptyLabel or "(pick)")
   if Kit.button(x, y, w, h, Kit.ellipsize("small", label, w - 10 * s), {
       kind = opts.kind or "accent",
       tooltip = opts.tooltip or "Pick from list",
@@ -64,6 +66,7 @@ function ChoicePicker.field(S, opts)
     ChoicePicker.open(S, {
       current = cur ~= "" and cur or nil,
       ids = opts.ids,
+      labels = opts.labels,
       title = opts.title or "CHOOSE",
       allowClear = opts.allowClear,
       clearLabel = opts.clearLabel or opts.emptyLabel,
@@ -114,6 +117,7 @@ function ChoicePicker.draw(S, x, y, w, h)
     p.offset = 0
   end
 
+  local labels = p.labels or {}
   local list = {}
   for _, id in ipairs(p.ids or {}) do
     if type(id) == "string" and id ~= "" then list[#list + 1] = id end
@@ -121,7 +125,8 @@ function ChoicePicker.draw(S, x, y, w, h)
   if (p.query or "") ~= "" then
     local filtered, ql = {}, p.query:lower()
     for _, id in ipairs(list) do
-      if id:lower():find(ql, 1, true) then
+      local shown = tostring(labels[id] or id)
+      if id:lower():find(ql, 1, true) or shown:lower():find(ql, 1, true) then
         filtered[#filtered + 1] = id
       end
     end
@@ -158,7 +163,8 @@ function ChoicePicker.draw(S, x, y, w, h)
         Kit.popClip()
         return
       end
-      Kit.text("mono", Kit.ellipsize("mono", id, math.max(8, innerW - 12 * s)),
+      local shown = labels[id] or id
+      Kit.text("small", Kit.ellipsize("small", shown, math.max(8, innerW - 12 * s)),
         cx + 8 * s, ry + 6 * s, on and PAL.heading or PAL.text)
       ry = ry + rowH + 3 * s
     end
