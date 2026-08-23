@@ -318,7 +318,7 @@ function TalkIndex.allMapIds(S)
       add(key:match("^([^/]+)/"))
     end
   end
-  for id in pairs(Generation.dataMaps(S)) do add(id) end
+  for _, id in ipairs(Generation.listedMapIds(S)) do add(id) end
   TalkIndex.ensureScripts()
   local ok, MapScripts = pcall(require, "src.script.MapScripts")
   if ok and MapScripts then

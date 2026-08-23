@@ -154,12 +154,20 @@ local function snapshotVanillaCatalog()
   -- Live Data can still hold editor records from a previous compile; drop those.
   local Generation = require("Generation")
   local maps, tilesets = {}, {}
+  S._vanillaMapBackup = {}
+  local dropMaps = {}
   for id, rec in pairs(Generation.maps(Data) or {}) do
-    if type(rec) ~= "table" or rec._isNew == true
-        or (type(rec.index) == "number" and rec.index >= 1000) then
-      -- editor / mod-authored, not a ROM id
+    if type(rec) ~= "table" or Generation.isEditorMap(rec) then
+      dropMaps[#dropMaps + 1] = id
     else
       maps[id] = true
+      S._vanillaMapBackup[id] = Generation.cloneMapRecord(rec)
+    end
+  end
+  for _, id in ipairs(dropMaps) do
+    if Data.maps then Data.maps[id] = nil end
+    if Data.gen2Maps and Data.gen2Maps ~= Data.maps then
+      Data.gen2Maps[id] = nil
     end
   end
   for id, rec in pairs(Generation.tilesets(Data) or {}) do
@@ -193,6 +201,7 @@ local function refreshModsAndEvents()
   mods:load(Data)
   S.data = Data
   S.mods = mods
+  require("Generation").restoreUnownedLiveMaps(S)
   local okCat, Catalog = pcall(require, "Catalog")
   if okCat and Catalog.scrapeEvents then
     local modRoots = {}
@@ -267,7 +276,6 @@ function App.resetCatalogSelection()
   if not S or not S.data then return end
   local previousMapId = S.mapId or S.builderMapId
   S._liveTilesets = nil
-  S._vanillaMapBackup = nil
   S._mapCenteredFor = nil
   S._g2MapBaker = nil
   S.mapListOffset = 0
@@ -293,11 +301,14 @@ function App.resetCatalogSelection()
     table.sort(ids)
     S.moveId = ids[1]
   end
-  local liveMaps = require("Generation").dataMaps(S)
+  local Generation = require("Generation")
+  Generation.pruneForeignLiveMaps(S)
+  local listed = Generation.listedMapIds(S)
   local mapStillExists = previousMapId and (
     (S.project and S.project.maps and S.project.maps[previousMapId])
-    or liveMaps[previousMapId])
-  S.mapId = mapStillExists and previousMapId or firstSortedId(liveMaps)
+    or (S.project and S.project.layeredMaps and S.project.layeredMaps[previousMapId])
+    or Generation.isRomMap(S, previousMapId))
+  S.mapId = mapStillExists and previousMapId or listed[1]
   S.builderMapId = S.mapId
   S.dialogMapId = S.mapId
   S.dialogTextId = nil
@@ -553,13 +564,12 @@ function App.openMod(path)
       S.typeId = ids[1]
     end
   end
+  local Generation = require("Generation")
+  Generation.restoreUnownedLiveMaps(S)
   local projectMapIds = {}
   for id in pairs(project.maps or {}) do projectMapIds[#projectMapIds + 1] = id end
   table.sort(projectMapIds)
-  S.mapId = projectMapIds[1]
-  if not S.mapId then
-    S.mapId = firstSortedId(require("Generation").dataMaps(S))
-  end
+  S.mapId = projectMapIds[1] or Generation.listedMapIds(S)[1]
   S.builderMapId = S.mapId
   S.dialogMapId = S.mapId
   S._mapCenteredFor = nil

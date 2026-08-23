@@ -404,6 +404,7 @@ local EVENT_MODE_SECTIONS = {
 }
 local EVENT_TOOLS = {
   object = true, warp = true, sign = true, trainer = true, wild = true,
+  berry = true, path = true, trigger = true,
 }
 
 local function allocGen2Talk(S, mapId, kind, index, facePlayer)
@@ -512,19 +513,7 @@ end
 
 local function allMapIds(S)
   scrubStaleLiveMapAliases(S)
-  local seen, ids = {}, {}
-  for id in pairs((S.project and S.project.maps) or {}) do
-    seen[id] = true
-    ids[#ids + 1] = id
-  end
-  for id in pairs(Generation.dataMaps(S)) do
-    if not seen[id] then
-      seen[id] = true
-      ids[#ids + 1] = id
-    end
-  end
-  table.sort(ids)
-  return ids
+  return Generation.listedMapIds(S)
 end
 
 -- Move a project map to a new id. Also rebinds the live data.maps alias so
@@ -589,6 +578,12 @@ local function resolveMapDef(S, mapId)
   if S.project and S.project.maps and S.project.maps[mapId] then
     return S.project.maps[mapId], true
   end
+  if S.project and S.project.layeredMaps and S.project.layeredMaps[mapId] then
+    local live = Generation.dataMaps(S)[mapId]
+    if live then return live, true end
+  end
+  local bak = S._vanillaMapBackup and S._vanillaMapBackup[mapId]
+  if type(bak) == "table" then return bak, false end
   local live = Generation.dataMaps(S)[mapId]
   if live then return live, false end
   return nil, false
@@ -651,10 +646,12 @@ local function ensureOwned(S, mapId)
   if not def then return nil end
   if owned then return def end
   S._vanillaMapBackup = S._vanillaMapBackup or {}
-  if S.data and S.data.maps and S.data.maps[mapId] and not S._vanillaMapBackup[mapId] then
-    S._vanillaMapBackup[mapId] = S.data.maps[mapId]
+  local rom = S._vanillaMapBackup[mapId]
+  if not rom and S.data and S.data.maps and S.data.maps[mapId] then
+    rom = deepCloneMap(S.data.maps[mapId])
+    S._vanillaMapBackup[mapId] = rom
   end
-  local copy = deepCloneMap(def)
+  local copy = deepCloneMap(rom or def)
   -- Owning a map that is already in Data (mods:load / compile) is not a
   -- vanilla clone. Keep it as a new id so Save registers instead of MK103.
   if S._vanillaMapIds and S._vanillaMapIds[mapId] ~= true then
@@ -2000,20 +1997,43 @@ local function mapPreviewPalette(S, mapDef, renderer)
   return mapPaletteName(S, mapDef)
 end
 
+local function canvasAlive(img)
+  if not img or img == false then return false end
+  if type(img.isReleased) == "function" then
+    local ok, dead = pcall(img.isReleased, img)
+    if ok and dead then return false end
+  end
+  return true
+end
+
+local function releaseCanvas(img)
+  if img and img ~= false and img.release then
+    pcall(img.release, img)
+  end
+end
+
 function Maps.invalidateGoldPreview(S, mapId)
   local baker = S and S._g2MapBaker
   if baker and baker.mapImages then
-    local function drop(id)
-      local img = baker.mapImages[id]
-      if img and img.release then pcall(img.release, img) end
-      baker.mapImages[id] = nil
+    local function drop(key)
+      local img = baker.mapImages[key]
+      baker.mapImages[key] = nil
+      releaseCanvas(img)
     end
     if mapId then
-      drop(mapId)
+      local prefix = tostring(mapId) .. "|"
+      local keys = {}
+      for key in pairs(baker.mapImages) do
+        if key == mapId
+            or (type(key) == "string" and key:sub(1, #prefix) == prefix) then
+          keys[#keys + 1] = key
+        end
+      end
+      for i = 1, #keys do drop(keys[i]) end
     else
-      local ids = {}
-      for id in pairs(baker.mapImages) do ids[#ids + 1] = id end
-      for i = 1, #ids do drop(ids[i]) end
+      local keys = {}
+      for key in pairs(baker.mapImages) do keys[#keys + 1] = key end
+      for i = 1, #keys do drop(keys[i]) end
     end
   end
   if S and S._editorLiveMaps then
@@ -2953,7 +2973,11 @@ function Maps.loadEditorMap(S, mapId)
   end
   local live = S._editorLiveMaps and S._editorLiveMaps[mapId]
   if live and live.sig == liveSig and live.map and live.map.renderer then
-    return true, live.map
+    local canvas = live.map.renderer._canvas
+    if canvas == nil or canvasAlive(canvas) then
+      return true, live.map
+    end
+    S._editorLiveMaps[mapId] = nil
   end
   if Generation.isGen2(S) or Generation.mapLooksGen2(def) then
     if not def then return false, "unknown map" end
@@ -3073,25 +3097,29 @@ function Maps.loadEditorMap(S, mapId)
     end
     local todKey = tostring(mapId) .. "|" .. tostring(daytime)
     local img = baker.mapImages and baker.mapImages[todKey]
-    local okR, renderer = true, nil
-    if img then
-      renderer = {
+    if img and not canvasAlive(img) then
+      baker.mapImages[todKey] = nil
+      img = nil
+    end
+    local function previewDraw(canvas)
+      return {
+        _canvas = canvas,
         draw = function(_, camX, camY)
+          if not canvasAlive(canvas) then return end
           love.graphics.setColor(1, 1, 1, 1)
-          love.graphics.draw(img, -math.floor(camX or 0), -math.floor(camY or 0))
+          love.graphics.draw(canvas, -math.floor(camX or 0), -math.floor(camY or 0))
         end,
       }
+    end
+    local okR, renderer = true, nil
+    if img then
+      renderer = previewDraw(img)
     else
       okR, img = pcall(MapPreview.bake, baker, map, daytime)
       if okR and img then
         baker.mapImages = baker.mapImages or {}
         baker.mapImages[todKey] = img
-        renderer = {
-          draw = function(_, camX, camY)
-            love.graphics.setColor(1, 1, 1, 1)
-            love.graphics.draw(img, -math.floor(camX or 0), -math.floor(camY or 0))
-          end,
-        }
+        renderer = previewDraw(img)
       else
         renderer = img
         okR = false
@@ -3112,12 +3140,21 @@ function Maps.loadEditorMap(S, mapId)
     if images then
       local n = 0
       for _ in pairs(images) do n = n + 1 end
-      if n > 6 then
-        for id, img in pairs(images) do
-          if id ~= todKey and n > 6 then
-            if img and img.release then pcall(img.release, img) end
-            images[id] = nil
-            n = n - 1
+      if n > 8 then
+        for id, cached in pairs(images) do
+          if id ~= todKey and n > 8 then
+            local used = false
+            if S._editorLiveMaps then
+              for _, rec in pairs(S._editorLiveMaps) do
+                local r = rec.map and rec.map.renderer
+                if r and r._canvas == cached then used = true; break end
+              end
+            end
+            if not used then
+              images[id] = nil
+              releaseCanvas(cached)
+              n = n - 1
+            end
           end
         end
       end
@@ -3980,6 +4017,17 @@ local function drawMapPreview(S, mapDef, x, y, w, h, App)
     local camX = S.mapCamX or 0
     local camY = S.mapCamY or 0
 
+    local function safeDraw(mapId, renderer, fn, ...)
+      if not renderer then return end
+      if renderer._canvas and not canvasAlive(renderer._canvas) then return end
+      local drawFn = renderer[fn]
+      if type(drawFn) ~= "function" then return end
+      local ok = pcall(drawFn, renderer, ...)
+      if not ok and mapId then
+        Maps.invalidateGoldPreview(S, mapId)
+      end
+    end
+
     -- Connected neighbors behind the current map (engine drawMapOnly path).
     if S.mapShowNeighbors then
       for _, nb in ipairs(editorNeighbors(S, mapDef)) do
@@ -3989,7 +4037,8 @@ local function drawMapPreview(S, mapDef, x, y, w, h, App)
           local nPal = mapPreviewPalette(S, nb.def, nmap.renderer)
           local nShaded = nPal and Preview.pushPaletteShader(S, nPal)
           love.graphics.setColor(1, 1, 1, 0.75)
-          nmap.renderer:drawMapOnly(camX - nb.ox, camY - nb.oy, worldW, worldH)
+          safeDraw(nb.id, nmap.renderer, "drawMapOnly",
+            camX - nb.ox, camY - nb.oy, worldW, worldH)
           Preview.popPaletteShader(nShaded)
           love.graphics.setColor(0.27, 0.59, 1, 0.35)
           love.graphics.rectangle("line",
@@ -4003,7 +4052,7 @@ local function drawMapPreview(S, mapDef, x, y, w, h, App)
     local palName = mapPreviewPalette(S, mapDef, map.renderer)
     local shaded = palName and Preview.pushPaletteShader(S, palName)
     love.graphics.setColor(1, 1, 1, 1)
-    map.renderer:draw(camX, camY, worldW, worldH)
+    safeDraw(S.mapId, map.renderer, "draw", camX, camY, worldW, worldH)
     Preview.popPaletteShader(shaded)
     love.graphics.setColor(1, 1, 1, 0.22)
     love.graphics.rectangle("line",
@@ -4924,8 +4973,11 @@ function Maps.importTmx(S, tmxPath, App)
 end
 
 -- ---- property panel sections ------------------------------------------------
+-- Table fields (not locals) so the file stays under Lua's 200-local limit.
 
-local function drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
+Maps._section = {}
+
+function Maps._section.drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
   local function prow(label, body)
     if py + fh + 22 * s > listBottom then return true end
     Kit.text("micro", label, px + 10 * s, py, PAL.caption)
@@ -5657,7 +5709,7 @@ end
 
 -- Block palette for map.tileset (Tiled: tile = Gen1 block). RM XP–style
 -- left-column tileset dock under the map list.
-local function drawTilesetDock(S, map, mutate, App, dx, dy, dw, dh)
+function Maps._section.drawTilesetDock(S, map, mutate, App, dx, dy, dw, dh)
   local s = Kit.scale
   Kit.card(dx, dy, dw, dh, 10 * s)
   local pad = 8 * s
@@ -5822,7 +5874,7 @@ local function drawTilesetDock(S, map, mutate, App, dx, dy, dw, dh)
   return map
 end
 
-local function drawListPicker(S, key, count, px, py, propW, fh, s, accent)
+function Maps._section.drawListPicker(S, key, count, px, py, propW, fh, s, accent)
   if count == 0 then
     Kit.text("micro", "(none -- use tools to place)", px + 10 * s, py, PAL.faint)
     return py + 20 * s, nil
@@ -5842,7 +5894,7 @@ local function drawListPicker(S, key, count, px, py, propW, fh, s, accent)
   return py + fh + 8 * s, S[key]
 end
 
-local function drawWarps(S, map, mutate, App, px, py, propW, listBottom, fh, s)
+function Maps._section.drawWarps(S, map, mutate, App, px, py, propW, listBottom, fh, s)
   map.warps = map.warps or {}
   local pick = S.warpDestPick
   if pick and py + 16 * s <= listBottom then
@@ -5855,7 +5907,7 @@ local function drawWarps(S, map, mutate, App, px, py, propW, listBottom, fh, s)
       "Set dest for %s#%d — switch maps, click cell (Esc cancel)",
       tostring(pick.sourceMapId), pick.sourceWarpIndex or 0)
   end
-  py, S.mapWarpIndex = drawListPicker(S, "mapWarpIndex", #map.warps, px, py, propW, fh, s, PAL.blue)
+  py, S.mapWarpIndex = Maps._section.drawListPicker(S, "mapWarpIndex", #map.warps, px, py, propW, fh, s, PAL.blue)
   local i = S.mapWarpIndex
   local w = i and map.warps[i]
   if not w then return py end
@@ -5962,29 +6014,29 @@ local function drawWarps(S, map, mutate, App, px, py, propW, listBottom, fh, s)
   return py
 end
 
-local function armPlaceSprite(S, id)
+function Maps._section.armPlaceSprite(S, id)
   local resolved = resolveObjectSpriteId(S, id)
   S.placeSprite = (type(resolved) == "string" and resolved) or id
   S.mapTool = "object"
   S.status = "OBJECT tool: " .. tostring(S.placeSprite)
 end
 
-local function assignObjectSprite(S, map, mutate, App, objIndex, id)
+function Maps._section.assignObjectSprite(S, map, mutate, App, objIndex, id)
   if objIndex and map.objects and map.objects[objIndex] then
     map = mutate()
     map.objects[objIndex].sprite = id
   end
-  armPlaceSprite(S, id)
+  Maps._section.armPlaceSprite(S, id)
   spriteCache[id] = nil
   SpriteUtil.invalidateIdCache(S)
   App.markDirty()
   return map
 end
 
-local function createCustomSprite(S, App, map, mutate, objIndex, withBrowse)
+function Maps._section.createCustomSprite(S, App, map, mutate, objIndex, withBrowse)
   local nid = SpriteUtil.createNew(S)
   if not nid then return map end
-  map = assignObjectSprite(S, map, mutate, App, objIndex, nid)
+  map = Maps._section.assignObjectSprite(S, map, mutate, App, objIndex, nid)
   S.mapSpriteCustomOnly = true
   S.mapSpriteOffset = 0
   if withBrowse then
@@ -6006,9 +6058,9 @@ local function createCustomSprite(S, App, map, mutate, objIndex, withBrowse)
   return map
 end
 
-local function drawObjects(S, map, mutate, App, px, py, propW, listBottom, fh, s)
+function Maps._section.drawObjects(S, map, mutate, App, px, py, propW, listBottom, fh, s)
   map.objects = map.objects or {}
-  py, S.mapObjectIndex = drawListPicker(S, "mapObjectIndex", #map.objects,
+  py, S.mapObjectIndex = Maps._section.drawListPicker(S, "mapObjectIndex", #map.objects,
     px, py, propW, fh, s, PAL.green)
   local i = S.mapObjectIndex
   local obj = i and map.objects[i]
@@ -6020,14 +6072,14 @@ local function drawObjects(S, map, mutate, App, px, py, propW, listBottom, fh, s
         kind = "good",
         tooltip = "Register SPRITE_MOD_* and arm Object place tool",
       }) then
-      map = createCustomSprite(S, App, map, mutate, i, false)
+      map = Maps._section.createCustomSprite(S, App, map, mutate, i, false)
       obj = i and map.objects[i]
     end
     if Kit.button(px + 16 * s + bw, py, bw, fh, "+ PNG sprite", {
         kind = "accent",
         tooltip = "Create custom sprite and import a PNG",
       }) then
-      map = createCustomSprite(S, App, map, mutate, i, true)
+      map = Maps._section.createCustomSprite(S, App, map, mutate, i, true)
       obj = i and map.objects[i]
     end
     py = py + fh + 8 * s
@@ -6094,7 +6146,7 @@ local function drawObjects(S, map, mutate, App, px, py, propW, listBottom, fh, s
       px + 66 * s, py + 8 * s, PAL.muted)
     if Kit.button(px + 66 * s, py + 24 * s, 120 * s, 22 * s, "Use to place",
         { kind = "ghost" }) then
-      armPlaceSprite(S, obj.sprite)
+      Maps._section.armPlaceSprite(S, obj.sprite)
     end
     py = py + 56 * s
   end
@@ -6241,7 +6293,7 @@ local function drawObjects(S, map, mutate, App, px, py, propW, listBottom, fh, s
           love.graphics.setColor(1, 1, 1, 1)
         end
         if Kit.press(bx, py, thumb, thumb) then
-          map = assignObjectSprite(S, map, mutate, App, i, id)
+          map = Maps._section.assignObjectSprite(S, map, mutate, App, i, id)
           obj = map.objects[i]
         end
         idx = idx + 1
@@ -7070,12 +7122,12 @@ local function drawObjects(S, map, mutate, App, px, py, propW, listBottom, fh, s
   return py
 end
 
-local function drawSigns(S, map, mutate, App, px, py, propW, listBottom, fh, s)
+function Maps._section.drawSigns(S, map, mutate, App, px, py, propW, listBottom, fh, s)
   if Generation.isGen2(S) then
     map.bgEvents = map.bgEvents or {}
     Kit.text("micro", "BG events (signs / hidden items)", px + 10 * s, py, PAL.muted)
     py = py + 16 * s
-    py, S.mapSignIndex = drawListPicker(S, "mapSignIndex", #map.bgEvents,
+    py, S.mapSignIndex = Maps._section.drawListPicker(S, "mapSignIndex", #map.bgEvents,
       px, py, propW, fh, s, PAL.yellow)
     local i = S.mapSignIndex
     local ev = i and map.bgEvents[i]
@@ -7230,7 +7282,7 @@ local function drawSigns(S, map, mutate, App, px, py, propW, listBottom, fh, s)
   end
 
   map.signs = map.signs or {}
-  py, S.mapSignIndex = drawListPicker(S, "mapSignIndex", #map.signs, px, py, propW, fh, s, PAL.yellow)
+  py, S.mapSignIndex = Maps._section.drawListPicker(S, "mapSignIndex", #map.signs, px, py, propW, fh, s, PAL.yellow)
   local i = S.mapSignIndex
   local sign = i and map.signs[i]
   if not sign then return py end
@@ -7288,7 +7340,7 @@ local function drawSigns(S, map, mutate, App, px, py, propW, listBottom, fh, s)
   return py
 end
 
-local function drawHiddenItems(S, map, mutate, App, px, py, propW, listBottom, fh, s)
+function Maps._section.drawHiddenItems(S, map, mutate, App, px, py, propW, listBottom, fh, s)
   if Generation.isGen2(S) then
     Kit.text("micro", "Gold hidden items are BG events (kind ITEM).",
       px + 10 * s, py, PAL.muted)
@@ -7370,7 +7422,7 @@ local function drawHiddenItems(S, map, mutate, App, px, py, propW, listBottom, f
   return py
 end
 
-local function drawBadgeGates(S, map, mutate, App, px, py, propW, listBottom, fh, s)
+function Maps._section.drawBadgeGates(S, map, mutate, App, px, py, propW, listBottom, fh, s)
   State.ensureProjectFields(S.project)
   local mapId = map.id or S.mapId
   local gate, owned, deleted = resolveBadgeGate(S, mapId)
@@ -7494,7 +7546,7 @@ local function drawBadgeGates(S, map, mutate, App, px, py, propW, listBottom, fh
   return py
 end
 
-local function drawEncounters(S, map, mutate, App, px, py, propW, listBottom, fh, s)
+function Maps._section.drawEncounters(S, map, mutate, App, px, py, propW, listBottom, fh, s)
   py = EncounterEdit.drawWild(S, map, mutate, App, px, py, propW, listBottom, fh, s)
   if py + 36 * s <= listBottom then
     if Kit.button(px + 10 * s, py, propW - 20 * s, 30 * s,
@@ -7675,7 +7727,7 @@ function Maps.draw(S, x, y, w, h, App)
   end
 
   if map then
-    map = drawTilesetDock(S, map, mutate, App, x, tilesetY, leftW, tilesetH) or map
+    map = Maps._section.drawTilesetDock(S, map, mutate, App, x, tilesetY, leftW, tilesetH) or map
   else
     Kit.emptyBox(x, tilesetY, leftW, tilesetH, "No map selected")
   end
@@ -8145,29 +8197,29 @@ function Maps.draw(S, x, y, w, h, App)
   local fh = 26 * s
 
   if S.mapSection == "basics" then
-    contentY = drawBasics(S, map, mutate, App, formX, contentY, formW, listBottom, fh, s)
+    contentY = Maps._section.drawBasics(S, map, mutate, App, formX, contentY, formW, listBottom, fh, s)
       or contentY
   elseif S.mapSection == "warps" then
-    contentY = drawWarps(S, map, mutate, App, formX, contentY, formW, listBottom, fh, s)
+    contentY = Maps._section.drawWarps(S, map, mutate, App, formX, contentY, formW, listBottom, fh, s)
       or contentY
   elseif S.mapSection == "objects" then
-    contentY = drawObjects(S, map, mutate, App, formX, contentY, formW, listBottom, fh, s)
+    contentY = Maps._section.drawObjects(S, map, mutate, App, formX, contentY, formW, listBottom, fh, s)
       or contentY
   elseif S.mapSection == "signs" then
-    contentY = drawSigns(S, map, mutate, App, formX, contentY, formW, listBottom, fh, s)
+    contentY = Maps._section.drawSigns(S, map, mutate, App, formX, contentY, formW, listBottom, fh, s)
       or contentY
   elseif S.mapSection == "encounters" then
-    contentY = drawEncounters(S, map, mutate, App, formX, contentY, formW,
+    contentY = Maps._section.drawEncounters(S, map, mutate, App, formX, contentY, formW,
       listBottom, fh, s) or contentY
   elseif S.mapSection == "hidden" then
-    contentY = drawHiddenItems(S, map, mutate, App, formX, contentY, formW, listBottom, fh, s)
+    contentY = Maps._section.drawHiddenItems(S, map, mutate, App, formX, contentY, formW, listBottom, fh, s)
       or contentY
   elseif S.mapSection == "gates" then
     if Generation.isGen2(S) then
       Kit.text("micro", "Gold: no field.badgeGates.", formX + 10 * s, contentY, PAL.faint)
       contentY = contentY + 20 * s
     else
-      contentY = drawBadgeGates(S, map, mutate, App, formX, contentY, formW, listBottom, fh, s)
+      contentY = Maps._section.drawBadgeGates(S, map, mutate, App, formX, contentY, formW, listBottom, fh, s)
         or contentY
     end
   end
@@ -8533,22 +8585,22 @@ function Maps.drawDetails(S, x, y, w, h, App)
   local fh = 26 * s
 
   if S.mapSection == "basics" then
-    contentY = drawBasics(S, map, mutate, App, formX, contentY,
+    contentY = Maps._section.drawBasics(S, map, mutate, App, formX, contentY,
       formW, listBottom, fh, s) or contentY
   elseif S.mapSection == "objects" then
-    contentY = drawObjects(S, map, mutate, App, formX, contentY,
+    contentY = Maps._section.drawObjects(S, map, mutate, App, formX, contentY,
       formW, listBottom, fh, s) or contentY
   elseif S.mapSection == "signs" then
-    contentY = drawSigns(S, map, mutate, App, formX, contentY,
+    contentY = Maps._section.drawSigns(S, map, mutate, App, formX, contentY,
       formW, listBottom, fh, s) or contentY
   elseif S.mapSection == "encounters" then
-    contentY = drawEncounters(S, map, mutate, App, formX, contentY,
+    contentY = Maps._section.drawEncounters(S, map, mutate, App, formX, contentY,
       formW, listBottom, fh, s) or contentY
   elseif S.mapSection == "hidden" then
-    contentY = drawHiddenItems(S, map, mutate, App, formX, contentY,
+    contentY = Maps._section.drawHiddenItems(S, map, mutate, App, formX, contentY,
       formW, listBottom, fh, s) or contentY
   elseif S.mapSection == "gates" then
-    contentY = drawBadgeGates(S, map, mutate, App, formX, contentY,
+    contentY = Maps._section.drawBadgeGates(S, map, mutate, App, formX, contentY,
       formW, listBottom, fh, s) or contentY
   end
   FormPane.finish(S, "mapDetailsScroll", contentTop, contentY, view)
@@ -8560,7 +8612,7 @@ function Maps.drawClassicTileset(S, x, y, w, h, App)
   local map = resolveMapDef(S, S.mapId)
   if not map then Kit.emptyBox(x, y, w, h, "No map selected"); return end
   local function mutate() return ensureOwned(S, S.mapId) end
-  drawTilesetDock(S, map, mutate, App, x, y, w, h)
+  Maps._section.drawTilesetDock(S, map, mutate, App, x, y, w, h)
 end
 
 function Maps.drawClassicTerrain(S, x, y, w, h, App)
@@ -8686,6 +8738,171 @@ end
 
 function Maps.ensureOwnedMap(S, mapId)
   return ensureOwned(S, mapId)
+end
+
+Maps.BERRY_TYPES = {
+  { id = "BERRY", tree = 1, label = "Berry" },
+  { id = "PSNCUREBERRY", tree = 5, label = "Psncure" },
+  { id = "BITTER_BERRY", tree = 7, label = "Bitter" },
+  { id = "PRZCUREBERRY", tree = 9, label = "Przcure" },
+  { id = "MYSTERYBERRY", tree = 11, label = "Mystery" },
+  { id = "ICE_BERRY", tree = 13, label = "Ice" },
+  { id = "MINT_BERRY", tree = 15, label = "Mint" },
+  { id = "BURNT_BERRY", tree = 16, label = "Burnt" },
+  { id = "RED_APRICORN", tree = 17, label = "Red Apr" },
+  { id = "BLU_APRICORN", tree = 18, label = "Blu Apr" },
+  { id = "BLK_APRICORN", tree = 19, label = "Blk Apr" },
+  { id = "WHT_APRICORN", tree = 20, label = "Wht Apr" },
+  { id = "PNK_APRICORN", tree = 21, label = "Pnk Apr" },
+  { id = "GRN_APRICORN", tree = 22, label = "Grn Apr" },
+  { id = "YLW_APRICORN", tree = 23, label = "Ylw Apr" },
+}
+
+function Maps.placeBerryTree(S, cx, cy, App)
+  if not Generation.isGen2(S) then
+    S.status = "Berry trees are Gold / Crystal only"
+    return false
+  end
+  local map = ensureOwned(S, S.mapId)
+  if not map then return false end
+  map.objects = map.objects or {}
+  local item = S.builderBerryItem or "BERRY"
+  local treeId = 1
+  for _, rec in ipairs(Maps.BERRY_TYPES) do
+    if rec.id == item then treeId = rec.tree; break end
+  end
+  local n = #map.objects + 1
+  local sk = select(1, allocGen2Talk(S, map.id or "MAP", "TREE", n, false))
+  local cmds = { { op = "fruittree", args = { treeId } } }
+  S.project.scripts[sk] = cmds
+  Gen2Talk.mirrorLive(S, sk, cmds)
+  S.project.scriptSteps = S.project.scriptSteps or {}
+  S.project.scriptSteps[sk] = {
+    mapId = map.id or S.mapId, scriptKey = sk,
+    steps = { { kind = "opcode", cmd = cmds[1], op = "fruittree" } },
+  }
+  map.objects[n] = {
+    index = n, x = cx, y = cy,
+    sprite = "SPRITE_FRUIT_TREE",
+    movement = 0, radius = { x = 0, y = 0 },
+    hours = { -1, -1 }, sight = 0, type = 0, palette = 0,
+    script = 0, scriptKey = sk, eventFlag = 0,
+    fruitTree = treeId, fruitItem = item,
+  }
+  S.mapSection = "objects"
+  S.mapObjectIndex = n
+  S.dialogScriptKey = sk
+  if S.data and S.data.maps then S.data.maps[map.id or S.mapId] = map end
+  MapLoader.invalidate(map.id or S.mapId)
+  if App and App.markDirty then App.markDirty() end
+  S.status = string.format("Berry tree (%s) at (%d,%d)", item, cx, cy)
+  return true
+end
+
+function Maps.triggerAt(S, cx, cy)
+  local hooks = S.project and S.project.mapHooks
+    and S.project.mapHooks[S.mapId]
+  local cells = hooks and hooks.onStepCells
+  if type(cells) ~= "table" then return nil end
+  for i, cell in ipairs(cells) do
+    if cell.x == cx and cell.y == cy then return i, cell end
+  end
+  return nil
+end
+
+function Maps.placeTriggerCell(S, cx, cy, App)
+  State.ensureProjectFields(S.project)
+  local mapId = S.mapId
+  if not mapId then return false end
+  S.project.mapHooks[mapId] = S.project.mapHooks[mapId] or {}
+  local hooks = S.project.mapHooks[mapId]
+  hooks.onStepCells = hooks.onStepCells or {}
+  local existing = select(1, Maps.triggerAt(S, cx, cy))
+  if existing then
+    S.eventHookCellIdx = existing
+    S.status = string.format("Selected trigger at (%d,%d)", cx, cy)
+    return true
+  end
+  local n = #hooks.onStepCells + 1
+  local textKey = string.format("mod:HOOK_%s_step_%d_TEXT", mapId, n)
+  S.project.text[textKey] = S.project.text[textKey] or "You can't go this way."
+  hooks.onStepCells[n] = {
+    x = cx, y = cy,
+    steps = { { kind = "show_text", text = textKey, jumptext = true,
+      facePlayer = false } },
+  }
+  S.eventHookCellIdx = n
+  S.builderShowScript = true
+  if App and App.markDirty then App.markDirty() end
+  S.status = string.format("Trigger at (%d,%d) — edit the dialog", cx, cy)
+  return true
+end
+
+function Maps.walkPathCells(obj)
+  if type(obj) ~= "table" then return nil end
+  local wp = obj.walkPath
+  if type(wp) ~= "table" or type(wp.cells) ~= "table" or #wp.cells < 1 then
+    return nil
+  end
+  return wp.cells
+end
+
+function Maps.bindWalkPath(S, App)
+  local cells = S.builderPath and S.builderPath.cells
+  if type(cells) ~= "table" or #cells < 2 then
+    S.status = "Click two or more cells to draw a walk path"
+    return false
+  end
+  local map = ensureOwned(S, S.mapId)
+  if not map then return false end
+  local obj = map.objects and map.objects[S.mapObjectIndex]
+  local target = S.builderPath.target or "player"
+  local bytes = {}
+  for i = 2, #cells do
+    local dx = (cells[i].x or 0) - (cells[i - 1].x or 0)
+    local dy = (cells[i].y or 0) - (cells[i - 1].y or 0)
+    local sx = dx == 0 and 0 or (dx > 0 and 1 or -1)
+    local sy = dy == 0 and 0 or (dy > 0 and 1 or -1)
+    for _ = 1, math.abs(dx) do
+      bytes[#bytes + 1] = sx > 0 and 0x0f or 0x0e
+    end
+    for _ = 1, math.abs(dy) do
+      bytes[#bytes + 1] = sy > 0 and 0x0c or 0x0d
+    end
+  end
+  bytes[#bytes + 1] = 0x47
+  local key = string.format("mod:%s_path_%d",
+    map.id or S.mapId, S.mapObjectIndex or 0)
+  S.project.movements = S.project.movements or {}
+  S.project.movements[key] = bytes
+  S.data = S.data or {}
+  S.data.scripts = S.data.scripts or {}
+  S.data.scripts.movements = S.data.scripts.movements or {}
+  S.data.scripts.movements[key] = bytes
+  if obj then
+    local saved = {}
+    for i, cell in ipairs(cells) do
+      saved[i] = { x = cell.x or 0, y = cell.y or 0 }
+    end
+    obj.walkPath = { cells = saved, target = target, movement = key }
+    if type(obj.scriptKey) == "string" and obj.scriptKey ~= "" then
+      local cmds = S.project.scripts[obj.scriptKey] or {}
+      local object = target == "npc" and (S.mapObjectIndex or 1) or 0
+      table.insert(cmds, 1, {
+        op = "applymovement", object = object, movement = key,
+      })
+      S.project.scripts[obj.scriptKey] = cmds
+      Gen2Talk.mirrorLive(S, obj.scriptKey, cmds)
+      if S.project.scriptSteps and S.project.scriptSteps[obj.scriptKey] then
+        Gen2Talk.refreshStepsFromCmds(S, obj.scriptKey)
+      end
+    end
+  end
+  if App and App.markDirty then App.markDirty() end
+  S.status = obj
+    and string.format("Path bound to event #%d (%s)", S.mapObjectIndex, target)
+    or "Path stored — select an NPC, then Bind again"
+  return true
 end
 
 return Maps

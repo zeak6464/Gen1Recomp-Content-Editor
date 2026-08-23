@@ -22,6 +22,8 @@ local TOOLS = {
   { id = "picker", label = "Picker", tip = "Pick a source tile from the map" },
   { id = "select", label = "Select", tip = "Drag ranges; Shift adds another" },
   { id = "collision", label = "Collision", tip = "Paint cell passage" },
+  { id = "exits", label = "Exit type",
+    tip = "Paint door, stairs, cave, or pad so the warp uses the right kind" },
   { id = "warp", label = "Warp", tip = "Place directed, two-way, or custom-return warps" },
   { id = "pan", label = "Pan", tip = "Drag the map without painting" },
 }
@@ -31,6 +33,12 @@ local EVENT_TOOLS = {
     tip = "Place an NPC or scripted object on a 16x16 cell" },
   { id = "sign", mapTool = "sign", label = "Sign",
     tip = "Place a sign/background event on a 16x16 cell" },
+  { id = "berry", mapTool = "berry", label = "Berry",
+    tip = "Place a fruit tree the player can pick each day" },
+  { id = "path", mapTool = "path", label = "Path",
+    tip = "Click cells for a walk route, then bind it to an NPC or the player" },
+  { id = "trigger", mapTool = "trigger", label = "Trigger",
+    tip = "Step tile that stops the player and runs dialog" },
   { id = "trainer", mapTool = "trainer", label = "Trainer",
     tip = "Place a trainer event" },
   { id = "wild", mapTool = "wild", label = "Wild",
@@ -73,8 +81,13 @@ local function drawMapStencil(S, source)
   love.graphics.setColor(1, 1, 1, 1)
 end
 
-local BASIC_TERRAIN_TOOLS = { pencil = true, eraser = true, fill = true, pan = true }
-local BASIC_EVENT_TOOLS = { object = true, sign = true, event_select = true }
+local BASIC_TERRAIN_TOOLS = {
+  pencil = true, eraser = true, fill = true, pan = true, exits = true,
+}
+local BASIC_EVENT_TOOLS = {
+  object = true, sign = true, berry = true, path = true, trigger = true,
+  event_select = true,
+}
 
 -- Shared panel helpers
 
@@ -287,11 +300,41 @@ local function stampCells(S)
   return { { dx = 0, dy = 0, tile = S.builderTile or 0 } }, S.builderSourceId
 end
 
-local function setStamp(S, sourceId, cells)
+local function setStamp(S, sourceId, cells, stampId)
   S.builderSourceId = sourceId
-  S.builderStamp = { source = sourceId, cells = cells }
+  S.builderStamp = { source = sourceId, cells = cells, id = stampId }
   S.builderTile = cells[1] and cells[1].tile or 0
   S.builderTool = "pencil"
+end
+
+local function assemblyKey(sourceId, cells)
+  local parts = { tostring(sourceId) }
+  for i, cell in ipairs(cells or {}) do
+    parts[#parts + 1] = string.format("%s:%s:%s",
+      tostring(cell.dx), tostring(cell.dy), tostring(cell.tile))
+  end
+  return table.concat(parts, ",")
+end
+
+local function keepAssembly(S, stamp)
+  if not (S.project and stamp and type(stamp.cells) == "table"
+      and #stamp.cells > 0) then
+    return
+  end
+  S.project.mapAssemblies = S.project.mapAssemblies or {}
+  local key = assemblyKey(stamp.source, stamp.cells)
+  for _, saved in ipairs(S.project.mapAssemblies) do
+    if assemblyKey(saved.source, saved.cells) == key then return end
+  end
+  local copy = {}
+  for i, cell in ipairs(stamp.cells) do
+    copy[i] = { dx = cell.dx, dy = cell.dy, tile = cell.tile }
+  end
+  S.project.mapAssemblies[#S.project.mapAssemblies + 1] = {
+    source = stamp.source or S.builderSourceId,
+    cells = copy,
+    name = "Group " .. tostring(#S.project.mapAssemblies + 1),
+  }
 end
 
 local function clearStamp(S)
@@ -385,11 +428,29 @@ local function paintCell(S, source, x, y, App, erase, deferDirty, single)
   return changed
 end
 
+local EXIT_TYPES = {
+  { id = "door", label = "Door", tip = "House / building door (COLL_DOOR)" },
+  { id = "stairs", label = "Stairs", tip = "Indoor stairs (COLL_STAIRCASE)" },
+  { id = "cave", label = "Cave", tip = "Cave mouth (COLL_CAVE)" },
+  { id = "panel", label = "Pad", tip = "Warp panel / floor pad (COLL_WARP_PANEL)" },
+}
+
+local COLLISION_LABEL = {
+  solid = "Wall", walk = "Land", grass = "Grass", water = "Water",
+  shore = "Shore", ledge = "Ledge", cut = "Cut",
+  door = "Door", stairs = "Stairs", cave = "Cave", panel = "Pad",
+}
+
 local function paintCollisionCell(S, source, x, y)
   local index = y * source.cellWidth + x + 1
-  local mode = S.builderCollision or "solid"
-  if mode == "ledge" then
-    mode = "ledge_" .. (S.builderLedgeDir or "down")
+  local mode
+  if (S.builderTool or "") == "exits" then
+    mode = S.builderExitType or "door"
+  else
+    mode = S.builderCollision or "solid"
+    if mode == "ledge" then
+      mode = "ledge_" .. (S.builderLedgeDir or "down")
+    end
   end
   if source.collision[index] == mode then return false end
   LayeredMap.setCollision(source, x, y, mode)
@@ -678,6 +739,76 @@ local function drawSelections(S, source)
   end
 end
 
+local function copyPathCells(cells)
+  local out = {}
+  if type(cells) ~= "table" then return out end
+  for i, cell in ipairs(cells) do
+    out[i] = { x = cell.x or 0, y = cell.y or 0 }
+  end
+  return out
+end
+
+local function pathCellIndex(cells, cx, cy)
+  if type(cells) ~= "table" then return nil end
+  for i = #cells, 1, -1 do
+    if (cells[i].x or 0) == cx and (cells[i].y or 0) == cy then
+      return i
+    end
+  end
+  return nil
+end
+
+local function drawWalkPath(cells, kind)
+  if type(cells) ~= "table" or #cells == 0 then return end
+  local draft = kind == "draft"
+  local ghost = kind == "ghost"
+  local fillA = ghost and 0.22 or (draft and 0.5 or 0.22)
+  local lineA = ghost and 0.7 or (draft and 1 or 0.45)
+  love.graphics.setLineWidth(draft and 2.5 or 1.5)
+  for i, cell in ipairs(cells) do
+    local px, py = (cell.x or 0) * CELL, (cell.y or 0) * CELL
+    if draft and i == #cells then
+      love.graphics.setColor(1, 0.85, 0.15, 0.55)
+    elseif draft and i == 1 then
+      love.graphics.setColor(0.15, 1, 0.45, 0.55)
+    else
+      love.graphics.setColor(0.1, 0.9, 1, fillA)
+    end
+    love.graphics.rectangle("fill", px, py, CELL, CELL)
+    love.graphics.setColor(1, 1, 1, draft and 0.95 or lineA)
+    love.graphics.rectangle("line", px + 0.5, py + 0.5, CELL - 1, CELL - 1)
+    if i > 1 then
+      local prev = cells[i - 1]
+      love.graphics.setColor(0.1, 0.95, 1, lineA)
+      love.graphics.line(
+        (prev.x or 0) * CELL + CELL / 2, (prev.y or 0) * CELL + CELL / 2,
+        px + CELL / 2, py + CELL / 2)
+    end
+    if draft then
+      love.graphics.setColor(0.04, 0.1, 0.14, 0.9)
+      love.graphics.circle("fill", px + CELL / 2, py + CELL / 2, 4.5)
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.circle("line", px + CELL / 2, py + CELL / 2, 4.5)
+    end
+  end
+  love.graphics.setLineWidth(1)
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
+local function seedBuilderPath(S)
+  S.builderPath = S.builderPath or { cells = {}, target = "player" }
+  if #(S.builderPath.cells or {}) > 0 then return end
+  local Maps = require("Maps")
+  local map = Maps.resolveMap(S, S.builderMapId or S.mapId)
+  local obj = map and map.objects and map.objects[S.mapObjectIndex]
+  local cells = Maps.walkPathCells(obj)
+  if not cells then return end
+  S.builderPath.cells = copyPathCells(cells)
+  if type(obj.walkPath) == "table" and obj.walkPath.target then
+    S.builderPath.target = obj.walkPath.target
+  end
+end
+
 local function drawGhostPen(S, cx, cy)
   local tool = S.builderTool or "pencil"
   if tool ~= "pencil" then return end
@@ -896,12 +1027,16 @@ local function drawCanvas(S, source, x, y, w, h, App)
           end
         end
       end
-      if (S.builderTool or "pencil") == "collision" or S.mapShowCollision then
+      if (S.builderTool or "pencil") == "collision"
+          or (S.builderTool or "") == "exits"
+          or S.mapShowCollision then
         local mode = source.collision[cy * source.cellWidth + cx + 1] or "solid"
         local colors = {
           solid = { 1, 0.2, 0.2 }, walk = { 0.2, 1, 0.4 },
           grass = { 1, 0.2, 0.9 }, water = { 0.15, 0.55, 1 },
           shore = { 0.95, 0.75, 0.25 }, cut = { 0.45, 0.7, 0.15 },
+          door = { 1, 0.85, 0.15 }, stairs = { 0.7, 0.55, 1 },
+          cave = { 0.55, 0.35, 0.15 }, panel = { 1, 0.45, 0.15 },
           ledge_down = { 1, 0.55, 0.15 }, ledge_up = { 1, 0.55, 0.15 },
           ledge_left = { 1, 0.55, 0.15 }, ledge_right = { 1, 0.55, 0.15 },
           ledge = { 1, 0.55, 0.15 },
@@ -936,6 +1071,29 @@ local function drawCanvas(S, source, x, y, w, h, App)
   if S.mapWorkspace then
     local Maps = require("Maps")
     Maps.drawEventOverlays(S)
+    local hooks = S.project and S.project.mapHooks
+      and S.project.mapHooks[S.builderMapId or S.mapId]
+    if hooks and hooks.onStepCells then
+      for i, cell in ipairs(hooks.onStepCells) do
+        love.graphics.setColor(0.85, 0.25, 1, 0.32)
+        love.graphics.rectangle("fill",
+          (cell.x or 0) * CELL, (cell.y or 0) * CELL, CELL, CELL)
+        if S.eventHookCellIdx == i then
+          love.graphics.setColor(0.95, 0.45, 1, 0.85)
+          love.graphics.rectangle("line",
+            (cell.x or 0) * CELL + 1, (cell.y or 0) * CELL + 1,
+            CELL - 2, CELL - 2)
+        end
+      end
+    end
+    local mapDef = Maps.resolveMap(S, S.builderMapId or S.mapId)
+    if mapDef then
+      for _, obj in ipairs(mapDef.objects or {}) do
+        drawWalkPath(Maps.walkPathCells(obj), "bound")
+      end
+    end
+    drawWalkPath(S.builderPath and S.builderPath.cells, "draft")
+    love.graphics.setColor(1, 1, 1, 1)
   end
   do
     local hoverCx = math.floor(((Kit.mouseX - vx) / zoom + (S.builderCamX or 0)) / CELL)
@@ -944,6 +1102,16 @@ local function drawCanvas(S, source, x, y, w, h, App)
         and hoverCx >= 0 and hoverCy >= 0
         and hoverCx < source.cellWidth and hoverCy < source.cellHeight then
       drawGhostPen(S, hoverCx, hoverCy)
+      if (S.builderTool or "") == "path" then
+        local cells = S.builderPath and S.builderPath.cells
+        local last = cells and cells[#cells]
+        if not last or last.x ~= hoverCx or last.y ~= hoverCy then
+          drawWalkPath({
+            last or { x = hoverCx, y = hoverCy },
+            { x = hoverCx, y = hoverCy },
+          }, "ghost")
+        end
+      end
     end
   end
   love.graphics.pop()
@@ -1027,25 +1195,54 @@ local function drawCanvas(S, source, x, y, w, h, App)
   elseif eventTool and not Kit.blockClicks then
     local Maps = require("Maps")
     local drag = S._builderEvent
+    local cellTool = eventTool.id == "path"
+      or eventTool.id == "trigger"
+      or eventTool.id == "berry"
     if over and inMap and Kit.mouseClicked and not drag then
-      local shift = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
-      local kind, index = Maps.pickEventAt(S, cx, cy)
       App.beginEditBatch()
-      if kind and not shift then
-        Maps.selectEvent(S, kind, index)
-        S._builderEvent = { move = true, kind = kind, index = index,
-          lastX = cx, lastY = cy }
-        S.status = string.format("Selected %s #%d - drag to move", kind, index)
+      if eventTool.id == "path" then
+        S.builderPath = S.builderPath or { cells = {}, target = "player" }
+        local cells = S.builderPath.cells
+        local hit = pathCellIndex(cells, cx, cy)
+        if hit then
+          S._builderEvent = { pathMove = true, index = hit,
+            lastX = cx, lastY = cy }
+          S.status = string.format("Path cell %d — drag to move", hit)
+        else
+          cells[#cells + 1] = { x = cx, y = cy }
+          S._builderEvent = { pathAdded = true }
+          S.status = string.format("Path %d cells — click more, then Bind", #cells)
+        end
       else
-        S._builderEvent = { click = true, x = cx, y = cy,
-          mx = Kit.mouseX, my = Kit.mouseY,
-          camX = S.builderCamX or 0, camY = S.builderCamY or 0,
-          moved = false }
+        local shift = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+        local kind, index = nil, nil
+        if not cellTool then
+          kind, index = Maps.pickEventAt(S, cx, cy)
+        end
+        if kind and not shift then
+          Maps.selectEvent(S, kind, index)
+          S._builderEvent = { move = true, kind = kind, index = index,
+            lastX = cx, lastY = cy }
+          S.status = string.format("Selected %s #%d - drag to move", kind, index)
+        else
+          S._builderEvent = { click = true, x = cx, y = cy,
+            mx = Kit.mouseX, my = Kit.mouseY,
+            camX = S.builderCamX or 0, camY = S.builderCamY or 0,
+            moved = false }
+        end
       end
       drag = S._builderEvent
       eventHandled = true
     elseif Kit.mouseDown and drag then
-      if drag.move and inMap and (cx ~= drag.lastX or cy ~= drag.lastY) then
+      if drag.pathMove and inMap and (cx ~= drag.lastX or cy ~= drag.lastY) then
+        local cells = S.builderPath and S.builderPath.cells
+        if cells and cells[drag.index] then
+          cells[drag.index] = { x = cx, y = cy }
+        end
+        drag.lastX, drag.lastY = cx, cy
+      elseif drag.pathAdded then
+        -- Cell already recorded on press.
+      elseif drag.move and inMap and (cx ~= drag.lastX or cy ~= drag.lastY) then
         drag.lastX, drag.lastY = cx, cy
         Maps.moveEvent(S, drag.kind, drag.index, cx, cy, App)
       elseif drag.click then
@@ -1058,7 +1255,13 @@ local function drawCanvas(S, source, x, y, w, h, App)
       end
       eventHandled = true
     elseif drag and not Kit.mouseDown then
-      if drag.click and not drag.moved and eventTool.mapTool ~= "select" then
+      if drag.pathMove or drag.pathAdded then
+        -- Path cells stay visible after the click.
+      elseif drag.click and not drag.moved and eventTool.id == "trigger" then
+        Maps.placeTriggerCell(S, drag.x, drag.y, App)
+      elseif drag.click and not drag.moved and eventTool.id == "berry" then
+        Maps.placeBerryTree(S, drag.x, drag.y, App)
+      elseif drag.click and not drag.moved and eventTool.mapTool ~= "select" then
         Maps.applyEventAtCell(S, eventTool.mapTool, drag.x, drag.y, App)
       elseif drag.click and not drag.moved then
         Maps.applyEventAtCell(S, "select", drag.x, drag.y, App)
@@ -1114,7 +1317,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
       S.builderRangeDraft = {
         x0 = S._builderDrag.x0, y0 = S._builderDrag.y0, x1 = cx, y1 = cy,
       }
-    elseif inMap and (tool == "pencil" or tool == "collision") then
+    elseif inMap and (tool == "pencil" or tool == "collision" or tool == "exits") then
       local stroke = S._builderStroke
       if not stroke or stroke.tool ~= tool then
         if stroke then App.endEditBatch() end
@@ -1490,7 +1693,10 @@ local function drawTilePalette(S, source, x, y, w, h, App)
   end
 
   local gridY = palY + 26 * Kit.scale
-  local footerH = (S.builderSourceOptions and 118 or 34) * Kit.scale
+  local groups = (S.project and S.project.mapAssemblies) or {}
+  local groupH = (S.builderPalette == "assembly" and #groups > 0)
+    and 30 * Kit.scale or 0
+  local footerH = (S.builderSourceOptions and 118 or 34) * Kit.scale + groupH
   local gridH = math.max(20 * Kit.scale,
     h - (gridY - y) - footerH - 8 * Kit.scale)
   if not descriptor then
@@ -1501,6 +1707,8 @@ local function drawTilePalette(S, source, x, y, w, h, App)
 
   local assembly = S.builderPalette == "assembly"
   local runtime = descriptor.runtimeTileset and true or false
+  local uniqueTiles = (not assembly)
+    and LayeredMap.uniqueTiles(S, descriptor) or nil
   local tileSize = (assembly and runtime) and 40 * Kit.scale or 34 * Kit.scale
   local columns = math.max(1, math.floor((w - 28 * Kit.scale) / tileSize))
   if assembly and not runtime then
@@ -1511,7 +1719,8 @@ local function drawTilePalette(S, source, x, y, w, h, App)
   local rows = math.max(1, math.floor(gridH / tileSize))
   local perPage = columns * rows
   local blockCount = runtime and #(descriptor.tileset and descriptor.tileset.blocks or {}) or 0
-  local count = assembly and runtime and blockCount or (descriptor.count or 0)
+  local count = assembly and runtime and blockCount
+    or (uniqueTiles and #uniqueTiles or (descriptor.count or 0))
   local scrollKey = assembly and "builderAssemblyOffset" or "builderTileOffset"
   local offset = clamp(S[scrollKey] or 0, 0, math.max(0, count - perPage))
   offset = Kit.scroll(x + 8 * Kit.scale, gridY, w - 16 * Kit.scale, gridH,
@@ -1559,6 +1768,10 @@ local function drawTilePalette(S, source, x, y, w, h, App)
       end
     end
   elseif drag and not Kit.mouseDown then
+    if S.builderStamp and S.builderStamp.cells
+        and #S.builderStamp.cells > 1 then
+      keepAssembly(S, S.builderStamp)
+    end
     S._assemblyDrag = nil
   end
 
@@ -1566,13 +1779,14 @@ local function drawTilePalette(S, source, x, y, w, h, App)
   for slot = 0, perPage - 1 do
     local index = offset + slot
     if index >= count then break end
+    local tileIndex = (not assembly and uniqueTiles) and uniqueTiles[index + 1] or index
     local col, row = slot % columns, math.floor(slot / columns)
     local tx, ty = x + 8 * Kit.scale + col * tileSize, gridY + row * tileSize
     local selected
     if assembly and runtime then
       selected = stampHasBlock(index)
     else
-      selected = stampHasTile(index)
+      selected = stampHasTile(tileIndex)
     end
     if selected then
       love.graphics.setColor(0.2, 0.65, 1, 0.35)
@@ -1590,9 +1804,9 @@ local function drawTilePalette(S, source, x, y, w, h, App)
         end
       end
     else
-      drawSourceTile(S, descriptor, index,
+      drawSourceTile(S, descriptor, tileIndex,
         tx + 3 * Kit.scale, ty + 3 * Kit.scale, inner, 1)
-      if descriptor.animations and descriptor.animations[index] then
+      if descriptor.animations and descriptor.animations[tileIndex] then
         love.graphics.setColor(PAL.green)
         love.graphics.circle("fill", tx + tileSize - 8 * Kit.scale,
           ty + 7 * Kit.scale, 5 * Kit.scale)
@@ -1601,7 +1815,7 @@ local function drawTilePalette(S, source, x, y, w, h, App)
       end
     end
     if not assembly and Kit.press(tx, ty, tileSize - 2, tileSize - 2) then
-      S.builderTile = index
+      S.builderTile = tileIndex
       clearStamp(S)
     end
   end
@@ -1621,23 +1835,33 @@ local function drawTilePalette(S, source, x, y, w, h, App)
       S.status = "Assembly: full image"
     end
   elseif Kit.button(x + 8 * Kit.scale, fy, bw, 24 * Kit.scale,
-      custom and "Animate selected" or "Edit game tileset", { kind = "accent",
-        tooltip = custom
-          and "Create or edit an animation for the selected tile"
-          or "Open this game tileset in the graphics editor" }) then
-    if custom then
-      S.builderPane = "tileset"
-    elseif descriptor and descriptor.runtimeTileset then
-      S.tab = "gfx"
-      S.gfxMode = "tilesets"
-      S.tilesetEditId = descriptor.runtimeTileset
-      S.gfxTilesetPane = "flags"
-    end
+      "Animate selected", { kind = "accent",
+        tooltip = "Create or edit an animation for the selected tile" }) then
+    S.builderPane = "tileset"
   end
   if Kit.button(x + 12 * Kit.scale + bw, fy, bw, 24 * Kit.scale,
       S.builderSourceOptions and "Hide options" or "More options", {
         kind = "ghost", tooltip = "Show import, replace, and export tools" }) then
     S.builderSourceOptions = not S.builderSourceOptions
+  end
+  if assembly and #groups > 0 then
+    fy = fy + 28 * Kit.scale
+    local gx = x + 8 * Kit.scale
+    Kit.text("micro", "Kept", gx, fy + 5 * Kit.scale, PAL.caption)
+    gx = gx + 36 * Kit.scale
+    for i, group in ipairs(groups) do
+      local label = tostring(i)
+      local gw = 22 * Kit.scale
+      if gx + gw > x + w - 8 * Kit.scale then break end
+      local on = S.builderStamp and S.builderStamp.id == ("asm_" .. i)
+      if Kit.chip(gx, fy, gw, 24 * Kit.scale, label, on, PAL.green, PAL.steel,
+          string.format("%d tiles from %s", #(group.cells or {}),
+            tostring(group.source or ""))) then
+        setStamp(S, group.source, group.cells, "asm_" .. i)
+        S.status = "Assembly group " .. i
+      end
+      gx = gx + gw + 3 * Kit.scale
+    end
   end
   if S.builderSourceOptions then
     fy = fy + 28 * Kit.scale
@@ -1762,6 +1986,8 @@ local function drawToolbar(S, source, x, y, w, App)
       if tool.mapTool and tool.mapTool ~= "warp" then
         S.builderPane = "details"
       end
+      if tool.id == "trigger" then S.builderShowScript = true end
+      if tool.id == "path" then seedBuilderPath(S) end
     end
     tx = tx + bw + 3 * s
   end
@@ -1780,23 +2006,28 @@ local function drawToolbar(S, source, x, y, w, App)
   local barY = toolY + 31 * s
   local barBottom = barY + 24 * s
   if EVENT_TOOL_BY_ID[S.builderTool] then
-    if Kit.button(x, barY, 62 * s, 24 * s, "Dialog",
-        { kind = "ghost", tooltip = "Open dialog for this map or selected event" }) then
-      local Dialog = require("Dialog")
-      Dialog.openMap(S, S.mapId)
-    end
-    if Kit.chip(x + 66 * s, barY, 58 * s, 24 * s, "Script",
-        S.builderShowScript == true, PAL.yellow, PAL.steel,
-        "Edit the selected NPC/sign command list") then
-      S.builderShowScript = not S.builderShowScript
-      if S.builderShowScript then
-        S._builderScriptFor = nil
-        ownSelectedTalk(S, App)
+    local ownBar = S.builderTool == "path"
+      or S.builderTool == "trigger"
+      or S.builderTool == "berry"
+    if not ownBar then
+      if Kit.button(x, barY, 62 * s, 24 * s, "Dialog",
+          { kind = "ghost", tooltip = "Open dialog for this map or selected event" }) then
+        local Dialog = require("Dialog")
+        Dialog.openMap(S, S.mapId)
       end
+      if Kit.chip(x + 66 * s, barY, 58 * s, 24 * s, "Script",
+          S.builderShowScript == true, PAL.yellow, PAL.steel,
+          "Edit the selected NPC/sign command list") then
+        S.builderShowScript = not S.builderShowScript
+        if S.builderShowScript then
+          S._builderScriptFor = nil
+          ownSelectedTalk(S, App)
+        end
+      end
+      Kit.text("micro", Kit.ellipsize("micro",
+        "Click a cell to place; drag an existing marker to move it", w - 140 * s),
+        x + 130 * s, barY + 5 * s, PAL.muted)
     end
-    Kit.text("micro", Kit.ellipsize("micro",
-      "Click a cell to place; drag an existing marker to move it", w - 140 * s),
-      x + 130 * s, barY + 5 * s, PAL.muted)
     local bx = x
     if S.builderTool == "trainer" then
       local fieldY = barY + 29 * s
@@ -1823,17 +2054,73 @@ local function drawToolbar(S, source, x, y, w, App)
       S.placeWildLevel = math.max(1, math.min(100,
         math.floor(tonumber(level) or 50)))
       barBottom = fieldY + 24 * s
+    elseif S.builderTool == "berry" then
+      local Maps = require("Maps")
+      Kit.text("micro", "FRUIT", x, barY + 5 * s, PAL.caption)
+      local bx, by = x + 48 * s, barY
+      S.builderBerryItem = S.builderBerryItem or "BERRY"
+      for _, rec in ipairs(Maps.BERRY_TYPES or {}) do
+        local bw = Kit.textWidth("micro", rec.label) + 14 * s
+        if bx + bw > x + w and bx > x + 48 * s then
+          by, bx = by + 26 * s, x + 48 * s
+          barBottom = by + 24 * s
+        end
+        if Kit.chip(bx, by, bw, 24 * s, rec.label,
+            S.builderBerryItem == rec.id, PAL.green, PAL.steel) then
+          S.builderBerryItem = rec.id
+        end
+        bx = bx + bw + 3 * s
+      end
+      Kit.text("micro", "Click a cell to plant. Daily pick is shared with that fruit type.",
+        x, barBottom + 4 * s, PAL.muted)
+      barBottom = barBottom + 18 * s
+    elseif S.builderTool == "path" then
+      S.builderPath = S.builderPath or { cells = {}, target = "player" }
+      Kit.text("micro", "WALK", x, barY + 5 * s, PAL.caption)
+      local bx = x + 46 * s
+      for _, rec in ipairs({
+        { id = "player", label = "Player" },
+        { id = "npc", label = "NPC" },
+      }) do
+        if Kit.chip(bx, barY, 58 * s, 24 * s, rec.label,
+            S.builderPath.target == rec.id, PAL.blue, PAL.steel) then
+          S.builderPath.target = rec.id
+        end
+        bx = bx + 62 * s
+      end
+      if Kit.button(bx, barY, 70 * s, 24 * s, "Bind", {
+          kind = "good", enabled = #(S.builderPath.cells or {}) >= 2,
+          tooltip = "Attach this route to the selected event" }) then
+        require("Maps").bindWalkPath(S, App)
+      end
+      if Kit.button(bx + 74 * s, barY, 56 * s, 24 * s, "Clear",
+          { kind = "ghost" }) then
+        S.builderPath.cells = {}
+        S.status = "Path cleared"
+      end
+      Kit.text("micro", string.format(
+        "%d cells — click the map in order, then Bind",
+        #(S.builderPath.cells or {})),
+        x, barY + 28 * s, PAL.muted)
+      barBottom = barY + 42 * s
+    elseif S.builderTool == "trigger" then
+      Kit.text("micro",
+        "Click a cell to stop the player and show dialog. Script panel edits the text.",
+        x, barY + 5 * s, PAL.muted)
+      barBottom = barY + 24 * s
     end
   elseif (S.builderTool or "pencil") == "collision" then
     Kit.text("micro", "PASSAGE", x, barY + 5 * s, PAL.caption)
     local bx, modeY = x + 56 * s, barY
     for _, mode in ipairs(LayeredMap.COLLISION_MODES) do
-      local bw = Kit.textWidth("micro", mode) + 16 * s
+      if not LayeredMap.WARP_COLLISION[mode] then
+      local label = COLLISION_LABEL[mode] or mode
+      local bw = Kit.textWidth("micro", label) + 16 * s
       if bx + bw > x + w and bx > x + 56 * s then
         modeY, bx = modeY + 27 * s, x + 56 * s
         barBottom = modeY + 24 * s
       end
-      if Kit.chip(bx, modeY, bw, 24 * s, mode,
+      if Kit.chip(bx, modeY, bw, 24 * s, label,
           LayeredMap.collisionBase(S.builderCollision or "solid") == mode,
           PAL.green, PAL.steel,
           mode == "cut"
@@ -1844,6 +2131,7 @@ local function drawToolbar(S, source, x, y, w, App)
         end
       end
       bx = bx + bw + 3 * s
+      end
     end
     if LayeredMap.collisionBase(S.builderCollision or "solid") == "ledge" then
       if bx + 120 * s > x + w and bx > x + 56 * s then
@@ -1866,6 +2154,21 @@ local function drawToolbar(S, source, x, y, w, App)
         bx = bx + 27 * s
       end
     end
+  elseif (S.builderTool or "pencil") == "exits" then
+    Kit.text("micro", "EXIT", x, barY + 5 * s, PAL.caption)
+    local bx = x + 42 * s
+    S.builderExitType = S.builderExitType or "door"
+    for _, mode in ipairs(EXIT_TYPES) do
+      local bw = Kit.textWidth("micro", mode.label) + 16 * s
+      if Kit.chip(bx, barY, bw, 24 * s, mode.label,
+          S.builderExitType == mode.id, PAL.yellow, PAL.steel, mode.tip) then
+        S.builderExitType = mode.id
+      end
+      bx = bx + bw + 3 * s
+    end
+    Kit.text("micro", "Paint the cell, then place a Warp. Gold uses this kind.",
+      x, barY + 28 * s, PAL.muted)
+    barBottom = barY + 42 * s
   elseif (S.builderTool or "pencil") == "select" then
     local count = #(S.builderSelections or {})
     Kit.text("micro", string.format("%d selected range(s)", count),
@@ -2120,11 +2423,10 @@ local function drawTilesetPane(S, x, y, w, h, App)
     PAL.muted)
   y = y + 24 * Kit.scale
   if source.runtimeTileset then
-    Kit.text("micro", "Animations require an imported PNG source.", x, y, PAL.muted)
-    Kit.text("micro", "Use + New PNG below the tile palette, then select a tile.",
-      x, y + 17 * Kit.scale, PAL.caption)
-    return
-  end
+    Kit.text("micro", "Pick the starting tile, then set frames. Plays on the map.",
+      x, y, PAL.muted)
+    y = y + 22 * Kit.scale
+  else
   Kit.text("micro", "Color mode", x, y + 5 * Kit.scale, PAL.caption)
   local cx = x + 82 * Kit.scale
   for _, option in ipairs({
@@ -2141,6 +2443,7 @@ local function drawTilesetPane(S, x, y, w, h, App)
     cx = cx + bw + 4 * Kit.scale
   end
   y = y + 38 * Kit.scale
+  end
   local tile = S.builderTile or 0
   local frames = source.animations and source.animations[tile]
   local count = frames and #frames or 1
@@ -2342,16 +2645,99 @@ local function drawWarpsPane(S, source, x, y, w, h, App)
   end
 end
 
+local function copyStampCells(cells)
+  local copy = {}
+  for i, cell in ipairs(cells or {}) do
+    copy[i] = { dx = cell.dx, dy = cell.dy, tile = cell.tile }
+  end
+  return copy
+end
+
+local function drawStampsPane(S, x, y, w, h, App)
+  local bottom = y + h
+  S.project.mapStamps = S.project.mapStamps or {}
+  local stamps = S.project.mapStamps
+  local cells, sourceId = stampCells(S)
+  Kit.text("small", "Custom stamps", x, y, PAL.heading)
+  y = y + 22 * Kit.scale
+  Kit.text("micro", "Saved brushes keep their tileset, so they work from any sheet.",
+    x, y, PAL.muted)
+  y = y + 20 * Kit.scale
+  S._stampNameDraft = S._stampNameDraft or "House"
+  S._stampNameDraft = Kit.textfield("builder_stamp_name", x, y,
+    w - 88 * Kit.scale, 26 * Kit.scale, S._stampNameDraft, "name")
+  if Kit.button(x + w - 84 * Kit.scale, y, 84 * Kit.scale, 26 * Kit.scale,
+      "Save", { kind = "good", enabled = type(cells) == "table" and #cells > 0,
+        tooltip = "Save the current multi-tile brush" }) then
+    local id = "stamp_" .. tostring((S.project.nextStamp or 1))
+    S.project.nextStamp = (S.project.nextStamp or 1) + 1
+    stamps[#stamps + 1] = {
+      id = id,
+      name = (S._stampNameDraft ~= "" and S._stampNameDraft) or id,
+      source = sourceId or S.builderSourceId,
+      cells = copyStampCells(cells),
+    }
+    App.markDirty()
+    S.status = "Saved stamp " .. stamps[#stamps].name
+  end
+  y = y + 34 * Kit.scale
+  if #stamps == 0 then
+    Kit.text("micro", "No saved stamps yet. Drag a range in Assembly, then Save.",
+      x, y, PAL.faint)
+    return
+  end
+  local rowH = 30 * Kit.scale
+  local listH = math.max(rowH, bottom - y)
+  local perPage = math.max(1, math.floor(listH / rowH))
+  local offset = clamp(S.builderStampOffset or 0, 0,
+    math.max(0, #stamps - perPage))
+  offset = Kit.scroll(x, y, w, listH, offset, #stamps, perPage, 1,
+    "builderStampOffset")
+  local rowW = w - (#stamps > perPage and 14 * Kit.scale or 0)
+  Kit.pushClip(x, y, w, listH)
+  for row = 1, perPage do
+    local index = offset + row
+    local stamp = stamps[index]
+    if not stamp then break end
+    local ry = y + (row - 1) * rowH
+    local on = S.builderStamp and S.builderStamp.id == stamp.id
+    if Kit.row(x, ry, rowW - 52 * Kit.scale, 27 * Kit.scale, on, PAL.blue,
+        5 * Kit.scale) then
+      setStamp(S, stamp.source, copyStampCells(stamp.cells), stamp.id)
+      S.status = "Using stamp " .. tostring(stamp.name)
+    end
+    Kit.text("micro", Kit.ellipsize("micro",
+        string.format("%s  (%d tiles)", stamp.name or stamp.id,
+          #(stamp.cells or {})),
+        rowW - 64 * Kit.scale),
+      x + 6 * Kit.scale, ry + 7 * Kit.scale, PAL.heading)
+    if Kit.button(x + rowW - 48 * Kit.scale, ry + 2 * Kit.scale,
+        48 * Kit.scale, 23 * Kit.scale, "Del", { kind = "danger" }) then
+      table.remove(stamps, index)
+      App.markDirty()
+      break
+    end
+  end
+  Kit.popClip()
+  if #stamps > perPage then
+    S.builderStampOffset = Kit.scrollbar(x + w - 11 * Kit.scale, y,
+      10 * Kit.scale, listH, offset, #stamps, perPage, "builderStampOffset")
+  else
+    S.builderStampOffset = 0
+  end
+end
+
 local PANE_INFO = {
   details = { label = "Map setup", help = "Name, size, encounters, and map behavior" },
   layers = { label = "Layers", help = "Choose what you paint on and arrange draw order" },
-  tileset = { label = "Tile animation", help = "Advanced: animate individual source tiles" },
+  tileset = { label = "Tile animation", help = "Animate individual source tiles" },
+  stamps = { label = "Custom stamps", help = "Save and reuse multi-tile brushes" },
   warps = { label = "Doors & exits", help = "Connect this map to another location" },
 }
 
 local function drawPaneNavigation(S, x, y, w)
   local s = Kit.scale
-  local tabs = { "details", "layers", "tileset", "warps" }
+  local tabs = { "details", "layers", "tileset", "stamps", "warps" }
   local bw = (w - 4 * s) / 2
   for index, id in ipairs(tabs) do
     local col, row = (index - 1) % 2, math.floor((index - 1) / 2)
@@ -2364,9 +2750,10 @@ local function drawPaneNavigation(S, x, y, w)
     end
   end
   local info = PANE_INFO[S.builderPane] or PANE_INFO.layers
+  local rows = math.ceil(#tabs / 2)
   Kit.text("micro", Kit.ellipsize("micro", info.help, w),
-    x, y + 63 * s, PAL.muted)
-  return y + 82 * s
+    x, y + (rows * 30 + 3) * s, PAL.muted)
+  return y + (rows * 30 + 22) * s
 end
 
 local function drawProperties(S, source, x, y, w, h, App)
@@ -2497,6 +2884,8 @@ local function drawProperties(S, source, x, y, w, h, App)
     drawTilesetPane(S, px, py, innerW, remaining, App)
   elseif S.builderPane == "warps" then
     drawWarpsPane(S, source, px, py, innerW, remaining, App)
+  elseif S.builderPane == "stamps" then
+    drawStampsPane(S, px, py, innerW, remaining, App)
   else
     drawLayersPane(S, source, px, py, innerW, remaining, App)
   end
@@ -2664,8 +3053,17 @@ function MapBuilder.draw(S, x, y, w, h, App)
       S._builderScriptFor = selKey
       ownSelectedTalk(S, App)
     end
+    local hookCell
+    if S.builderTool == "trigger" and S.eventHookCellIdx then
+      local hooks = S.project.mapHooks and S.project.mapHooks[S.mapId]
+      hookCell = hooks and hooks.onStepCells
+        and hooks.onStepCells[S.eventHookCellIdx]
+    end
     local steps, scriptId, mapId
-    if target and type(target.scriptId) == "string" and target.scriptId ~= "" then
+    if hookCell and type(hookCell.steps) == "table" then
+      steps, scriptId, mapId = hookCell.steps, "trigger", S.mapId
+      S.eventMapId = mapId
+    elseif target and type(target.scriptId) == "string" and target.scriptId ~= "" then
       local Events = require("Events")
       steps = Events.ownTalkScript(S, target.mapId, target.scriptId)
       scriptId, mapId = target.scriptId, target.mapId
@@ -2676,7 +3074,9 @@ function MapBuilder.draw(S, x, y, w, h, App)
     end
     if not steps then
       Kit.emptyBox(centerX + pad, sy + pad, centerW - 2 * pad, scriptH - 2 * pad,
-        "Select an NPC or sign")
+        hookCell == nil and S.builderTool == "trigger"
+          and "Click a trigger cell"
+          or "Select an NPC or sign")
     else
       EventScriptEditor.draw(S, App, {
         x = centerX + pad, y = sy + pad,

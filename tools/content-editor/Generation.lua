@@ -97,6 +97,105 @@ function Generation.dataMaps(S)
   return Generation.maps(S and S.data)
 end
 
+local function deepClone(value, seen)
+  if type(value) ~= "table" then return value end
+  seen = seen or {}
+  if seen[value] then return seen[value] end
+  local out = {}
+  seen[value] = out
+  for key, child in pairs(value) do
+    out[deepClone(key, seen)] = deepClone(child, seen)
+  end
+  return out
+end
+
+function Generation.isEditorMap(rec)
+  return type(rec) == "table" and (rec._isNew == true
+    or rec._layeredGenerated
+    or rec._layeredSource
+    or (type(rec.index) == "number" and rec.index >= 1000))
+end
+
+function Generation.cloneMapRecord(rec)
+  if type(rec) ~= "table" then return rec end
+  return deepClone(rec)
+end
+
+-- Put ROM copies back for maps this project does not own, so leftover
+-- compiles and other loaded mods do not show as "vanilla".
+function Generation.restoreUnownedLiveMaps(S)
+  if not (S and S.data and type(S._vanillaMapBackup) == "table") then
+    return
+  end
+  local project = (S.project and S.project.maps) or {}
+  local layered = (S.project and S.project.layeredMaps) or {}
+  S.data.maps = S.data.maps or {}
+  for id, bak in pairs(S._vanillaMapBackup) do
+    if not project[id] and not layered[id] then
+      local copy = deepClone(bak)
+      S.data.maps[id] = copy
+      if S.data.gen2Maps and S.data.gen2Maps ~= S.data.maps then
+        S.data.gen2Maps[id] = copy
+      end
+    end
+  end
+  Generation.pruneForeignLiveMaps(S)
+end
+
+function Generation.isRomMap(S, id, rec)
+  if not id then return false end
+  if S and type(S._vanillaMapIds) == "table" then
+    return S._vanillaMapIds[id] == true
+  end
+  rec = rec or Generation.dataMaps(S)[id]
+  return type(rec) == "table" and not Generation.isEditorMap(rec)
+end
+
+-- Sidebar / pickers: this project's maps plus ROM maps. Leftover compiles
+-- and other loaded mods stay out of the list.
+function Generation.listedMapIds(S)
+  local seen, ids = {}, {}
+  local function add(id)
+    if id and not seen[id] then
+      seen[id] = true
+      ids[#ids + 1] = id
+    end
+  end
+  if S and S.project then
+    for id in pairs(S.project.maps or {}) do add(id) end
+    for id in pairs(S.project.layeredMaps or {}) do add(id) end
+  end
+  for id, rec in pairs(Generation.dataMaps(S)) do
+    if Generation.isRomMap(S, id, rec) then add(id) end
+  end
+  table.sort(ids)
+  return ids
+end
+
+function Generation.pruneForeignLiveMaps(S)
+  if not (S and S.data) then return end
+  local vanilla = S._vanillaMapIds
+  local project = (S.project and S.project.maps) or {}
+  local layered = (S.project and S.project.layeredMaps) or {}
+  local function keep(id, rec)
+    if project[id] or layered[id] then return true end
+    if type(vanilla) == "table" then return vanilla[id] == true end
+    return not Generation.isEditorMap(rec)
+  end
+  local function strip(bag)
+    if type(bag) ~= "table" then return end
+    local drop = {}
+    for id, rec in pairs(bag) do
+      if not keep(id, rec) then drop[#drop + 1] = id end
+    end
+    for _, id in ipairs(drop) do bag[id] = nil end
+  end
+  strip(S.data.maps)
+  if S.data.gen2Maps and S.data.gen2Maps ~= S.data.maps then
+    strip(S.data.gen2Maps)
+  end
+end
+
 function Generation.dataTilesets(S)
   return Generation.tilesets(S and S.data)
 end

@@ -14,6 +14,11 @@ LayeredMap.CELL_SIZE = 16
 LayeredMap.COLOR_MODES = { "palette", "true_color" }
 LayeredMap.COLLISION_MODES = {
   "solid", "walk", "grass", "water", "shore", "ledge", "cut",
+  "door", "stairs", "cave", "panel",
+}
+
+LayeredMap.WARP_COLLISION = {
+  door = true, stairs = true, cave = true, panel = true,
 }
 
 function LayeredMap.collisionBase(mode)
@@ -72,6 +77,8 @@ local function ensureProject(project)
   project.mapWarpNodes = project.mapWarpNodes or {}
   project.maps = project.maps or {}
   project.tilesets = project.tilesets or {}
+  project.runtimeTileAnims = project.runtimeTileAnims or {}
+  project.mapStamps = project.mapStamps or {}
   project.nextMapIndex = project.nextMapIndex or 1000
   project.nextWarpNode = project.nextWarpNode or 1
   return project
@@ -108,20 +115,7 @@ local function resolveTileset(S, tilesetId)
 end
 
 function LayeredMap.allMapIds(S)
-  local seen, ids = {}, {}
-  local function add(bucket)
-    for id in pairs(bucket or {}) do
-      if not seen[id] then
-        seen[id] = true
-        ids[#ids + 1] = id
-      end
-    end
-  end
-  add(S.project and S.project.layeredMaps)
-  add(S.project and S.project.maps)
-  add(require("Generation").dataMaps(S))
-  table.sort(ids)
-  return ids
+  return require("Generation").listedMapIds(S)
 end
 
 local function uniqueMapId(S, wanted)
@@ -684,6 +678,11 @@ function LayeredMap.sourceDescriptor(S, sourceId)
     local tilesetId = LayeredMap.runtimeTilesetId(sourceId)
     local tileset = resolveTileset(S, tilesetId)
     if not tileset then return nil end
+    local project = S.project
+    if project then
+      project.runtimeTileAnims = project.runtimeTileAnims or {}
+      project.runtimeTileAnims[tilesetId] = project.runtimeTileAnims[tilesetId] or {}
+    end
     return {
       id = sourceId,
       name = tilesetId .. " (game blocks)",
@@ -693,6 +692,7 @@ function LayeredMap.sourceDescriptor(S, sourceId)
       tileset = tileset,
       columns = 8,
       count = #(tileset.blocks or {}) * 4,
+      animations = project and project.runtimeTileAnims[tilesetId] or {},
     }
   end
   return S.project and S.project.mapTileSources
@@ -744,8 +744,8 @@ function LayeredMap.sourceIds(S, mapId)
 end
 
 function LayeredMap.setAnimationFrames(source, tile, frames)
-  if not source or source.runtimeTileset then
-    return false, "import a PNG to define a custom animation"
+  if not source then
+    return false, "no tileset source"
   end
   tile = math.floor(tonumber(tile) or 0)
   if tile < 0 or tile >= (source.count or 0) then
@@ -768,8 +768,8 @@ function LayeredMap.setAnimationFrames(source, tile, frames)
 end
 
 function LayeredMap.setSourceAnimation(source, tile, frameCount, duration)
-  if not source or source.runtimeTileset then
-    return false, "import a PNG to define a custom animation"
+  if not source then
+    return false, "no tileset source"
   end
   tile = math.floor(tonumber(tile) or 0)
   if tile < 0 or tile >= (source.count or 0) then
@@ -1067,8 +1067,7 @@ local function gbcMicroSlot(S, refs, micro, animatedIndex, frameTile)
 end
 
 local function animationFor(source, tile)
-  if source.runtimeTileset then return nil end
-  return source.animations and source.animations[tile]
+  return source and source.animations and source.animations[tile]
 end
 
 local function paletteSample(r, g, b, a, colors)
@@ -2075,12 +2074,12 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   local COLL = {
     solid = 0x07, walk = 0x00, grass = 0x18, water = 0x21, shore = 0x23,
     cut = 0x12,
+    door = 0x71, stairs = 0x7a, cave = 0x7b, panel = 0x7c,
     ledge_right = 0xa0, ledge_left = 0xa1, ledge_up = 0xa2, ledge_down = 0xa3,
     ledge = 0xa3,
   }
-  -- Gold only takes a warp if the cell's COLL_* is a warp kind (door, carpet,
-  -- stairs). Gen 1 uses warpTiles on the 8x8 sheet; that list is not enough.
-  local COLL_DOOR = 0x71
+  -- Gold only takes a warp if the cell's COLL_* is a warp kind. Keep the
+  -- painted door / stairs / cave / pad; only default a bare warp to door.
   local function addBlock(block, quad)
     local key = table.concat(block, ",") .. ":" .. table.concat(quad, ",")
     local id = blockIds[key]
@@ -2106,8 +2105,9 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
           local mode = (mapSource.collision and mapSource.collision[index])
             or "solid"
           local collByte = COLL[mode] or 0x07
-          if activeWarpCells and activeWarpCells[index] then
-            collByte = COLL_DOOR
+          if activeWarpCells and activeWarpCells[index]
+              and not LayeredMap.WARP_COLLISION[mode] then
+            collByte = COLL.door
           end
           local slot = cellY * 2 + cellX + 1
           quad[slot] = collByte
@@ -2115,7 +2115,7 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
           if cutMicros then
             hasCut = true
             cutQuad[slot] = (activeWarpCells and activeWarpCells[index])
-              and COLL_DOOR or 0x00
+              and collByte or 0x00
           else
             cutMicros = microIds
             cutQuad[slot] = collByte
@@ -2444,6 +2444,64 @@ local function tileQuad(image, x, y, w, h)
     bucket[key] = love.graphics.newQuad(x, y, w, h, iw, ih)
   end
   return bucket[key]
+end
+
+local function runtimeCellKey(source, tile)
+  local tileset = source and source.tileset
+  local block = tileset and tileset.blocks
+    and tileset.blocks[math.floor(tile / 4) + 1]
+  if not block then return tostring(tile) end
+  local q = tile % 4
+  local qx, qy = q % 2, math.floor(q / 2)
+  local parts = {}
+  for my = 0, 1 do
+    for mx = 0, 1 do
+      parts[#parts + 1] = tostring(block[(qy * 2 + my) * 4 + qx * 2 + mx + 1] or 0)
+    end
+  end
+  return table.concat(parts, ",")
+end
+
+local function customCellKey(S, source, tile)
+  local image = source.image and Preview.image(S, source.image)
+  if not image or not image.getPixel then return tostring(tile) end
+  local columns = source.columns or math.max(1, math.floor(image:getWidth() / 16))
+  local sx = (tile % columns) * 16
+  local sy = math.floor(tile / columns) * 16
+  local parts = {}
+  for y = 2, 14, 4 do
+    for x = 2, 14, 4 do
+      local r, g, b, a = image:getPixel(sx + x, sy + y)
+      parts[#parts + 1] = string.format("%d%d%d%d",
+        math.floor((r or 0) * 15), math.floor((g or 0) * 15),
+        math.floor((b or 0) * 15), math.floor((a or 0) * 15))
+    end
+  end
+  return table.concat(parts, ":")
+end
+
+-- First-seen unique 16x16 tiles (skips identical copies on the sheet).
+function LayeredMap.uniqueTiles(S, source)
+  if not source then return {} end
+  local count = math.max(0, tonumber(source.count) or 0)
+  local sig = tostring(source.image) .. ":" .. tostring(count) .. ":"
+    .. tostring(source.runtimeTileset or "")
+  if source._uniqueSig == sig and source._uniqueTiles then
+    return source._uniqueTiles
+  end
+  local seen, out = {}, {}
+  for tile = 0, count - 1 do
+    local fp = source.runtimeTileset
+      and runtimeCellKey(source, tile)
+      or customCellKey(S, source, tile)
+    if not seen[fp] then
+      seen[fp] = true
+      out[#out + 1] = tile
+    end
+  end
+  source._uniqueSig = sig
+  source._uniqueTiles = out
+  return out
 end
 
 local function animationTile(source, tile)

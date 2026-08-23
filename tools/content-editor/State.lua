@@ -70,6 +70,11 @@ function State.blankProject(id, name)
     tilesets = {},  -- id -> record (imported or custom)
     layeredMaps = {}, -- id -> native 16x16 layered map source
     mapTileSources = {}, -- id -> imported 16x16 PNG tileset source
+    mapStamps = {}, -- saved multi-tile brushes (any tileset)
+    mapAssemblies = {}, -- kept Assembly-tab groups
+    nextStamp = 1,
+    movements = {}, -- Gold applymovement byte streams
+    runtimeTileAnims = {}, -- tilesetId -> tile -> frames (Gold sheet animations)
     mapWarpNodes = {}, -- stable directed endpoints compiled to runtime warp indices
     text = {},      -- _LABEL -> string
     text_pointers = {}, -- mapLabel -> TEXT_* -> { text = "_LABEL" }
@@ -134,6 +139,11 @@ function State.ensureProjectFields(project)
   project.tilesets = project.tilesets or {}
   project.layeredMaps = project.layeredMaps or {}
   project.mapTileSources = project.mapTileSources or {}
+  project.mapStamps = project.mapStamps or {}
+  project.mapAssemblies = project.mapAssemblies or {}
+  project.nextStamp = project.nextStamp or 1
+  project.movements = project.movements or {}
+  project.runtimeTileAnims = project.runtimeTileAnims or {}
   project.mapWarpNodes = project.mapWarpNodes or {}
   project.text = project.text or {}
   project.text_pointers = project.text_pointers or {}

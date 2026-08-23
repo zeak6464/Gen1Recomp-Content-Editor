@@ -2096,6 +2096,22 @@ function ModWriter.emitMain(project, baseData)
     end
   end
 
+  if gen2 and type(project.movements) == "table" and next(project.movements) then
+    out[#out + 1] = "  -- Gold applymovement streams from Map Builder paths"
+    out[#out + 1] = "  do"
+    out[#out + 1] = "    local _moves = "
+      .. rewriteModPaths(emitTableLiteral(project.movements, 1))
+    out[#out + 1] = "    mod.events:on(\"mods.loaded\", function(ev)"
+    out[#out + 1] = "      local data = ev and ev.data"
+    out[#out + 1] = "      if type(data) ~= \"table\" then return end"
+    out[#out + 1] = "      local scripts = data.gen2Scripts or data.scripts or {}"
+    out[#out + 1] = "      scripts.movements = scripts.movements or {}"
+    out[#out + 1] = "      for k, v in pairs(_moves) do scripts.movements[k] = v end"
+    out[#out + 1] = "    end)"
+    out[#out + 1] = "  end"
+    out[#out + 1] = ""
+  end
+
   -- Gold map hooks (map.entered / world.stepped / battle.ended → vm:start)
   if gen2 and next(goldMapHooksIndex) then
     out[#out + 1] = "  -- Gold map hooks (map.entered / world.stepped / battle.ended → vm:start)"
