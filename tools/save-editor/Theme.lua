@@ -47,6 +47,7 @@ local PAL = {
   railYellow  = { 255, 220, 60 },
   railGold    = { 255, 203, 5 },
   railSilver  = { 192, 200, 212 },
+  railCrystal = { 80, 210, 230 },
   -- chip / tab tile gradient (the launcher's mod chip)
   chipTop     = { 61, 74, 109 },   -- #3d4a6d
   chipBot     = { 32, 42, 69 },    -- #202a45
@@ -320,6 +321,7 @@ function Theme.versionRail(x, y, w, h)
   local bars = {
     PAL.railRed, PAL.railBlue, PAL.railYellow or PAL.yellow,
     PAL.railGold, PAL.railSilver or PAL.steel,
+    PAL.railCrystal or PAL.blue,
   }
   local seg = w / #bars
   for i, c in ipairs(bars) do

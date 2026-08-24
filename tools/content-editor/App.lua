@@ -933,7 +933,7 @@ function App.playtestMod()
     options.mods[id] = true
     options.modsByVersion = options.modsByVersion or {}
     -- Latest Recomp reads per-game enablement. Turn this mod on for every
-    -- supported game so Playtest works after switching Red/Blue/Yellow/Gold/Silver.
+    -- supported game so Playtest works after switching Red/Blue/Yellow/Gold/Silver/Crystal.
     for _, vid in ipairs(GameVersion.ORDER or { version }) do
       local bucket = options.modsByVersion[vid] or {}
       options.modsByVersion[vid] = bucket

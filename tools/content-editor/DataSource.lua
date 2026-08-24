@@ -38,7 +38,7 @@ function DataSource.hasLocalCache(version)
     prefix .. "data/generated/maps.lua",
     prefix .. "data/generated/constants.lua",
   }
-  -- Legacy root cache is Red only (migrateLegacyRedCache); Blue/Yellow/Gold/Silver
+  -- Legacy root cache is Red only (migrateLegacyRedCache); Blue/Yellow/Gold/Silver/Crystal
   -- must live under their prefix or a wrong Kanto table wins the switch.
   if version == "red" or prefix == "" then
     candidates[#candidates + 1] = "data/generated/maps.lua"
@@ -81,7 +81,7 @@ end
 -- a Red/legacy data/generated at the root).
 -- Latest Recomp checkouts often only extract Red at data/generated. Blue and
 -- Yellow share that Gen 1 table shape, so they may use the Red/root extract.
--- Gold and Silver must have their own gold/ or silver/ tree.
+-- Gold, Silver, and Crystal must have their own gold/, silver/, or crystal/ tree.
 function DataSource.recompHasVersion(root, version)
   if type(root) ~= "string" or root == "" then return false end
   root = root:gsub("[/\\]+$", "")
@@ -138,7 +138,7 @@ function DataSource.isValidRecompRoot(path)
     return true
   end
   -- Legacy un-prefixed cache, or any GameVersion cachePrefix tree
-  -- (red/, blue/, yellow/, gold/, silver/).
+  -- (red/, blue/, yellow/, gold/, silver/, crystal/).
   if fileExists(join(path, "data" .. SEP .. "generated" .. SEP .. "maps.lua")) then
     return true
   end
@@ -215,7 +215,7 @@ end
 
 function DataSource.mountRecomp(path)
   if not DataSource.isValidRecompRoot(path) then
-    return false, "Not a Gen1Recomp folder with data/generated (or red|blue|yellow|gold|silver/)"
+    return false, "Not a Gen1Recomp folder with data/generated (or red|blue|yellow|gold|silver|crystal/)"
   end
   path = path:gsub("[/\\]+$", "")
   DataSource.unmountLinked()
@@ -406,7 +406,7 @@ end
 local function tryImported(version)
   if not hasImportedCache(version) then return false end
   -- Imported Gold/Silver lives in the save dir; keep a Red-only linked Recomp from
-  -- shadowing gold/data/generated or silver/data/generated via a root data/generated mount.
+  -- shadowing gold/data/generated, silver/data/generated, or crystal/data/generated via a root data/generated mount.
   DataSource.unmountLinked()
   remountVersion(version)
   return finishLoad(version)

@@ -229,8 +229,15 @@ function Project.draw(S, x, y, w, h, App)
   row = gameCardY + pad
   local GameVersion = require("src.core.GameVersion")
   local curVer = S.version or App.dataVersion or "red"
-  local gen = (GameVersion.generation and GameVersion.generation(curVer)) or 1
-  local order = GameVersion.ORDER or { "red", "blue", "yellow", "gold", "silver" }
+  local gen = Generation.num(S)
+  local rawOrder = GameVersion.ORDER or { "red", "blue", "yellow", "gold", "silver", "crystal" }
+  local order = {}
+  for _, vid in ipairs(rawOrder) do
+    if (GameVersion.VERSIONS and GameVersion.VERSIONS[vid]) or vid == curVer then
+      order[#order + 1] = vid
+    end
+  end
+  if #order == 0 then order = { curVer } end
   local chipCount = math.max(1, #order)
   local chipGap = 8 * s
   local chipW = math.floor((gameW - (chipCount - 1) * chipGap) / chipCount)
@@ -247,7 +254,7 @@ function Project.draw(S, x, y, w, h, App)
     if Kit.button(bx, row, chipW, btnH, label, {
         kind = kind,
         tooltip = (info.displayName or label)
-          .. " — Gen " .. tostring(GameVersion.generation(vid) or 1)
+          .. " — Gen " .. tostring(Generation.num({ version = vid }))
           .. "\n" .. cacheNote,
       }) then
       if App.setGameVersion then App.setGameVersion(vid) end
@@ -304,7 +311,7 @@ function Project.draw(S, x, y, w, h, App)
   local dsW = math.min(150 * s, math.floor((dataW - 2 * dsGap) / 3))
   if Kit.button(dataX, row, dsW, btnH, "Link Recomp", {
       kind = "primary",
-      tooltip = "Use data/generated (or red|blue|yellow|gold|silver/) from a Gen1Recomp install",
+      tooltip = "Use data/generated (or red|blue|yellow|gold|silver|crystal/) from a Gen1Recomp install",
     }) then
     App.pickFolder("Choose Gen1Recomp folder", function(path)
       App.linkRecompFolder(path)
@@ -312,7 +319,7 @@ function Project.draw(S, x, y, w, h, App)
   end
   if Kit.button(dataX + dsW + dsGap, row, dsW, btnH, "Import ROM", {
       kind = "accent",
-      tooltip = "Import US Red/Blue/Yellow (.gb, 1 MiB) or Gold/Silver (.gbc, 2 MiB)\n"
+      tooltip = "Import US Red/Blue/Yellow (.gb, 1 MiB) or Gold/Silver/Crystal (.gbc, 2 MiB)\n"
         .. "into the versioned save-directory cache",
     }) then
     App.pickFile("Choose Pokemon ROM",
@@ -328,7 +335,7 @@ function Project.draw(S, x, y, w, h, App)
   row = row + btnH + 8 * s
   if Kit.button(dataX, row, dsW, btnH, "Clear cache", {
       kind = "danger",
-      tooltip = "Delete save-directory ROM caches (red|blue|yellow|gold|silver/…)\n"
+      tooltip = "Delete save-directory ROM caches (red|blue|yellow|gold|silver|crystal/…)\n"
         .. "and flush editor image caches, then reload data.\n"
         .. "Does not delete a Linked Gen1Recomp folder.",
   }) then

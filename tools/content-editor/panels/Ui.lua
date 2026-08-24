@@ -36,7 +36,7 @@ local MODES_GEN1 = {
 
 local MODES_GEN2 = {
   { id = "title", label = "Title",
-    tip = "Gold title: logo, screen, clouds, Ho-Oh, copyright splash" },
+    tip = "Gold/Crystal title art: screen, mascot, copyright" },
   { id = "intro", label = "Intro",
     tip = "GS cinema acts: water / grass / fire tile + sprite sheets" },
   { id = "boot", label = "Boot screens",
@@ -65,7 +65,8 @@ local BOOT_SCREEN_CHOICES = {
 }
 
 local BOOT_SCREEN_CHOICES_GEN2 = {
-  "Gen2CopyrightSplash", "Gen2GameFreakPresents", "Gen2GoldSilverIntro",
+  "Gen2CopyrightSplash", "Gen2GameFreakPresents", "Gen2CrystalSplash",
+  "Gen2GoldSilverIntro", "Gen2CrystalIntro",
   "Gen2TitleState", "Gen2OakSpeech", "Gen2MainMenu",
 }
 
@@ -198,7 +199,11 @@ local function imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, label,
   return fy + fh + 8 * s
 end
 
--- ---- Title ----
+local function crystalUi(S)
+  if Generation.isCrystal(S) then return true end
+  local title = dataField(S, "title")
+  return type(title) == "table" and title.layout == "crystal_title"
+end
 
 local function drawTitleGen2(S, x, y, w, h, App)
   local s = Kit.scale
@@ -210,19 +215,32 @@ local function drawTitleGen2(S, x, y, w, h, App)
   local fh = 28 * s
   local fieldW = viewW - labelW - 12 * s
 
-  Kit.caption(viewX, fy, "GOLD TITLE")
+  Kit.caption(viewX, fy, crystalUi(S) and "CRYSTAL TITLE" or "GOLD TITLE")
   fy = fy + 24 * s
   fy = UiPreview.draw(S, "title", viewX, fy, viewW, s)
 
-  local rows = {
-    { "image", "Logo" },
-    { "screen", "Screen BG" },
-    { "clouds", "Clouds" },
-    { "trail", "Trail" },
-    { "hooh", "Ho-Oh" },
-    { "copyright", "Copyright" },
-    { "copyrightSplash", "© splash" },
-  }
+  local rows
+  if crystalUi(S) then
+    rows = {
+      { "image", "Logo" },
+      { "screen", "Screen BG" },
+      { "wordmark", "Wordmark" },
+      { "suicune", "Suicune" },
+      { "gem", "Gem" },
+      { "copyright", "Copyright" },
+      { "copyrightSplash", "© splash" },
+    }
+  else
+    rows = {
+      { "image", "Logo" },
+      { "screen", "Screen BG" },
+      { "clouds", "Clouds" },
+      { "trail", "Trail" },
+      { "hooh", "Ho-Oh" },
+      { "copyright", "Copyright" },
+      { "copyrightSplash", "© splash" },
+    }
+  end
   for _, row in ipairs(rows) do
     local key, label = row[1], row[2]
     local p = pathOf(select(1, eff(S, "title", key)))
@@ -234,18 +252,30 @@ local function drawTitleGen2(S, x, y, w, h, App)
 
   Kit.text("small", "Layout", viewX, fy + 6 * s, PAL.caption)
   do
-    local cur = tostring(select(1, eff(S, "title", "layout")) or "gold_title")
+    local placeholder = crystalUi(S) and "crystal_title" or "gold_title"
+    local cur = tostring(select(1, eff(S, "title", "layout")) or placeholder)
     local v = RegList.field(App, "ui_title_layout", viewX + labelW, fy, fieldW, fh,
-      cur, "gold_title")
+      cur, placeholder)
     if v ~= cur then setKey(S, "title", "layout", v ~= "" and v or nil, App) end
   end
   fy = fy + fh + 8 * s
 
-  for _, row in ipairs({
-    { "hoohX", "Ho-Oh X", 48 },
-    { "hoohY", "Ho-Oh Y", 56 },
-    { "cloudY", "Cloud Y", 88 },
-  }) do
+  local layoutRows
+  if crystalUi(S) then
+    layoutRows = {
+      { "suicuneX", "Suicune X", 48 },
+      { "suicuneY", "Suicune Y", 96 },
+      { "gemX", "Gem X", 56 },
+      { "gemY", "Gem Y", 6 },
+    }
+  else
+    layoutRows = {
+      { "hoohX", "Ho-Oh X", 48 },
+      { "hoohY", "Ho-Oh Y", 56 },
+      { "cloudY", "Cloud Y", 88 },
+    }
+  end
+  for _, row in ipairs(layoutRows) do
     Kit.text("small", row[2], viewX, fy + 6 * s, PAL.caption)
     local cur = select(1, eff(S, "title", row[1]))
     if type(cur) ~= "number" then cur = row[3] end
@@ -370,9 +400,11 @@ local function drawIntroGen2(S, x, y, w, h, App)
   local fh = 28 * s
   local fieldW = viewW - labelW - 12 * s
 
-  Kit.caption(viewX, fy, "GS INTRO CINEMA")
+  Kit.caption(viewX, fy, crystalUi(S) and "CRYSTAL INTRO" or "GS INTRO CINEMA")
   fy = fy + 22 * s
-  Kit.text("micro", "Water → grass → fire acts (data.gen2Intro)",
+  Kit.text("micro", crystalUi(S)
+      and "Unown / Suicune cinema (data.gen2Intro.acts)"
+      or "Water → grass → fire acts (data.gen2Intro)",
     viewX, fy, PAL.muted)
   fy = fy + 20 * s
   fy = UiPreview.draw(S, "intro", viewX, fy, viewW, s)
@@ -542,7 +574,8 @@ local function drawBoot(S, x, y, w, h, App)
   local fh = 28 * s
   local gen2 = Generation.isGen2(S)
 
-  Kit.caption(viewX, fy, gen2 and "GOLD BOOT SCREENS" or "BOOT SCREENS")
+  Kit.caption(viewX, fy, Generation.isCrystal(S) and "CRYSTAL BOOT SCREENS"
+    or (gen2 and "GOLD BOOT SCREENS" or "BOOT SCREENS"))
   fy = fy + 22 * s
   fy = UiPreview.draw(S, "boot", viewX, fy, viewW, s)
   Kit.text("micro", gen2

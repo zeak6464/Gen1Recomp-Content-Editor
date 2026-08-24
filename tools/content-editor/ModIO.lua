@@ -360,7 +360,7 @@ function ModIO.load(modDir)
   return project
 end
 
--- Which game this mod is authored against (red/blue/yellow/gold/silver).
+-- Which game this mod is authored against (red/blue/yellow/gold/silver/crystal).
 -- Stored on editor_project.game; inferred from maps or a pinned manifest.games.
 function ModIO.authoringGame(project, modDir)
   local GameVersion = require("src.core.GameVersion")
@@ -383,6 +383,10 @@ function ModIO.authoringGame(project, modDir)
   if project and (bagLooksGen2(project.maps)
       or bagLooksGen2(project.layeredMaps)
       or bagLooksGen2(project.tilesets)) then
+    local current = valid(GameVersion.get and GameVersion.get())
+    if current and Generation.num({ version = current }) == 2 then
+      return current
+    end
     return "gold"
   end
 
@@ -398,7 +402,7 @@ function ModIO.authoringGame(project, modDir)
     any = true
     local key = tostring(token or ""):lower()
     if valid(key) then pinned[#pinned + 1] = key end
-    if key ~= "gold" and key ~= "silver" and key ~= "gen2" then
+    if not Generation.isExclusiveGen2Token(key) then
       onlyGen2 = false
     end
   end

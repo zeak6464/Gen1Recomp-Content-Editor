@@ -3714,8 +3714,10 @@ local function applyToolAtCell(S, mapDef, cx, cy, App)
   App.markDirty()
 end
 
-local function drawObjectSprites(S, mapDef)
+local function drawObjectSprites(S, mapDef, opts)
   local camX, camY = S.mapCamX or 0, S.mapCamY or 0
+  local lift = (opts and opts.cellAlign) and 0 or 4
+  local linePad = (opts and opts.cellAlign) and 0.5 or 0
   love.graphics.setColor(1, 1, 1, 1)
   for i, obj in ipairs(mapDef.objects or {}) do
     if not obj.hidden then
@@ -3727,7 +3729,7 @@ local function drawObjectSprites(S, mapDef)
         if not ok then
           local def = spriteDef(S, obj.sprite)
           if def and def.image then
-            Preview.draw(S, def.image, px - camX, py - camY - 4, CELL, CELL,
+            Preview.draw(S, def.image, px - camX, py - camY - lift, CELL, CELL,
               spritePreviewPal(S, def))
           end
         end
@@ -3741,18 +3743,19 @@ local function drawObjectSprites(S, mapDef)
         -- Fixed wild marker (distinct from NPC / trainer outlines).
         love.graphics.setColor(0.95, 0.45, 0.2, 0.9)
         love.graphics.rectangle("line",
-          px - camX, py - camY - 4, CELL, CELL)
+          px - camX + linePad, py - camY - lift + linePad, CELL, CELL)
         love.graphics.setColor(1, 1, 1, 1)
       elseif isTrainerObject(obj, S) then
         love.graphics.setColor(0.95, 0.25, 0.3, 0.9)
         love.graphics.rectangle("line",
-          px - camX, py - camY - 4, CELL, CELL)
+          px - camX + linePad, py - camY - lift + linePad, CELL, CELL)
         love.graphics.setColor(1, 1, 1, 1)
       end
       if S.mapObjectIndex == i and S.mapSection == "objects" then
         love.graphics.setColor(1, 0.85, 0.15, 0.9)
         love.graphics.rectangle("line",
-          px - camX - 1, py - camY - 5, CELL + 2, CELL + 2)
+          px - camX - 1 + linePad, py - camY - lift - 1 + linePad,
+          CELL + 2, CELL + 2)
         love.graphics.setColor(1, 1, 1, 1)
       end
     end
@@ -3824,7 +3827,7 @@ local function drawMarkerOverlays(S, mapDef, opts)
     end
   end
   love.graphics.setColor(1, 1, 1, 1)
-  drawObjectSprites(S, mapDef)
+  drawObjectSprites(S, mapDef, opts)
 end
 
 local function drawGridOverlay(S, mapDef)
@@ -3995,7 +3998,7 @@ local function drawMapPreview(S, mapDef, x, y, w, h, App)
       vx + 8 * s, vy + 8 * s, PAL.red)
     Kit.text("micro",
       Generation.isGen2(S)
-        and "Project → Import a Gold/Silver ROM or Link a Recomp with gold/ or silver/ cache"
+        and "Project → Import a Gold/Silver/Crystal ROM or Link a Recomp with gold/, silver/, or crystal/ cache"
         or "Project → Import ROM or Link Recomp so tilesets (e.g. OVERWORLD) load",
       vx + 8 * s, vy + 28 * s, PAL.faint)
     return
@@ -6856,16 +6859,19 @@ function Maps._section.drawObjects(S, map, mutate, App, px, py, propW, listBotto
     local t = obj.trainer
     row("Class", function(fx, fy, fw, fh_)
       local curId = classIdForIndex(S, t.class) or ""
-      local v = field(App, "ob_tc", fx, fy, fw, fh_, curId, "YOUNGSTER",
-        function() return Autocomplete.trainerIds(S) end)
-      v = v ~= "" and normalizeTrainerClassId(S, v) or nil
-      if v ~= (curId ~= "" and curId or nil) then
-        map = mutate()
-        local cidx = classIndexForId(S, v)
-        map.objects[i].trainer = map.objects[i].trainer or {}
-        map.objects[i].trainer.class = cidx or t.class
-        if v then S.trainerId = v end
-      end
+      Maps.drawTrainerClassPicker(S, {
+        x = fx, y = fy, w = fw, h = fh_,
+        current = curId,
+        onPick = function(id)
+          local v = id and normalizeTrainerClassId(S, id) or nil
+          map = mutate()
+          local cidx = classIndexForId(S, v)
+          map.objects[i].trainer = map.objects[i].trainer or {}
+          map.objects[i].trainer.class = cidx or t.class
+          if v then S.trainerId = v end
+          App.markDirty()
+        end,
+      })
     end)
     row("Member #", function(fx, fy, fw, fh_)
       local cur = tonumber(t.member) or 1
@@ -6925,18 +6931,20 @@ function Maps._section.drawObjects(S, map, mutate, App, px, py, propW, listBotto
     local scripted = scriptedTrainerInfo(S, obj)
     row("Class", function(fx, fy, fw, fh_)
       local curId = classIdForIndex(S, scripted.class) or ""
-      local v = field(App, "ob_tc", fx, fy, fw, fh_, curId, "BUGSY",
-        function() return Autocomplete.trainerIds(S) end)
-      v = v ~= "" and normalizeTrainerClassId(S, v) or nil
-      if v ~= (curId ~= "" and curId or nil) then
-        local cidx = classIndexForId(S, v)
-        if cidx and mutateScriptLoadtrainer(S, scripted.scriptKey, function(cmd)
-              cmd.class = cidx
-            end) then
-          if v then S.trainerId = v end
-          App.markDirty()
-        end
-      end
+      Maps.drawTrainerClassPicker(S, {
+        x = fx, y = fy, w = fw, h = fh_,
+        current = curId,
+        onPick = function(id)
+          local v = id and normalizeTrainerClassId(S, id) or nil
+          local cidx = classIndexForId(S, v)
+          if cidx and mutateScriptLoadtrainer(S, scripted.scriptKey, function(cmd)
+                cmd.class = cidx
+              end) then
+            if v then S.trainerId = v end
+            App.markDirty()
+          end
+        end,
+      })
     end)
     row("Member #", function(fx, fy, fw, fh_)
       local cur = tonumber(scripted.member) or 1
@@ -6954,21 +6962,24 @@ function Maps._section.drawObjects(S, map, mutate, App, px, py, propW, listBotto
     end)
   elseif obj.trainerClass and obj.trainerClass ~= "" then
     row("Class (OPP_*)", function(fx, fy, fw, fh_)
-      local v = field(App, "ob_tc", fx, fy, fw, fh_, obj.trainerClass or "", "OPP_",
-        function() return Autocomplete.trainerIds(S) end)
-      v = v ~= "" and v:upper():gsub("%s+", "_") or nil
-      if v ~= obj.trainerClass then
-        map = mutate()
-        map.objects[i].trainerClass = v
-        if v then S.trainerId = v end
-        local label = State.mapLabel(S, map.id)
-        local idx = map.objects[i].index or i
-        State.ensureProjectFields(S.project)
-        if S.project.trainer_headers[label]
-            and S.project.trainer_headers[label][idx] then
-          S.project.trainer_headers[label][idx].opponent = v
-        end
-      end
+      Maps.drawTrainerClassPicker(S, {
+        x = fx, y = fy, w = fw, h = fh_,
+        current = obj.trainerClass or "",
+        onPick = function(id)
+          local v = id and id:upper():gsub("%s+", "_") or nil
+          map = mutate()
+          map.objects[i].trainerClass = v
+          if v then S.trainerId = v end
+          local label = State.mapLabel(S, map.id)
+          local idx = map.objects[i].index or i
+          State.ensureProjectFields(S.project)
+          if S.project.trainer_headers[label]
+              and S.project.trainer_headers[label][idx] then
+            S.project.trainer_headers[label][idx].opponent = v
+          end
+          App.markDirty()
+        end,
+      })
     end)
     row("Party index", function(fx, fy, fw, fh_)
       local cur = obj.trainerParty or 1
@@ -8051,18 +8062,17 @@ function Maps.draw(S, x, y, w, h, App)
   elseif map and (S.mapTool or "paint") == "trainer" then
     barH = 38 * s
     local bx = mainX
-    local classPh = Generation.isGen2(S) and "YOUNGSTER" or "OPP_YOUNGSTER"
     Kit.text("micro",
       Generation.isGen2(S) and "Class" or "Class (OPP_*)",
       bx, barY + 2 * s, PAL.caption)
     Kit.text("micro", "Party", bx + 170 * s, barY + 2 * s, PAL.caption)
-    local cls = field(App, "mp_tr_cls", bx, barY + 14 * s, 160 * s, 22 * s,
-      S.trainerId or classPh, classPh,
-      function() return Autocomplete.trainerIds(S) end)
-      :upper():gsub("%s+", "_")
-    if cls ~= "" then
-      S.trainerId = normalizeTrainerClassId(S, cls) or cls
-    end
+    Maps.drawTrainerClassPicker(S, {
+      x = bx, y = barY + 14 * s, w = 160 * s, h = 22 * s,
+      current = S.trainerId,
+      onPick = function(id)
+        S.trainerId = normalizeTrainerClassId(S, id) or id
+      end,
+    })
     local pty = tonumber(field(App, "mp_tr_pty", bx + 170 * s, barY + 14 * s,
       48 * s, 22 * s, tostring(S.placeTrainerParty or 1), "1")) or 1
     S.placeTrainerParty = math.max(1, pty)
@@ -8355,6 +8365,12 @@ end
 
 function Maps.deleteSelectedEvent(S, App)
   acS = S
+  if S.builderTool == "trigger" then
+    return Maps.removeTriggerCell(S, App)
+  end
+  if S.builderTool == "path" then
+    return Maps.removeWalkPath(S, App)
+  end
   local map = ensureOwned(S, S.mapId)
   if not map then return false end
   local list, index, kind
@@ -8399,7 +8415,7 @@ function Maps.drawEventOverlays(S)
   -- subtracts its camera. The layered canvas has already applied its camera.
   local oldX, oldY = S.mapCamX, S.mapCamY
   S.mapCamX, S.mapCamY = 0, 0
-  drawMarkerOverlays(S, map, { skipWarps = true })
+  drawMarkerOverlays(S, map, { skipWarps = true, cellAlign = true })
   S.mapCamX, S.mapCamY = oldX, oldY
 end
 
@@ -8835,6 +8851,90 @@ function Maps.placeTriggerCell(S, cx, cy, App)
   S.builderShowScript = true
   if App and App.markDirty then App.markDirty() end
   S.status = string.format("Trigger at (%d,%d) — edit the dialog", cx, cy)
+  return true
+end
+
+function Maps.normalizeTrainerClass(S, classId)
+  return normalizeTrainerClassId(S, classId)
+end
+
+function Maps.drawTrainerClassPicker(S, opts)
+  opts = opts or {}
+  local ChoicePicker = require("ChoicePicker")
+  local placeholder = Generation.isGen2(S) and "YOUNGSTER" or "OPP_YOUNGSTER"
+  local current = opts.current
+  if type(current) ~= "string" or current == "" then
+    current = S.trainerId or placeholder
+  end
+  current = normalizeTrainerClassId(S, current) or current
+  ChoicePicker.field(S, {
+    x = opts.x, y = opts.y, w = opts.w, h = opts.h,
+    current = current,
+    ids = Autocomplete.trainerIds(S),
+    emptyLabel = placeholder,
+    title = "TRAINER CLASS",
+    tooltip = opts.tooltip or "Pick a trainer class",
+    onPick = opts.onPick,
+  })
+end
+
+function Maps.removeTriggerCell(S, App)
+  local hooks = S.project and S.project.mapHooks and S.project.mapHooks[S.mapId]
+  local cells = hooks and hooks.onStepCells
+  local idx = S.eventHookCellIdx
+  if not (type(cells) == "table" and idx and cells[idx]) then
+    S.status = "Select a trigger cell first"
+    return false
+  end
+  table.remove(cells, idx)
+  if #cells == 0 then
+    S.eventHookCellIdx = nil
+  else
+    S.eventHookCellIdx = math.min(idx, #cells)
+  end
+  if App and App.markDirty then App.markDirty() end
+  S.status = "Deleted trigger"
+  return true
+end
+
+function Maps.removeWalkPath(S, App)
+  local map = S.mapId and ensureOwned(S, S.mapId) or nil
+  local obj = map and map.objects and map.objects[S.mapObjectIndex]
+  local bound = obj and obj.walkPath
+  local draft = S.builderPath and S.builderPath.cells
+  if not bound and not (type(draft) == "table" and #draft > 0) then
+    S.status = "No walk path to delete"
+    return false
+  end
+  if bound then
+    local key = bound.movement
+    if type(obj.scriptKey) == "string" and obj.scriptKey ~= "" and key then
+      local cmds = S.project.scripts and S.project.scripts[obj.scriptKey]
+      if type(cmds) == "table" then
+        for i = #cmds, 1, -1 do
+          local cmd = cmds[i]
+          if type(cmd) == "table" and cmd.op == "applymovement"
+              and cmd.movement == key then
+            table.remove(cmds, i)
+          end
+        end
+        Gen2Talk.mirrorLive(S, obj.scriptKey, cmds)
+        if S.project.scriptSteps and S.project.scriptSteps[obj.scriptKey] then
+          Gen2Talk.refreshStepsFromCmds(S, obj.scriptKey)
+        end
+      end
+    end
+    if key then
+      if S.project.movements then S.project.movements[key] = nil end
+      if S.data and S.data.scripts and S.data.scripts.movements then
+        S.data.scripts.movements[key] = nil
+      end
+    end
+    obj.walkPath = nil
+  end
+  if S.builderPath then S.builderPath.cells = {} end
+  if App and App.markDirty then App.markDirty() end
+  S.status = bound and "Deleted walk path" or "Path cleared"
   return true
 end
 

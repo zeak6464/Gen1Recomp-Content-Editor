@@ -405,6 +405,10 @@ local function paintCell(S, source, x, y, App, erase, deferDirty, single)
     local after = erase and nil or brushRef(S)
     if refEqual(before, after) then return false end
     LayeredMap.setCell(source, layerIndex, x, y, after)
+    if after and layerIndex == 1 then
+      local mode = LayeredMap.collisionForRef(S, after)
+      if mode then LayeredMap.setCollision(source, x, y, mode) end
+    end
     if not deferDirty then App.markDirty() end
     return true
   end
@@ -420,6 +424,10 @@ local function paintCell(S, source, x, y, App, erase, deferDirty, single)
       local before = LayeredMap.getCell(source, layerIndex, px, py)
       if not refEqual(before, after) then
         LayeredMap.setCell(source, layerIndex, px, py, after)
+        if layerIndex == 1 then
+          local mode = LayeredMap.collisionForRef(S, after)
+          if mode then LayeredMap.setCollision(source, px, py, mode) end
+        end
         changed = true
       end
     end
@@ -437,7 +445,7 @@ local EXIT_TYPES = {
 
 local COLLISION_LABEL = {
   solid = "Wall", walk = "Land", grass = "Grass", water = "Water",
-  shore = "Shore", ledge = "Ledge", cut = "Cut",
+  shore = "Shore", ledge = "Ledge", face = "Cliff", cut = "Cut",
   door = "Door", stairs = "Stairs", cave = "Cave", panel = "Pad",
 }
 
@@ -450,6 +458,8 @@ local function paintCollisionCell(S, source, x, y)
     mode = S.builderCollision or "solid"
     if mode == "ledge" then
       mode = "ledge_" .. (S.builderLedgeDir or "down")
+    elseif mode == "face" then
+      mode = "face_" .. (S.builderFaceDir or "up")
     end
   end
   if source.collision[index] == mode then return false end
@@ -1040,6 +1050,9 @@ local function drawCanvas(S, source, x, y, w, h, App)
           ledge_down = { 1, 0.55, 0.15 }, ledge_up = { 1, 0.55, 0.15 },
           ledge_left = { 1, 0.55, 0.15 }, ledge_right = { 1, 0.55, 0.15 },
           ledge = { 1, 0.55, 0.15 },
+          face_up = { 0.95, 0.45, 0.2 }, face_down = { 0.95, 0.45, 0.2 },
+          face_left = { 0.95, 0.45, 0.2 }, face_right = { 0.95, 0.45, 0.2 },
+          face = { 0.95, 0.45, 0.2 },
         }
         local color = colors[mode] or colors.solid
         love.graphics.setColor(color[1], color[2], color[3], 0.28)
@@ -1079,10 +1092,10 @@ local function drawCanvas(S, source, x, y, w, h, App)
         love.graphics.rectangle("fill",
           (cell.x or 0) * CELL, (cell.y or 0) * CELL, CELL, CELL)
         if S.eventHookCellIdx == i then
-          love.graphics.setColor(0.95, 0.45, 1, 0.85)
+          love.graphics.setColor(0.95, 0.45, 1, 0.95)
           love.graphics.rectangle("line",
-            (cell.x or 0) * CELL + 1, (cell.y or 0) * CELL + 1,
-            CELL - 2, CELL - 2)
+            (cell.x or 0) * CELL + 0.5, (cell.y or 0) * CELL + 0.5,
+            CELL - 1, CELL - 1)
         end
       end
     end
@@ -2030,13 +2043,18 @@ local function drawToolbar(S, source, x, y, w, App)
     end
     local bx = x
     if S.builderTool == "trainer" then
+      local Maps = require("Maps")
       local fieldY = barY + 29 * s
       Kit.text("micro", "Class", bx, fieldY + 5 * s, PAL.caption)
-      S.trainerId = Kit.textfield("builder_trainer_class", bx + 42 * s, fieldY,
-        132 * s, 24 * s, S.trainerId or "OPP_YOUNGSTER",
-        "Trainer class"):upper():gsub("%s+", "_")
-      Kit.text("micro", "Party", bx + 184 * s, fieldY + 5 * s, PAL.caption)
-      local party = Kit.textfield("builder_trainer_party", bx + 224 * s,
+      Maps.drawTrainerClassPicker(S, {
+        x = bx + 42 * s, y = fieldY, w = 160 * s, h = 24 * s,
+        current = S.trainerId,
+        onPick = function(id)
+          S.trainerId = Maps.normalizeTrainerClass(S, id)
+        end,
+      })
+      Kit.text("micro", "Party", bx + 212 * s, fieldY + 5 * s, PAL.caption)
+      local party = Kit.textfield("builder_trainer_party", bx + 252 * s,
         fieldY, 48 * s, 24 * s,
         tostring(S.placeTrainerParty or 1), "1")
       S.placeTrainerParty = math.max(1, math.floor(tonumber(party) or 1))
@@ -2094,19 +2112,33 @@ local function drawToolbar(S, source, x, y, w, App)
         require("Maps").bindWalkPath(S, App)
       end
       if Kit.button(bx + 74 * s, barY, 56 * s, 24 * s, "Clear",
-          { kind = "ghost" }) then
+          { kind = "ghost", tooltip = "Clear the unfinished path" }) then
         S.builderPath.cells = {}
         S.status = "Path cleared"
       end
+      if Kit.button(bx + 134 * s, barY, 62 * s, 24 * s, "Delete", {
+          kind = "danger",
+          tooltip = "Remove this route from the selected event (Delete key)",
+        }) then
+        require("Maps").removeWalkPath(S, App)
+      end
       Kit.text("micro", string.format(
-        "%d cells — click the map in order, then Bind",
+        "%d cells — click the map in order, then Bind. Delete removes the route.",
         #(S.builderPath.cells or {})),
         x, barY + 28 * s, PAL.muted)
       barBottom = barY + 42 * s
     elseif S.builderTool == "trigger" then
+      Kit.text("micro", "STEP", x, barY + 5 * s, PAL.caption)
+      if Kit.button(x + 42 * s, barY, 70 * s, 24 * s, "Delete", {
+          kind = "danger",
+          enabled = S.eventHookCellIdx ~= nil,
+          tooltip = "Remove the selected trigger (Delete key)",
+        }) then
+        require("Maps").removeTriggerCell(S, App)
+      end
       Kit.text("micro",
-        "Click a cell to stop the player and show dialog. Script panel edits the text.",
-        x, barY + 5 * s, PAL.muted)
+        "Click a cell to stop the player. Select one, then Delete.",
+        x + 118 * s, barY + 5 * s, PAL.muted)
       barBottom = barY + 24 * s
     end
   elseif (S.builderTool or "pencil") == "collision" then
@@ -2124,10 +2156,15 @@ local function drawToolbar(S, source, x, y, w, App)
           LayeredMap.collisionBase(S.builderCollision or "solid") == mode,
           PAL.green, PAL.steel,
           mode == "cut"
-            and "CUT tree — overlay on grass, or a tree on ground next to grass" or nil) then
+            and "CUT tree — overlay on grass, or a tree on ground next to grass"
+            or (mode == "face"
+              and "Cliff face. Paint N on the north side of a raised floor so you cannot walk through it from below."
+              or nil)) then
         S.builderCollision = mode
         if mode == "ledge" then
           S.builderLedgeDir = S.builderLedgeDir or "down"
+        elseif mode == "face" then
+          S.builderFaceDir = S.builderFaceDir or "up"
         end
       end
       bx = bx + bw + 3 * s
@@ -2150,6 +2187,29 @@ local function drawToolbar(S, source, x, y, w, App)
             "Hop " .. d.id) then
           S.builderLedgeDir = d.id
           S.builderCollision = "ledge"
+        end
+        bx = bx + 27 * s
+      end
+    end
+    if LayeredMap.collisionBase(S.builderCollision or "solid") == "face" then
+      if bx + 120 * s > x + w and bx > x + 56 * s then
+        modeY, bx = modeY + 27 * s, x + 56 * s
+        barBottom = modeY + 24 * s
+      end
+      for _, d in ipairs({
+        { id = "up", label = "N" },
+        { id = "down", label = "S" },
+        { id = "left", label = "W" },
+        { id = "right", label = "E" },
+      }) do
+        if Kit.chip(bx, modeY, 24 * s, 24 * s, d.label,
+            (S.builderFaceDir or "up") == d.id,
+            { 240, 110, 50 }, PAL.steel,
+            d.id == "up"
+              and "North face — blocks walking onto a raised floor from below"
+              or ("Face " .. d.id)) then
+          S.builderFaceDir = d.id
+          S.builderCollision = "face"
         end
         bx = bx + 27 * s
       end
@@ -2430,19 +2490,26 @@ local function drawTilesetPane(S, x, y, w, h, App)
   Kit.text("micro", "Color mode", x, y + 5 * Kit.scale, PAL.caption)
   local cx = x + 82 * Kit.scale
   for _, option in ipairs({
-    { id = "palette", label = "Palette" },
-    { id = "true_color", label = "True color" },
+    { id = "palette", label = "Day/night",
+      tip = "Remap this tileset with the map palette so time of day can recolor it" },
+    { id = "true_color", label = "Fixed",
+      tip = "Keep PNG colors. Night only shifts colors that already match the map palette" },
   }) do
     local bw = Kit.textWidth("micro", option.label) + 16 * Kit.scale
     if Kit.chip(cx, y, bw, 24 * Kit.scale, option.label,
         (source.colorMode or "true_color") == option.id,
-        PAL.blue, PAL.steel) then
+        PAL.blue, PAL.steel, option.tip) then
       source.colorMode = option.id
       App.markDirty()
     end
     cx = cx + bw + 4 * Kit.scale
   end
-  y = y + 38 * Kit.scale
+  y = y + 28 * Kit.scale
+  Kit.text("micro", (source.colorMode or "true_color") == "palette"
+      and "Uses this map's palette — day, night, and morning follow the game."
+      or "PNG colors stay put. Switch to Day/night if this tileset should follow time of day.",
+    x, y, PAL.muted)
+  y = y + 16 * Kit.scale
   end
   local tile = S.builderTile or 0
   local frames = source.animations and source.animations[tile]

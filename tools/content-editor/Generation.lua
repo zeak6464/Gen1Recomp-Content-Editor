@@ -12,10 +12,37 @@ end
 function Generation.num(S)
   local ok, GameVersion = pcall(require, "src.core.GameVersion")
   if ok and GameVersion and GameVersion.generation then
-    return GameVersion.generation(Generation.id(S))
+    local gok, n = pcall(GameVersion.generation, Generation.id(S))
+    if gok and type(n) == "number" then return n end
   end
   local id = Generation.id(S)
-  return (id == "gold" or id == "silver") and 2 or 1
+  return (id == "gold" or id == "silver" or id == "crystal") and 2 or 1
+end
+
+function Generation.engine(S)
+  local ok, GameVersion = pcall(require, "src.core.GameVersion")
+  if ok and GameVersion and GameVersion.engine then
+    local eok, engine = pcall(GameVersion.engine, Generation.id(S))
+    if eok and type(engine) == "string" and engine ~= "" then return engine end
+  end
+  local id = Generation.id(S)
+  if id == "crystal" then return "crystal" end
+  if id == "gold" or id == "silver" then return "gs" end
+  return "gen1"
+end
+
+function Generation.isCrystal(S)
+  return Generation.engine(S) == "crystal"
+end
+
+function Generation.isGen2ManifestToken(token)
+  local key = tostring(token or ""):lower()
+  return key == "all" or Generation.isExclusiveGen2Token(key)
+end
+
+function Generation.isExclusiveGen2Token(token)
+  local key = tostring(token or ""):lower()
+  return key == "gen2" or key == "gold" or key == "silver" or key == "crystal"
 end
 
 function Generation.dataLooksGen2(data)
@@ -54,8 +81,7 @@ end
 function Generation.coversGen2(games)
   if type(games) ~= "table" then return false end
   for _, token in ipairs(games) do
-    local key = tostring(token or ""):lower()
-    if key == "all" or key == "gen2" or key == "gold" or key == "silver" then
+    if Generation.isGen2ManifestToken(token) then
       return true
     end
   end

@@ -369,9 +369,8 @@ function Manifest.draw(S, x, y, w, h, App)
       elseif not d.gen2compat and hasGen2 then
         local nextGames = {}
         for _, g in ipairs(d.games) do
-          local low = tostring(g):lower()
-          if low ~= "all" and low ~= "gen2" and low ~= "gold"
-              and low ~= "silver" then
+          if not Generation.isExclusiveGen2Token(g)
+              and tostring(g):lower() ~= "all" then
             nextGames[#nextGames + 1] = g
           end
         end

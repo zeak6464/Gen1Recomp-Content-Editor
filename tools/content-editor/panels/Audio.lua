@@ -177,6 +177,8 @@ local function programsDiag(data, prefix)
       (prefix or "") .. "assets/generated/audio/programs.bin",
       "assets/generated/audio/programs.bin",
       "gold/assets/generated/audio/programs.bin",
+      "silver/assets/generated/audio/programs.bin",
+      "crystal/assets/generated/audio/programs.bin",
     }) do
       if p ~= "" then
         local info = love.filesystem.getInfo(p)

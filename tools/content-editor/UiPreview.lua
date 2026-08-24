@@ -132,17 +132,71 @@ end
 
 -- ---- title driver ----
 
+local function crystalTitle(S)
+  if Generation.isCrystal(S) then return true end
+  return tostring(eff(S, "title", "layout") or "") == "crystal_title"
+end
+
+local function frameList(S, key, fallback)
+  local out = {}
+  local paths = eff(S, "title", key)
+  if type(paths) == "table" then
+    for i, p in ipairs(paths) do
+      out[i] = img(S, pathOf(p))
+    end
+  end
+  if not out[1] and fallback and fallback ~= "" then
+    out[1] = img(S, fallback)
+  end
+  return out
+end
+
 local function buildTitle(S)
   local layout = eff(S, "title", "layout")
   local gold = Generation.isGen2(S)
     or layout == "gold_title"
+    or layout == "crystal_title"
     or pathOf(eff(S, "title", "hooh")) ~= ""
     or pathOf(eff(S, "title", "screen")) ~= ""
+    or pathOf(eff(S, "title", "suicune")) ~= ""
 
   if gold then
     local logoPath = pathOf(eff(S, "title", "image") or eff(S, "title", "logo"))
-    if logoPath == "" then logoPath = "assets/generated/title/pokemon_logo.png" end
     local screenPath = pathOf(eff(S, "title", "screen"))
+    local copyPath = pathOf(eff(S, "title", "copyright"))
+    if copyPath == "" then copyPath = "assets/generated/title/copyright.png" end
+
+    if crystalTitle(S) then
+      if screenPath == "" then
+        screenPath = "assets/generated/title/crystal_screen.png"
+      end
+      local suicunePath = pathOf(eff(S, "title", "suicune"))
+      local gemPath = pathOf(eff(S, "title", "gem"))
+      local sky = eff(S, "title", "sky")
+      if type(sky) ~= "table" or #sky < 3 then
+        sky = { 123 / 255, 165 / 255, 255 / 255, 1 }
+      end
+      return {
+        kind = "title",
+        gold = true,
+        crystal = true,
+        screen = img(S, screenPath),
+        gem = img(S, gemPath),
+        suicuneFrames = frameList(S, "suicuneFrames", suicunePath),
+        suicuneX = tonumber(eff(S, "title", "suicuneX")) or 48,
+        suicuneY = tonumber(eff(S, "title", "suicuneY")) or 96,
+        suicuneEvery = tonumber(eff(S, "title", "suicuneEvery")) or 8,
+        suicuneTick = 0,
+        suicuneFrame = 1,
+        gemX = tonumber(eff(S, "title", "gemX")) or 56,
+        gemY = tonumber(eff(S, "title", "gemY")) or 6,
+        sky = sky,
+        timer = 0,
+        data = S.data,
+      }
+    end
+
+    if logoPath == "" then logoPath = "assets/generated/title/pokemon_logo.png" end
     if screenPath == "" then screenPath = "assets/generated/title/title_screen.png" end
     local hoohPath = pathOf(eff(S, "title", "hooh"))
     if hoohPath == "" then
@@ -152,16 +206,7 @@ local function buildTitle(S)
     if hoohPath == "" then hoohPath = "assets/generated/title/hooh.png" end
     local cloudsPath = pathOf(eff(S, "title", "clouds"))
     if cloudsPath == "" then cloudsPath = "assets/generated/title/clouds.png" end
-    local copyPath = pathOf(eff(S, "title", "copyright"))
-    if copyPath == "" then copyPath = "assets/generated/title/copyright.png" end
-    local hoohFrames = {}
-    local framePaths = eff(S, "title", "hoohFrames")
-    if type(framePaths) == "table" then
-      for i, p in ipairs(framePaths) do
-        hoohFrames[i] = img(S, pathOf(p))
-      end
-    end
-    if not hoohFrames[1] then hoohFrames[1] = img(S, hoohPath) end
+    local hoohFrames = frameList(S, "hoohFrames", hoohPath)
     local sequence = eff(S, "title", "hoohSequence")
     if type(sequence) ~= "table" or #sequence == 0 then
       sequence = { { 1, 10 }, { 2, 9 }, { 3, 10 }, { 4, 10 }, { 3, 9 }, { 5, 10 } }
@@ -265,6 +310,17 @@ local function hoohBob(phase)
 end
 
 local function updateTitle(st)
+  if st.crystal then
+    st.timer = (st.timer or 0) + 1
+    local every = math.max(1, st.suicuneEvery or 8)
+    local c = st.suicuneTick or 0
+    st.suicuneTick = (c + 1) % 256
+    if c % every == 0 then
+      local n = math.max(1, #(st.suicuneFrames or {}))
+      st.suicuneFrame = math.floor(c % (every * n) / every) + 1
+    end
+    return
+  end
   if st.gold then
     st.timer = (st.timer or 0) + 1
     st.hoohPhase = ((st.hoohPhase or 0) + 1) % 256
@@ -333,6 +389,23 @@ end
 local function drawTitleFrame(st, S)
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.rectangle("fill", 0, 0, GB_W, GB_H)
+  if st.crystal then
+    local sky = st.sky or { 123 / 255, 165 / 255, 1, 1 }
+    love.graphics.setColor(sky[1], sky[2], sky[3], 1)
+    love.graphics.rectangle("fill", 0, 0, GB_W, GB_H)
+    love.graphics.setColor(1, 1, 1, 1)
+    if st.gem then
+      love.graphics.draw(st.gem, st.gemX or 56, st.gemY or 6)
+    end
+    local frames = st.suicuneFrames
+    local suicune = frames and (frames[st.suicuneFrame or 1] or frames[1])
+    if suicune then
+      love.graphics.draw(suicune, st.suicuneX or 48, st.suicuneY or 96)
+    end
+    -- Crystal's screen already has the logo and CRYSTAL VERSION wordmark.
+    if st.screen then love.graphics.draw(st.screen, 0, 0) end
+    return
+  end
   if st.gold then
     if st.screen then
       love.graphics.draw(st.screen, 0, 0)
@@ -1333,7 +1406,9 @@ function UiPreview.draw(S, mode, x, y, w, s)
   }
   local info = tips[mode] or mode
   if active and p and p.state then
-    if mode == "title" and p.state.phase then
+    if mode == "title" and p.state.crystal then
+      info = "Suicune + gem · PLAY to animate"
+    elseif mode == "title" and p.state.phase then
       info = string.format("title · %s", tostring(p.state.phase))
     elseif mode == "intro" then
       info = string.format("intro · phase %d", tonumber(p.state.phase) or 0)

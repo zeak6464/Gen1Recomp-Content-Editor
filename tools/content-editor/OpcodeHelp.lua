@@ -123,6 +123,7 @@ local INFO = {
   loadmenu = I("Open menu"),
   closewindow = I("Close menu"),
   jumptextfaceplayer = I("Say, face player, and end", TEXT),
+  farjumptext = I("Say far text and end", TEXT, "Crystal: jump to a text in another bank."),
   jumptext = I("Say and end", TEXT),
   waitbutton = I("Wait for button"),
   promptbutton = I("Prompt button"),

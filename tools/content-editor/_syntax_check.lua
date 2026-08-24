@@ -35,6 +35,12 @@ local ok, err = pcall(function()
   local OpcodeHelp = require("OpcodeHelp")
   assert(OpcodeHelp.label("checkevent") == "Check story flag")
   assert(OpcodeHelp.label("end") == "End script")
+  assert(OpcodeHelp.label("farjumptext") == "Say far text and end")
+  local Generation = require("Generation")
+  assert(Generation.coversGen2({ "crystal" }) == true)
+  assert(Generation.coversGen2({ "gold" }) == true)
+  assert(Generation.num({ version = "crystal" }) == 2)
+  assert(Generation.engine({ version = "crystal" }) == "crystal")
   assert(EventScriptEditor.draw)
   assert(EventScriptEditor.defaultStep)
   assert(EventScriptEditor.stepLine)
@@ -224,7 +230,14 @@ local ok, err = pcall(function()
     package.preload["src.core.GameVersion"] = function()
       return {
         get = function() return "gold" end,
-        generation = function(id) return (id == "gold" or id == "silver") and 2 or 1 end,
+        generation = function(id)
+          return (id == "gold" or id == "silver" or id == "crystal") and 2 or 1
+        end,
+        engine = function(id)
+          if id == "crystal" then return "crystal" end
+          if id == "gold" or id == "silver" then return "gs" end
+          return "gen1"
+        end,
       }
     end
     package.loaded["Generation"] = nil

@@ -50,6 +50,11 @@ local OW_SLOTS_GEN2 = {
     tip = "Surf when party Pikachu (SPRITE_SURFING_PIKACHU)" },
 }
 
+local OW_SLOTS_KRIS = {
+  { id = "walkKris", label = "Walk Kris", tip = "On-foot Kris (SPRITE_KRIS)" },
+  { id = "bikeKris", label = "Bike Kris", tip = "Bicycle (SPRITE_KRIS_BIKE)" },
+}
+
 local PIC_SLOTS_GEN1 = {
   { id = "front", label = "Front",
     tip = "Trainer card / Oak intro / Hall of Fame" },
@@ -67,12 +72,38 @@ local PIC_SLOTS_GEN2 = {
     tip = "Catch tutorial Dude (gen2MenuGfx.battleHud.dudeBack)" },
 }
 
+local PIC_SLOTS_KRIS = {
+  { id = "frontFemale", label = "Front Kris",
+    tip = "Oak speech / intro Kris pic (data.playerPicFemale)" },
+  { id = "backFemale", label = "Back Kris",
+    tip = "Battle / Hall of Fame Kris back pic (gen2MenuGfx.battleHud.playerBackFemale)" },
+}
+
+local function hasKris(S)
+  if Generation.isCrystal(S) then return true end
+  local sprites = S and S.data and (S.data.sprites or S.data.gen2Sprites)
+  return type(sprites) == "table" and sprites.SPRITE_KRIS ~= nil
+end
+
 local function owSlots(S)
-  return Generation.isGen2(S) and OW_SLOTS_GEN2 or OW_SLOTS_GEN1
+  if not Generation.isGen2(S) then return OW_SLOTS_GEN1 end
+  if not hasKris(S) then return OW_SLOTS_GEN2 end
+  local slots = {}
+  for i = 1, #OW_SLOTS_GEN2 do slots[i] = OW_SLOTS_GEN2[i] end
+  for i = 1, #OW_SLOTS_KRIS do
+    slots[#slots + 1] = OW_SLOTS_KRIS[i]
+  end
+  return slots
 end
 
 local function picSlots(S)
-  return Generation.isGen2(S) and PIC_SLOTS_GEN2 or PIC_SLOTS_GEN1
+  if not Generation.isGen2(S) then return PIC_SLOTS_GEN1 end
+  if not hasKris(S) then return PIC_SLOTS_GEN2 end
+  return {
+    PIC_SLOTS_GEN2[1], PIC_SLOTS_KRIS[1],
+    PIC_SLOTS_GEN2[2], PIC_SLOTS_KRIS[2],
+    PIC_SLOTS_GEN2[3],
+  }
 end
 
 local FRAME_LABELS = {
@@ -103,6 +134,8 @@ local function defaultPlayerSprites(S)
       bike = (st and st.bike) or "SPRITE_CHRIS_BIKE",
       surf = (st and st.surf) or "SPRITE_SURF",
       surfPikachu = (st and st.surf_pika) or "SPRITE_SURFING_PIKACHU",
+      walkKris = "SPRITE_KRIS",
+      bikeKris = "SPRITE_KRIS_BIKE",
     }
   end
   local fd = defaults()
@@ -121,9 +154,13 @@ local function defaultPlayerPics(S)
     local hud = menuGfx(S) and menuGfx(S).battleHud or {}
     return {
       back = hud.playerBack or "assets/generated/battle/player_back.png",
+      backFemale = hud.playerBackFemale
+        or "assets/generated/battle/player_back_female.png",
       demoBack = hud.dudeBack or "assets/generated/battle/dude_back.png",
       front = (S.data and S.data.playerPic)
         or "assets/generated/intro/cal.png",
+      frontFemale = (S.data and S.data.playerPicFemale)
+        or "assets/generated/intro/kris.png",
     }
   end
   local fd = defaults()
@@ -463,7 +500,9 @@ local function drawOverworld(S, x, y, w, h, App)
   fy = fy + 18 * s
 
   Kit.text("micro", Generation.isGen2(S)
-      and "Gold: ChrisStateSprites. Remap writes gen2PlayerSprites; sheet → sprites:patch."
+      and (hasKris(S)
+        and "Crystal: Chris and Kris sheets. Remap writes gen2PlayerSprites; sheet → sprites:patch."
+        or "Gold: ChrisStateSprites. Remap writes gen2PlayerSprites; sheet → sprites:patch.")
       or "Sheet layout: 16×(16×frames). Walkers use 6 frames — stand D/U/L, walk D/U/L; right = flip left.",
     viewX, fy, PAL.faint)
   fy = fy + 28 * s
@@ -476,7 +515,12 @@ local function drawOverworld(S, x, y, w, h, App)
 
   row("Sprite id", function(fx, fy_, fw, fh_)
     local cur = spriteId or ""
-    local ph = Generation.isGen2(S) and "SPRITE_CHRIS" or "SPRITE_RED"
+    local ph = "SPRITE_RED"
+    if Generation.isGen2(S) then
+      if slot == "walkKris" then ph = "SPRITE_KRIS"
+      elseif slot == "bikeKris" then ph = "SPRITE_KRIS_BIKE"
+      else ph = "SPRITE_CHRIS" end
+    end
     local v = RegList.field(App, "pl_sid", fx, fy_, math.max(40 * s, fw - 100 * s),
       fh_, cur, ph)
     if v ~= cur and v:match("^[%w_]+$") then

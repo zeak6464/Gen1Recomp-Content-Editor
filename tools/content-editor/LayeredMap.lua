@@ -13,7 +13,7 @@ local LayeredMap = {}
 LayeredMap.CELL_SIZE = 16
 LayeredMap.COLOR_MODES = { "palette", "true_color" }
 LayeredMap.COLLISION_MODES = {
-  "solid", "walk", "grass", "water", "shore", "ledge", "cut",
+  "solid", "walk", "grass", "water", "shore", "ledge", "face", "cut",
   "door", "stairs", "cave", "panel",
 }
 
@@ -25,6 +25,8 @@ function LayeredMap.collisionBase(mode)
   if type(mode) == "string" then
     local dir = mode:match("^ledge_(%w+)$")
     if dir then return "ledge", dir end
+    dir = mode:match("^face_(%w+)$")
+    if dir then return "face", dir end
   end
   return mode
 end
@@ -260,6 +262,40 @@ local function ownedMap(S, mapId)
   return copy
 end
 
+-- Gold COLL_UP_WALL ($b2) is LAND in the permission table, so isWalkable
+-- would stamp it as walk and the compiled map would lose the cliff face.
+local SIDE_FACE = {
+  [0] = "face_right", [1] = "face_left",
+  [2] = "face_up", [3] = "face_down",
+  [4] = "face_down", [5] = "face_down",
+  [6] = "face_up", [7] = "face_up",
+}
+
+local function collisionModeFromByte(coll)
+  if coll == nil then return nil end
+  local okP, Permissions = pcall(require, "src.world.gen2.Permissions")
+  if not (okP and Permissions) then return nil end
+  if Permissions.isGrass and Permissions.isGrass(coll) then return "grass" end
+  if Permissions.isWater and Permissions.isWater(coll) then return "water" end
+  if Permissions.isLedge and Permissions.isLedge(coll) then
+    local facings = Permissions.ledgeFacings and Permissions.ledgeFacings(coll)
+    if type(facings) == "table" then
+      if facings.down then return "ledge_down" end
+      if facings.right then return "ledge_right" end
+      if facings.left then return "ledge_left" end
+      if facings.up then return "ledge_up" end
+    end
+    return "ledge_down"
+  end
+  if Permissions.isSideWall and Permissions.isSideWall(coll) then
+    return SIDE_FACE[coll % 8] or "face_up"
+  end
+  if Permissions.isWalkable and Permissions.isWalkable(coll) then
+    return "walk"
+  end
+  return "solid"
+end
+
 local function collisionMode(tileset, tile, map, x, y)
   if tileset and type(tileset.collision) == "table" and map and map.blocks then
     local blockX, blockY = math.floor(x / 2), math.floor(y / 2)
@@ -267,25 +303,8 @@ local function collisionMode(tileset, tile, map, x, y)
     local quad = tileset.collision[blockId + 1]
     if type(quad) == "table" then
       local coll = quad[(y % 2) * 2 + (x % 2) + 1]
-      local okP, Permissions = pcall(require, "src.world.gen2.Permissions")
-      if okP and Permissions then
-        if Permissions.isGrass and Permissions.isGrass(coll) then return "grass" end
-        if Permissions.isWater and Permissions.isWater(coll) then return "water" end
-        if Permissions.isLedge and Permissions.isLedge(coll) then
-          local facings = Permissions.ledgeFacings and Permissions.ledgeFacings(coll)
-          if type(facings) == "table" then
-            if facings.down then return "ledge_down" end
-            if facings.right then return "ledge_right" end
-            if facings.left then return "ledge_left" end
-            if facings.up then return "ledge_up" end
-          end
-          return "ledge_down"
-        end
-        if Permissions.isWalkable and Permissions.isWalkable(coll) then
-          return "walk"
-        end
-        return "solid"
-      end
+      local mode = collisionModeFromByte(coll)
+      if mode then return mode end
     end
   end
   if not tileset or tile == nil then return "solid" end
@@ -294,6 +313,18 @@ local function collisionMode(tileset, tile, map, x, y)
   if listSet(tileset.shoreTiles)[tile] then return "shore" end
   if listSet(tileset.walkable)[tile] then return "walk" end
   return "solid"
+end
+
+function LayeredMap.collisionForRef(S, ref)
+  if type(ref) ~= "table" then return nil end
+  local tilesetId = LayeredMap.runtimeTilesetId(ref.source)
+  if not tilesetId then return nil end
+  local tileset = resolveTileset(S, tilesetId)
+  local tile = tonumber(ref.tile) or 0
+  local quad = tileset and type(tileset.collision) == "table"
+    and tileset.collision[math.floor(tile / 4) + 1]
+  local coll = type(quad) == "table" and quad[(tile % 4) + 1]
+  return collisionModeFromByte(coll)
 end
 
 local function rawCellTile(map, tileset, x, y)
@@ -600,7 +631,9 @@ function LayeredMap.addTileSource(project, wantedId, image, width, height)
     tileHeight = 16,
     columns = width / 16,
     count = (width / 16) * (height / 16),
-    colorMode = "true_color",
+    -- Palette mode remaps through the map's day/night set. True color keeps
+    -- PNG pixels as-is unless they already match the GBC palette.
+    colorMode = "palette",
     animations = {},
   }
   project.mapTileSources[id] = source
@@ -624,7 +657,7 @@ function LayeredMap.installTileSource(project, wantedId, image, width, height)
   source.tileHeight = 16
   source.columns = width / 16
   source.count = (width / 16) * (height / 16)
-  source.colorMode = "true_color"
+  if not source.colorMode then source.colorMode = "true_color" end
   project.mapTileSources[id] = source
   return source
 end
@@ -1788,8 +1821,8 @@ local function emitGen1Ledges(project, S, tilesetId, mapSource, cells)
   for y = 0, height - 1 do
     for x = 0, width - 1 do
       local index = y * width + x + 1
-      local _, dir = LayeredMap.collisionBase(mapSource.collision[index])
-      local off = dir and LEDGE_STANDING[dir]
+      local base, dir = LayeredMap.collisionBase(mapSource.collision[index])
+      local off = base == "ledge" and dir and LEDGE_STANDING[dir]
       local micros = cells[index]
       local ledgeTile = type(micros) == "table" and micros[3]
       if off and type(ledgeTile) == "number" then
@@ -2077,6 +2110,8 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
     door = 0x71, stairs = 0x7a, cave = 0x7b, panel = 0x7c,
     ledge_right = 0xa0, ledge_left = 0xa1, ledge_up = 0xa2, ledge_down = 0xa3,
     ledge = 0xa3,
+    face_right = 0xb0, face_left = 0xb1, face_up = 0xb2, face_down = 0xb3,
+    face = 0xb2,
   }
   -- Gold only takes a warp if the cell's COLL_* is a warp kind. Keep the
   -- painted door / stairs / cave / pad; only default a bare warp to door.
