@@ -1337,7 +1337,9 @@ function UiPreview.draw(S, mode, x, y, w, s)
   local playing = active and p.playing
 
   if Kit.chip(x, y, 72 * s, fh, playing and "STOP" or "PLAY",
-      playing, PAL.green) then
+      playing, PAL.green, PAL.steel,
+      playing and "Stop the title / intro preview"
+        or "Play the title / intro preview") then
     if playing then
       UiPreview.stop(S)
       S.status = "UI preview stopped"
@@ -1351,13 +1353,15 @@ function UiPreview.draw(S, mode, x, y, w, s)
 
   local loop = S.uiPreviewLoop ~= false
   if Kit.chip(x + 80 * s, y, 72 * s, fh, loop and "LOOP" or "ONCE",
-      loop, PAL.blue) then
+      loop, PAL.blue, PAL.steel,
+      loop and "Replay the preview when it ends"
+        or "Play the preview once, then stop") then
     S.uiPreviewLoop = not loop
     if active and p then p.loop = S.uiPreviewLoop ~= false end
   end
 
   if Kit.chip(x + 160 * s, y, 88 * s, fh, "RELOAD", false, PAL.yellow,
-      nil, "Rebuild preview from current fields") then
+      PAL.steel, "Rebuild the preview from the current image fields") then
     UiPreview.begin(S, mode)
     p = S.uiPreview
     active = p and p.mode == mode

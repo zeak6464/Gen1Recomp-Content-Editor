@@ -184,8 +184,10 @@ local function browseImage(App, label, onRel)
 end
 
 local function imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, label,
-    fieldId, path, onSet)
+    fieldId, path, onSet, tip)
   Kit.text("small", label, viewX, fy + 6 * s, PAL.caption)
+  Kit.offerTooltip(viewX, fy, labelW, fh,
+    tip or ("Import a PNG for " .. label))
   local fx = viewX + labelW
   local cur = path or ""
   local v = RegList.field(App, fieldId, fx, fy, math.max(40 * s, fieldW - 100 * s),
@@ -222,35 +224,46 @@ local function drawTitleGen2(S, x, y, w, h, App)
   local rows
   if crystalUi(S) then
     rows = {
-      { "image", "Logo" },
-      { "screen", "Screen BG" },
-      { "wordmark", "Wordmark" },
-      { "suicune", "Suicune" },
-      { "gem", "Gem" },
-      { "copyright", "Copyright" },
-      { "copyrightSplash", "© splash" },
+      { "image", "Logo",
+        "Optional extra logo overlay. Crystal already draws the logo on Screen BG" },
+      { "screen", "Screen BG",
+        "Full Crystal title art, including the wordmark" },
+      { "wordmark", "Wordmark",
+        "CRYSTAL VERSION overlay. Leave empty if Screen BG already has it" },
+      { "suicune", "Suicune",
+        "Animated Suicune frames on the Crystal title" },
+      { "gem", "Gem",
+        "Crystal gem that sits above the screen" },
+      { "copyright", "Copyright",
+        "Copyright line on the title screen" },
+      { "copyrightSplash", "© splash",
+        "Copyright on the Game Freak splash" },
     }
   else
     rows = {
-      { "image", "Logo" },
-      { "screen", "Screen BG" },
-      { "clouds", "Clouds" },
-      { "trail", "Trail" },
-      { "hooh", "Ho-Oh" },
-      { "copyright", "Copyright" },
-      { "copyrightSplash", "© splash" },
+      { "image", "Logo", "Gold title logo overlay" },
+      { "screen", "Screen BG", "Title background behind Ho-Oh and clouds" },
+      { "clouds", "Clouds", "Scrolling cloud layer on the Gold title" },
+      { "trail", "Trail", "Ho-Oh trail / sparkle overlay" },
+      { "hooh", "Ho-Oh", "Ho-Oh sprite on the Gold title" },
+      { "copyright", "Copyright", "Copyright line on the title screen" },
+      { "copyrightSplash", "© splash", "Copyright on the Game Freak splash" },
     }
   end
   for _, row in ipairs(rows) do
-    local key, label = row[1], row[2]
+    local key, label, tip = row[1], row[2], row[3]
     local p = pathOf(select(1, eff(S, "title", key)))
     fy = imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, label,
       "ui_title_" .. key, p, function(path)
         setKey(S, "title", key, path, App)
-      end)
+      end, tip)
   end
 
   Kit.text("small", "Layout", viewX, fy + 6 * s, PAL.caption)
+  Kit.offerTooltip(viewX, fy, labelW, fh,
+    crystalUi(S)
+      and "crystal_title uses Screen BG as the full Crystal title"
+      or "gold_title is Ho-Oh / clouds; crystal_title uses Screen BG as the full title")
   do
     local placeholder = crystalUi(S) and "crystal_title" or "gold_title"
     local cur = tostring(select(1, eff(S, "title", "layout")) or placeholder)
@@ -277,6 +290,8 @@ local function drawTitleGen2(S, x, y, w, h, App)
   end
   for _, row in ipairs(layoutRows) do
     Kit.text("small", row[2], viewX, fy + 6 * s, PAL.caption)
+    Kit.offerTooltip(viewX, fy, labelW, fh,
+      "Pixel offset for " .. row[2] .. " on the title screen")
     local cur = select(1, eff(S, "title", row[1]))
     if type(cur) ~= "number" then cur = row[3] end
     local v = RegList.num(App, "ui_title_" .. row[1], viewX + labelW, fy, 80 * s, fh, cur)
@@ -358,11 +373,16 @@ local function drawTitle(S, x, y, w, h, App)
   fy = fy + fh + 8 * s
 
   Kit.text("small", "Layout", viewX, fy + 6 * s, PAL.caption)
+  Kit.offerTooltip(viewX, fy, labelW, fh,
+    "Yellow can use the Pikachu title layout")
   do
     local cur = tostring(select(1, eff(S, "title", "layout")) or "")
     local label = (cur ~= "" and cur) or "(default)"
     if Kit.button(viewX + labelW, fy, fieldW, fh,
-        Kit.ellipsize("small", label, fieldW - 8 * s), { kind = "ghost" }) then
+        Kit.ellipsize("small", label, fieldW - 8 * s), {
+          kind = "ghost",
+          tooltip = "Cycle title layout (default / yellow Pikachu)",
+        }) then
       local next = (cur == "") and "yellow_pikachu"
         or (cur == "yellow_pikachu") and "" or ""
       setKey(S, "title", "layout", next ~= "" and next or nil, App)
@@ -373,9 +393,11 @@ local function drawTitle(S, x, y, w, h, App)
   local pika = pathOf(select(1, eff(S, "title", "pikachu")))
   local bubble = pathOf(select(1, eff(S, "title", "pikaBubble")))
   fy = imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, "Pikachu",
-    "ui_title_pika", pika, function(p) setKey(S, "title", "pikachu", p, App) end)
+    "ui_title_pika", pika, function(p) setKey(S, "title", "pikachu", p, App) end,
+    "Yellow title Pikachu sprite")
   fy = imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, "Bubble",
-    "ui_title_bub", bubble, function(p) setKey(S, "title", "pikaBubble", p, App) end)
+    "ui_title_bub", bubble, function(p) setKey(S, "title", "pikaBubble", p, App) end,
+    "Pikachu speech bubble on the Yellow title")
 
   if next(S.project.title) and Kit.button(viewX, fy, 120 * s, fh, "Clear all", {
       kind = "danger", tooltip = "Remove project.title overrides",
@@ -491,10 +513,14 @@ local function drawIntro(S, x, y, w, h, App)
   fy = fy + fh + 8 * s
 
   Kit.text("small", "Skip intro", viewX, fy + 6 * s, PAL.caption)
+  Kit.offerTooltip(viewX, fy, labelW, fh,
+    "When YES, the game skips the intro cinema and goes to the title")
   do
     local skip = select(1, eff(S, "intro", "skip")) and true or false
     if Kit.chip(viewX + labelW, fy, 80 * s, fh, skip and "YES" or "NO",
-        skip, PAL.yellow) then
+        skip, PAL.yellow, PAL.steel,
+        skip and "Skip the intro cinema and go to the title"
+          or "Play the intro cinema before the title") then
       setKey(S, "intro", "skip", (not skip) and true or nil, App)
     end
   end
@@ -599,7 +625,8 @@ local function drawBoot(S, x, y, w, h, App)
     for _, choice in ipairs(choices) do
       local on = cur == choice
       local bw = Kit.textWidth("micro", choice) + 14 * s
-      if Kit.chip(chipX, fy, bw, fh, choice, on, PAL.green) then
+      if Kit.chip(chipX, fy, bw, fh, choice, on, PAL.green, PAL.steel,
+          "Use " .. choice .. " for the " .. slot.label .. " boot screen") then
         setScreen(S, slot.id, choice, App)
         cur = choice
       end
@@ -1190,13 +1217,17 @@ local function drawBadgesGen2(S, x, y, w, h, App)
   local card = pathOf(proj.card or base.card)
   local status = pathOf(proj.status or base.status)
   fy = imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, "Badges",
-    "ui_bdg_sheet", badges, function(p) setSheet("badges", p) end)
+    "ui_bdg_sheet", badges, function(p) setSheet("badges", p) end,
+    "Trainer card badge icon sheet")
   fy = imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, "Leaders",
-    "ui_bdg_leaders", leaders, function(p) setSheet("leaders", p) end)
+    "ui_bdg_leaders", leaders, function(p) setSheet("leaders", p) end,
+    "Gym leader mugshot sheet")
   fy = imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, "Card",
-    "ui_bdg_card", card, function(p) setSheet("card", p) end)
+    "ui_bdg_card", card, function(p) setSheet("card", p) end,
+    "Trainer card background")
   fy = imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, "Status",
-    "ui_bdg_status", status, function(p) setSheet("status", p) end)
+    "ui_bdg_status", status, function(p) setSheet("status", p) end,
+    "Status screen background")
 
   Kit.caption(viewX, fy, "JOHTO")
   fy = fy + 20 * s

@@ -65,8 +65,11 @@ local function drawNewMapForm(S, x, y, w, App)
     px + 142 * s, py + 2 * s, PAL.muted)
   py = py + 25 * s
   Kit.text("micro", "Map name", px, py + 5 * s, PAL.caption)
+  Kit.offerTooltip(px, py, 68 * s, 26 * s,
+    "Internal map id: letters, numbers, and underscores")
   d.id = Kit.textfield("maps_new_id", px + 68 * s, py, 190 * s, 26 * s,
-    d.id, "MY_FIRST_MAP")
+    d.id, "MY_FIRST_MAP",
+    "Internal map id: letters, numbers, and underscores")
   Kit.text("micro", "Letters, numbers, and underscores", px + 266 * s,
     py + 6 * s, PAL.muted)
   py = py + 32 * s
@@ -87,20 +90,24 @@ local function drawNewMapForm(S, x, y, w, App)
   end
   Kit.text("micro", "Custom", bx + 2 * s, py + 5 * s, PAL.caption)
   d.width = Kit.textfield("maps_new_w", bx + 50 * s, py, 56 * s, 26 * s,
-    d.width, "20")
+    d.width, "20", "Width in 16x16 cells. Must be even")
   Kit.text("micro", "x", bx + 110 * s, py + 6 * s, PAL.muted)
   d.height = Kit.textfield("maps_new_h", bx + 122 * s, py, 56 * s, 26 * s,
-    d.height, "18")
+    d.height, "18", "Height in 16x16 cells. Must be even")
   py = py + 32 * s
   local ids, selected = sortedTilesets(S), 1
   for i, id in ipairs(ids) do if id == d.tileset then selected = i; break end end
   Kit.text("micro", "Visual style", px, py + 5 * s, PAL.caption)
-  if Kit.stepper(px + 68 * s, py, 26 * s, 26 * s, "<") then
+  Kit.offerTooltip(px, py, 68 * s, 26 * s,
+    "Starting tileset. You can change this later")
+  if Kit.stepper(px + 68 * s, py, 26 * s, 26 * s, "<",
+      { tooltip = "Previous tileset style" }) then
     selected = ((selected - 2) % #ids) + 1; d.tileset = ids[selected]
   end
   Kit.textCenter("micro", Kit.ellipsize("micro", d.tileset, 180 * s),
     px + 98 * s, py + 6 * s, 180 * s, PAL.heading)
-  if Kit.stepper(px + 282 * s, py, 26 * s, 26 * s, ">") then
+  if Kit.stepper(px + 282 * s, py, 26 * s, 26 * s, ">",
+      { tooltip = "Next tileset style" }) then
     selected = (selected % #ids) + 1; d.tileset = ids[selected]
   end
   local width, height = tonumber(d.width), tonumber(d.height)
@@ -133,7 +140,7 @@ local function drawNewMapForm(S, x, y, w, App)
     end
   end
   if Kit.button(x + w - 100 * s, py, 86 * s, 26 * s, "Cancel",
-      { kind = "ghost" }) then S.mapNewDraft = nil; Kit.blur() end
+      { kind = "ghost", tooltip = "Close without creating a map" }) then S.mapNewDraft = nil; Kit.blur() end
 end
 
 function MapsWorkspace.draw(S, x, y, w, h, App)
@@ -163,7 +170,7 @@ function MapsWorkspace.draw(S, x, y, w, h, App)
   for _, step in ipairs(steps) do
     local sw = Kit.textWidth("micro", step.label) + 18 * s
     Kit.chip(stepX, y + 6 * s, sw, 25 * s, step.label, step.done,
-      PAL.green, PAL.steel)
+      PAL.green, PAL.steel, step.label)
     stepX = stepX + sw + 5 * s
   end
   local actionY = y + 40 * s

@@ -9,6 +9,7 @@ local Generation = require("Generation")
 local FormPane = require("FormPane")
 local EventScriptEditor = require("EventScriptEditor")
 local Gen2Talk = require("Gen2Talk")
+local SpeciesPicker = require("SpeciesPicker")
 
 local MapBuilder = {}
 local PAL = Theme.PAL
@@ -21,7 +22,8 @@ local TOOLS = {
   { id = "rectangle", label = "Rectangle", tip = "Drag a filled rectangle" },
   { id = "picker", label = "Picker", tip = "Pick a source tile from the map" },
   { id = "select", label = "Select", tip = "Drag ranges; Shift adds another" },
-  { id = "collision", label = "Collision", tip = "Paint cell passage" },
+  { id = "collision", label = "Collision",
+    tip = "Paint walk, wall, grass, water, ledges, and cliff faces" },
   { id = "exits", label = "Exit type",
     tip = "Paint door, stairs, cave, or pad so the warp uses the right kind" },
   { id = "warp", label = "Warp", tip = "Place directed, two-way, or custom-return warps" },
@@ -40,9 +42,9 @@ local EVENT_TOOLS = {
   { id = "trigger", mapTool = "trigger", label = "Trigger",
     tip = "Step tile that stops the player and runs dialog" },
   { id = "trainer", mapTool = "trainer", label = "Trainer",
-    tip = "Place a trainer event" },
+    tip = "Place a trainer. Pick the class from the dropdown, then click a cell" },
   { id = "wild", mapTool = "wild", label = "Wild",
-    tip = "Place a fixed wild encounter" },
+    tip = "Place a static wild Pokémon. Pick the species from the dropdown, then click a cell" },
   { id = "event_select", mapTool = "select", label = "Select",
     tip = "Select the nearest object, sign, or transfer" },
 }
@@ -258,8 +260,8 @@ local function sortedKeys(bucket)
   return out
 end
 
-local function field(App, id, x, y, w, h, value, placeholder)
-  local result = Kit.textfield(id, x, y, w, h, value, placeholder)
+local function field(App, id, x, y, w, h, value, placeholder, tooltip)
+  local result = Kit.textfield(id, x, y, w, h, value, placeholder, tooltip)
   if result ~= tostring(value or "") then App.markDirty() end
   return result
 end
@@ -447,6 +449,35 @@ local COLLISION_LABEL = {
   solid = "Wall", walk = "Land", grass = "Grass", water = "Water",
   shore = "Shore", ledge = "Ledge", face = "Cliff", cut = "Cut",
   door = "Door", stairs = "Stairs", cave = "Cave", panel = "Pad",
+}
+
+local COLLISION_TIP = {
+  solid = "Wall — blocked from every direction",
+  walk = "Land — walkable floor",
+  grass = "Tall grass — can roll a wild encounter",
+  water = "Water — surf only",
+  shore = "Shore — land beside water",
+  ledge = "Ledge — hop one-way in the chosen direction",
+  face = "Cliff face. Paint N on the north side of a raised floor so you cannot walk through it from below",
+  cut = "CUT tree — overlay on grass, or a tree on ground next to grass",
+  door = "House / building door (COLL_DOOR)",
+  stairs = "Indoor stairs (COLL_STAIRCASE)",
+  cave = "Cave mouth (COLL_CAVE)",
+  panel = "Warp panel / floor pad (COLL_WARP_PANEL)",
+}
+
+local FACE_DIR_TIP = {
+  up = "North face — blocks walking onto a raised floor from below",
+  down = "South face — blocks walking south off a raised floor",
+  left = "West face — blocks walking west onto a raised floor",
+  right = "East face — blocks walking east onto a raised floor",
+}
+
+local LEDGE_DIR_TIP = {
+  down = "Hop south over this ledge",
+  left = "Hop west over this ledge",
+  right = "Hop east over this ledge",
+  up = "Hop north over this ledge",
 }
 
 local function paintCollisionCell(S, source, x, y)
@@ -1428,15 +1459,22 @@ local function drawNewMapForm(S, x, y, w, App)
   local draft = S.builderNewMap
   if not draft then return end
   Kit.text("micro", "Map ID", x, y + 5 * Kit.scale, PAL.caption)
+  Kit.offerTooltip(x, y, 52 * Kit.scale, 24 * Kit.scale,
+    "Internal map id: letters, numbers, and underscores")
   draft.id = Kit.textfield("builder_new_map_id", x + 52 * Kit.scale, y,
-    w - 52 * Kit.scale, 24 * Kit.scale, draft.id, "MY_NEW_MAP")
+    w - 52 * Kit.scale, 24 * Kit.scale, draft.id, "MY_NEW_MAP",
+    "Internal map id: letters, numbers, and underscores")
   y = y + 30 * Kit.scale
   Kit.text("micro", "Size", x, y + 5 * Kit.scale, PAL.caption)
+  Kit.offerTooltip(x, y, 52 * Kit.scale, 24 * Kit.scale,
+    "Walkable cell count. Width and height must be even, 2 or larger")
   draft.width = Kit.textfield("builder_new_map_w", x + 52 * Kit.scale, y,
-    64 * Kit.scale, 24 * Kit.scale, draft.width, "20")
+    64 * Kit.scale, 24 * Kit.scale, draft.width, "20",
+    "Width in 16x16 cells. Must be even")
   Kit.text("micro", "x", x + 121 * Kit.scale, y + 5 * Kit.scale, PAL.muted)
   draft.height = Kit.textfield("builder_new_map_h", x + 134 * Kit.scale, y,
-    64 * Kit.scale, 24 * Kit.scale, draft.height, "18")
+    64 * Kit.scale, 24 * Kit.scale, draft.height, "18",
+    "Height in 16x16 cells. Must be even")
   Kit.text("micro", "cells", x + 203 * Kit.scale, y + 5 * Kit.scale, PAL.muted)
   y = y + 30 * Kit.scale
 
@@ -1445,13 +1483,17 @@ local function drawNewMapForm(S, x, y, w, App)
   for index, id in ipairs(tilesets) do
     if id == draft.tileset then selectedIndex = index; break end
   end
-  if Kit.stepper(x, y, 24 * Kit.scale, 24 * Kit.scale, "<") then
+  if Kit.stepper(x, y, 24 * Kit.scale, 24 * Kit.scale, "<",
+      { tooltip = "Previous tileset style" }) then
     selectedIndex = ((selectedIndex - 2) % #tilesets) + 1
     draft.tileset = tilesets[selectedIndex]
   end
   Kit.textCenter("micro", Kit.ellipsize("micro", draft.tileset, w - 56 * Kit.scale),
     x + 28 * Kit.scale, y + 5 * Kit.scale, w - 56 * Kit.scale, PAL.heading)
-  if Kit.stepper(x + w - 24 * Kit.scale, y, 24 * Kit.scale, 24 * Kit.scale, ">") then
+  Kit.offerTooltip(x + 28 * Kit.scale, y, w - 56 * Kit.scale, 24 * Kit.scale,
+    "Starting tileset. You can change this later")
+  if Kit.stepper(x + w - 24 * Kit.scale, y, 24 * Kit.scale, 24 * Kit.scale, ">",
+      { tooltip = "Next tileset style" }) then
     selectedIndex = (selectedIndex % #tilesets) + 1
     draft.tileset = tilesets[selectedIndex]
   end
@@ -1477,7 +1519,7 @@ local function drawNewMapForm(S, x, y, w, App)
     S.status = "Created custom map " .. source.id
   end
   if Kit.button(x + half + 4 * Kit.scale, y, half, 25 * Kit.scale,
-      "Cancel", { kind = "ghost" }) then
+      "Cancel", { kind = "ghost", tooltip = "Close without creating a map" }) then
     S.builderNewMap = nil
     Kit.blur()
   end
@@ -1488,7 +1530,8 @@ local function drawMapList(S, x, y, w, h, App)
   Kit.text("caption", "MAPS", x + 10 * Kit.scale, y + 8 * Kit.scale, PAL.heading)
   S.builderMapQuery = Kit.textfield("builder_map_search",
     x + 10 * Kit.scale, y + 28 * Kit.scale, w - 20 * Kit.scale,
-    26 * Kit.scale, S.builderMapQuery or "", "Filter map IDs")
+    26 * Kit.scale, S.builderMapQuery or "", "Filter map IDs",
+    "Type part of a map id or name to filter the list")
   local ids = filteredMapIds(S)
   if not S.builderMapId then
     S.builderMapId = sortedKeys(S.project.layeredMaps)[1] or ids[1]
@@ -1925,14 +1968,18 @@ local function drawToolbar(S, source, x, y, w, App)
   if workspace then
     S.mapEditMode = S.mapEditMode or "map"
     Kit.text("micro", "EDIT", x, y + 7 * s, PAL.caption)
+    Kit.offerTooltip(x, y, 34 * s, 26 * s,
+      "Paint tiles, or switch to events to place NPCs and triggers")
     local modeX = x + 34 * s
     if Kit.chip(modeX, y, 82 * s, 26 * s, "Paint map",
-        S.mapEditMode == "map", PAL.green, PAL.steel) then
+        S.mapEditMode == "map", PAL.green, PAL.steel,
+        "Paint tiles, collision, exits, and warps") then
       S.mapEditMode = "map"
       if EVENT_TOOL_BY_ID[S.builderTool] then S.builderTool = "pencil" end
     end
     if Kit.chip(modeX + 85 * s, y, 86 * s, 26 * s, "Add events",
-        S.mapEditMode == "events", PAL.yellow, PAL.steel) then
+        S.mapEditMode == "events", PAL.yellow, PAL.steel,
+        "Place NPCs, signs, trainers, wild Pokémon, paths, and step triggers") then
       S.mapEditMode = "events"
       if not EVENT_TOOL_BY_ID[S.builderTool] then S.builderTool = "object" end
     end
@@ -1946,7 +1993,8 @@ local function drawToolbar(S, source, x, y, w, App)
   end
   if not stackedHeader and zx > x + 220 * s then
     if Kit.chip(zx - 128 * s, y, 52 * s, 26 * s, "Grid",
-        S.mapShowGrid ~= false, PAL.steel) then
+        S.mapShowGrid ~= false, PAL.steel, PAL.steel,
+        "Show the 16x16 cell grid over the map") then
       S.mapShowGrid = S.mapShowGrid == false and true or false
     end
     if Kit.chip(zx - 72 * s, y, 68 * s, 26 * s, "Passage",
@@ -1956,12 +2004,15 @@ local function drawToolbar(S, source, x, y, w, App)
     end
   end
   local zc = zx + 92 * s
-  if Kit.stepper(zc, viewY, 26 * s, 26 * s, "-") then
+  if Kit.stepper(zc, viewY, 26 * s, 26 * s, "-",
+      { tooltip = "Zoom out" }) then
     S.builderZoom = clamp((S.builderZoom or 1) - 0.25, 0.25, 8)
   end
   Kit.textCenter("mono", string.format("%.2fx", S.builderZoom or 1),
     zc + 28 * s, viewY + 6 * s, 52 * s, PAL.muted)
-  if Kit.stepper(zc + 82 * s, viewY, 26 * s, 26 * s, "+") then
+  Kit.offerTooltip(zc + 28 * s, viewY, 52 * s, 26 * s, "Current map zoom")
+  if Kit.stepper(zc + 82 * s, viewY, 26 * s, 26 * s, "+",
+      { tooltip = "Zoom in" }) then
     S.builderZoom = clamp((S.builderZoom or 1) + 0.25, 0.25, 8)
   end
   if Kit.button(zc + 112 * s, viewY, 68 * s, 26 * s,
@@ -1981,6 +2032,8 @@ local function drawToolbar(S, source, x, y, w, App)
     end
   end
   Kit.text("micro", "ACTION", x, toolY + 7 * s, PAL.caption)
+  Kit.offerTooltip(x, toolY, 50 * s, 26 * s,
+    "Choose what clicking the map does")
   tx = x + 50 * s
   for _, tool in ipairs(visibleTools) do
     local bw = math.max(48 * s, Kit.textWidth("micro", tool.label) + 14 * s)
@@ -2046,35 +2099,55 @@ local function drawToolbar(S, source, x, y, w, App)
       local Maps = require("Maps")
       local fieldY = barY + 29 * s
       Kit.text("micro", "Class", bx, fieldY + 5 * s, PAL.caption)
+      Kit.offerTooltip(bx, fieldY, 42 * s, 24 * s,
+        "Trainer class from the game, such as YOUNGSTER")
       Maps.drawTrainerClassPicker(S, {
         x = bx + 42 * s, y = fieldY, w = 160 * s, h = 24 * s,
         current = S.trainerId,
+        tooltip = "Trainer class from the game. Click to pick from the list",
         onPick = function(id)
           S.trainerId = Maps.normalizeTrainerClass(S, id)
         end,
       })
       Kit.text("micro", "Party", bx + 212 * s, fieldY + 5 * s, PAL.caption)
+      Kit.offerTooltip(bx + 212 * s, fieldY, 40 * s, 24 * s,
+        "Which party this trainer uses (1 is the first team)")
       local party = Kit.textfield("builder_trainer_party", bx + 252 * s,
         fieldY, 48 * s, 24 * s,
-        tostring(S.placeTrainerParty or 1), "1")
+        tostring(S.placeTrainerParty or 1), "1",
+        "Party number this trainer uses (1 is the first team)")
       S.placeTrainerParty = math.max(1, math.floor(tonumber(party) or 1))
       barBottom = fieldY + 24 * s
     elseif S.builderTool == "wild" then
       local fieldY = barY + 29 * s
+      local defaultSp = Generation.isGen2(S) and "SUDOWOODO" or "ARTICUNO"
       Kit.text("micro", "Species", bx, fieldY + 5 * s, PAL.caption)
-      S.placeWildSpecies = Kit.textfield("builder_wild_species", bx + 52 * s, fieldY,
-        132 * s, 24 * s, S.placeWildSpecies or "ARTICUNO",
-        "Species"):upper():gsub("%s+", "_")
-      Kit.text("micro", "Level", bx + 194 * s, fieldY + 5 * s, PAL.caption)
-      local level = Kit.textfield("builder_wild_level", bx + 236 * s,
+      Kit.offerTooltip(bx, fieldY, 52 * s, 24 * s,
+        "Which Pokémon appears as this static encounter")
+      SpeciesPicker.field(S, {
+        x = bx + 52 * s, y = fieldY, w = 160 * s, h = 24 * s,
+        current = S.placeWildSpecies or defaultSp,
+        title = "PLACE WILD SPECIES",
+        tooltip = "Pick the Pokémon for this static wild encounter",
+        onPick = function(id)
+          S.placeWildSpecies = id
+        end,
+      })
+      Kit.text("micro", "Level", bx + 222 * s, fieldY + 5 * s, PAL.caption)
+      Kit.offerTooltip(bx + 222 * s, fieldY, 42 * s, 24 * s,
+        "Level of the placed wild Pokémon (1–100)")
+      local level = Kit.textfield("builder_wild_level", bx + 264 * s,
         fieldY, 48 * s, 24 * s,
-        tostring(S.placeWildLevel or 50), "50")
+        tostring(S.placeWildLevel or 50), "50",
+        "Level of the placed wild Pokémon (1–100)")
       S.placeWildLevel = math.max(1, math.min(100,
         math.floor(tonumber(level) or 50)))
       barBottom = fieldY + 24 * s
     elseif S.builderTool == "berry" then
       local Maps = require("Maps")
       Kit.text("micro", "FRUIT", x, barY + 5 * s, PAL.caption)
+      Kit.offerTooltip(x, barY, 48 * s, 24 * s,
+        "Fruit the tree gives when picked. Daily pick is shared by fruit type")
       local bx, by = x + 48 * s, barY
       S.builderBerryItem = S.builderBerryItem or "BERRY"
       for _, rec in ipairs(Maps.BERRY_TYPES or {}) do
@@ -2084,7 +2157,8 @@ local function drawToolbar(S, source, x, y, w, App)
           barBottom = by + 24 * s
         end
         if Kit.chip(bx, by, bw, 24 * s, rec.label,
-            S.builderBerryItem == rec.id, PAL.green, PAL.steel) then
+            S.builderBerryItem == rec.id, PAL.green, PAL.steel,
+            string.format("%s — plant a %s tree", rec.label, rec.id)) then
           S.builderBerryItem = rec.id
         end
         bx = bx + bw + 3 * s
@@ -2095,13 +2169,17 @@ local function drawToolbar(S, source, x, y, w, App)
     elseif S.builderTool == "path" then
       S.builderPath = S.builderPath or { cells = {}, target = "player" }
       Kit.text("micro", "WALK", x, barY + 5 * s, PAL.caption)
+      Kit.offerTooltip(x, barY, 46 * s, 24 * s,
+        "Who follows this route after you Bind it")
       local bx = x + 46 * s
       for _, rec in ipairs({
-        { id = "player", label = "Player" },
-        { id = "npc", label = "NPC" },
+        { id = "player", label = "Player",
+          tip = "Bind this walk route to the player" },
+        { id = "npc", label = "NPC",
+          tip = "Bind this walk route to the selected NPC" },
       }) do
         if Kit.chip(bx, barY, 58 * s, 24 * s, rec.label,
-            S.builderPath.target == rec.id, PAL.blue, PAL.steel) then
+            S.builderPath.target == rec.id, PAL.blue, PAL.steel, rec.tip) then
           S.builderPath.target = rec.id
         end
         bx = bx + 62 * s
@@ -2129,6 +2207,8 @@ local function drawToolbar(S, source, x, y, w, App)
       barBottom = barY + 42 * s
     elseif S.builderTool == "trigger" then
       Kit.text("micro", "STEP", x, barY + 5 * s, PAL.caption)
+      Kit.offerTooltip(x, barY, 42 * s, 24 * s,
+        "Step tiles stop the player and run dialog")
       if Kit.button(x + 42 * s, barY, 70 * s, 24 * s, "Delete", {
           kind = "danger",
           enabled = S.eventHookCellIdx ~= nil,
@@ -2143,6 +2223,8 @@ local function drawToolbar(S, source, x, y, w, App)
     end
   elseif (S.builderTool or "pencil") == "collision" then
     Kit.text("micro", "PASSAGE", x, barY + 5 * s, PAL.caption)
+    Kit.offerTooltip(x, barY, 56 * s, 24 * s,
+      "What happens when the player walks onto a cell")
     local bx, modeY = x + 56 * s, barY
     for _, mode in ipairs(LayeredMap.COLLISION_MODES) do
       if not LayeredMap.WARP_COLLISION[mode] then
@@ -2154,12 +2236,7 @@ local function drawToolbar(S, source, x, y, w, App)
       end
       if Kit.chip(bx, modeY, bw, 24 * s, label,
           LayeredMap.collisionBase(S.builderCollision or "solid") == mode,
-          PAL.green, PAL.steel,
-          mode == "cut"
-            and "CUT tree — overlay on grass, or a tree on ground next to grass"
-            or (mode == "face"
-              and "Cliff face. Paint N on the north side of a raised floor so you cannot walk through it from below."
-              or nil)) then
+          PAL.green, PAL.steel, COLLISION_TIP[mode]) then
         S.builderCollision = mode
         if mode == "ledge" then
           S.builderLedgeDir = S.builderLedgeDir or "down"
@@ -2184,7 +2261,7 @@ local function drawToolbar(S, source, x, y, w, App)
         if Kit.chip(bx, modeY, 24 * s, 24 * s, d.label,
             (S.builderLedgeDir or "down") == d.id,
             { 255, 140, 40 }, PAL.steel,
-            "Hop " .. d.id) then
+            LEDGE_DIR_TIP[d.id]) then
           S.builderLedgeDir = d.id
           S.builderCollision = "ledge"
         end
@@ -2205,9 +2282,7 @@ local function drawToolbar(S, source, x, y, w, App)
         if Kit.chip(bx, modeY, 24 * s, 24 * s, d.label,
             (S.builderFaceDir or "up") == d.id,
             { 240, 110, 50 }, PAL.steel,
-            d.id == "up"
-              and "North face — blocks walking onto a raised floor from below"
-              or ("Face " .. d.id)) then
+            FACE_DIR_TIP[d.id]) then
           S.builderFaceDir = d.id
           S.builderCollision = "face"
         end
@@ -2216,6 +2291,8 @@ local function drawToolbar(S, source, x, y, w, App)
     end
   elseif (S.builderTool or "pencil") == "exits" then
     Kit.text("micro", "EXIT", x, barY + 5 * s, PAL.caption)
+    Kit.offerTooltip(x, barY, 42 * s, 24 * s,
+      "Paint the exit kind so a Gold warp uses the right animation")
     local bx = x + 42 * s
     S.builderExitType = S.builderExitType or "door"
     for _, mode in ipairs(EXIT_TYPES) do
@@ -2245,18 +2322,20 @@ local function drawToolbar(S, source, x, y, w, App)
     end
     local bx, by = slot(34 * s)
     if Kit.button(bx, by, 34 * s, 24 * s,
-        "All", { kind = "accent" }) then
+        "All", { kind = "accent", tooltip = "Select every cell on this map" }) then
       S.builderSelections = { { x0 = 0, y0 = 0,
         x1 = source.cellWidth - 1, y1 = source.cellHeight - 1 } }
     end
     bx, by = slot(48 * s)
     if Kit.button(bx, by, 48 * s, 24 * s,
-        "Copy", { kind = "accent", enabled = count > 0 }) then
+        "Copy", { kind = "accent", enabled = count > 0,
+          tooltip = "Copy the selected cells" }) then
       copySelection(S, source)
     end
     bx, by = slot(50 * s)
     if Kit.button(bx, by, 50 * s, 24 * s,
-        "Paste", { kind = "good", enabled = S.builderClip ~= nil }) then
+        "Paste", { kind = "good", enabled = S.builderClip ~= nil,
+          tooltip = "Paste at the selection origin, or the hovered cell" }) then
       local x0, y0 = selectionBounds(S)
       pasteSelection(S, source, App,
         x0 or S.builderHoverX or 0, y0 or S.builderHoverY or 0)
@@ -2278,7 +2357,8 @@ local function drawToolbar(S, source, x, y, w, App)
     end
     bx, by = slot(68 * s)
     if Kit.button(bx, by, 68 * s, 24 * s,
-        "Deselect", { kind = "ghost", enabled = count > 0 }) then
+        "Deselect", { kind = "ghost", enabled = count > 0,
+          tooltip = "Clear the current selection" }) then
       S.builderSelections = {}
     end
   elseif (S.builderTool or "pencil") == "warp" then
@@ -2288,7 +2368,8 @@ local function drawToolbar(S, source, x, y, w, App)
       or "Select a map, then click the return destination"
     Kit.text("micro", instruction, x, barY + 5 * Kit.scale, PAL.yellow)
     if draft and Kit.button(x + 330 * Kit.scale, barY,
-        70 * Kit.scale, 24 * Kit.scale, "Cancel", { kind = "ghost" }) then
+        70 * Kit.scale, 24 * Kit.scale, "Cancel", {
+          kind = "ghost", tooltip = "Stop placing this warp" }) then
       S.builderWarpDraft = nil
       S.status = "Warp placement cancelled"
     end
@@ -2350,14 +2431,18 @@ local function drawStencilSection(S, source, x, y, w, App)
     Kit.text("micro", Kit.ellipsize("micro", stencilName, w), x, y, PAL.faint)
     y = y + 16 * Kit.scale
     Kit.text("micro", "Opacity", x, y + 5 * Kit.scale, PAL.caption)
-    if Kit.stepper(x + 70 * Kit.scale, y, 26 * Kit.scale, 24 * Kit.scale, "-") then
+    Kit.offerTooltip(x, y, 70 * Kit.scale, 24 * Kit.scale,
+      "How strongly the stencil shows over the tiles")
+    if Kit.stepper(x + 70 * Kit.scale, y, 26 * Kit.scale, 24 * Kit.scale, "-",
+        { tooltip = "Make the stencil more transparent" }) then
       source.stencilOpacity = clamp((source.stencilOpacity or 0.45) - 0.1, 0, 1)
       App.markDirty()
     end
     Kit.text("mono", string.format("%.0f%%",
         (source.stencilOpacity or 0.45) * 100),
       x + 102 * Kit.scale, y + 5 * Kit.scale, PAL.heading)
-    if Kit.stepper(x + 154 * Kit.scale, y, 26 * Kit.scale, 24 * Kit.scale, "+") then
+    if Kit.stepper(x + 154 * Kit.scale, y, 26 * Kit.scale, 24 * Kit.scale, "+",
+        { tooltip = "Make the stencil more opaque" }) then
       source.stencilOpacity = clamp((source.stencilOpacity or 0.45) + 0.1, 0, 1)
       App.markDirty()
     end
@@ -2367,13 +2452,17 @@ local function drawStencilSection(S, source, x, y, w, App)
     if stencilImage then iw, ih = stencilImage:getDimensions() end
     local scale = stencilScaleValue(source, iw, ih)
     Kit.text("micro", "Scale", x, y + 5 * Kit.scale, PAL.caption)
-    if Kit.stepper(x + 70 * Kit.scale, y, 26 * Kit.scale, 24 * Kit.scale, "-") then
+    Kit.offerTooltip(x, y, 70 * Kit.scale, 24 * Kit.scale,
+      "Resize the stencil to match the map")
+    if Kit.stepper(x + 70 * Kit.scale, y, 26 * Kit.scale, 24 * Kit.scale, "-",
+        { tooltip = "Shrink the stencil" }) then
       source.stencilScale = clamp(scale * 0.9, 0.05, 8)
       App.markDirty()
     end
     Kit.text("mono", string.format("%.0f%%", scale * 100),
       x + 102 * Kit.scale, y + 5 * Kit.scale, PAL.heading)
-    if Kit.stepper(x + 154 * Kit.scale, y, 26 * Kit.scale, 24 * Kit.scale, "+") then
+    if Kit.stepper(x + 154 * Kit.scale, y, 26 * Kit.scale, 24 * Kit.scale, "+",
+        { tooltip = "Enlarge the stencil" }) then
       source.stencilScale = clamp(scale * 1.1, 0.05, 8)
       App.markDirty()
     end
@@ -2410,7 +2499,7 @@ local function drawLayersPane(S, source, x, y, w, h, App)
       layer.visible == false and PAL.faint or PAL.heading)
     if Kit.chip(x + w - 80 * Kit.scale, ry + 2 * Kit.scale,
         34 * Kit.scale, 22 * Kit.scale, "Eye", layer.visible ~= false,
-        PAL.green, PAL.steel) then
+        PAL.green, PAL.steel, "Show or hide this layer in the editor") then
       layer.visible = layer.visible == false and true or false
       App.markDirty()
     end
@@ -2423,7 +2512,8 @@ local function drawLayersPane(S, source, x, y, w, h, App)
   end
   by = by + math.max(1, #source.layers) * rowH + 5 * Kit.scale
   local bw = (w - 4 * Kit.scale) / 2
-  if Kit.button(x, by, bw, 25 * Kit.scale, "Add layer", { kind = "good" }) then
+  if Kit.button(x, by, bw, 25 * Kit.scale, "Add layer", {
+      kind = "good", tooltip = "Add a decoration layer above the current one" }) then
     local _, index = LayeredMap.addLayer(source, "Decoration")
     S.builderLayer = index
     App.markDirty()
@@ -2452,18 +2542,25 @@ local function drawLayersPane(S, source, x, y, w, h, App)
   if layer then
     by = by + 34 * Kit.scale
     Kit.text("micro", "Name", x, by + 5 * Kit.scale, PAL.caption)
+    Kit.offerTooltip(x, by, 54 * Kit.scale, 24 * Kit.scale,
+      "Editor-only name for this layer")
     local name = field(App, "builder_layer_name", x + 54 * Kit.scale, by,
-      w - 54 * Kit.scale, 24 * Kit.scale, layer.name or layer.id, "Layer name")
+      w - 54 * Kit.scale, 24 * Kit.scale, layer.name or layer.id, "Layer name",
+      "Editor-only name for this layer")
     if name ~= (layer.name or layer.id) then layer.name = name end
     by = by + 32 * Kit.scale
     Kit.text("micro", "Opacity", x, by + 5 * Kit.scale, PAL.caption)
-    if Kit.stepper(x + 70 * Kit.scale, by, 26 * Kit.scale, 24 * Kit.scale, "-") then
+    Kit.offerTooltip(x, by, 70 * Kit.scale, 24 * Kit.scale,
+      "How strongly this layer draws in the editor")
+    if Kit.stepper(x + 70 * Kit.scale, by, 26 * Kit.scale, 24 * Kit.scale, "-",
+        { tooltip = "Make this layer more transparent" }) then
       layer.opacity = clamp((layer.opacity or 1) - 0.1, 0, 1)
       App.markDirty()
     end
     Kit.text("mono", string.format("%.0f%%", (layer.opacity or 1) * 100),
       x + 102 * Kit.scale, by + 5 * Kit.scale, PAL.heading)
-    if Kit.stepper(x + 154 * Kit.scale, by, 26 * Kit.scale, 24 * Kit.scale, "+") then
+    if Kit.stepper(x + 154 * Kit.scale, by, 26 * Kit.scale, 24 * Kit.scale, "+",
+        { tooltip = "Make this layer more opaque" }) then
       layer.opacity = clamp((layer.opacity or 1) + 0.1, 0, 1)
       App.markDirty()
     end
@@ -2571,12 +2668,16 @@ local function drawTilesetPane(S, x, y, w, h, App)
         .. "_" .. tostring(index)
       local tileId = "builder_anim_tile_" .. fieldKey
       local tileValue = field(App, tileId, x + 46 * Kit.scale, rowY,
-        44 * Kit.scale, 24 * Kit.scale, tostring(frame.tile), "0")
+        44 * Kit.scale, 24 * Kit.scale, tostring(frame.tile), "0",
+        "Source tile index shown in this animation frame")
       Kit.text("micro", "ms", x + 96 * Kit.scale, rowY + 5 * Kit.scale,
         PAL.caption)
+      Kit.offerTooltip(x + 96 * Kit.scale, rowY, 18 * Kit.scale, 24 * Kit.scale,
+        "How long this frame stays on screen")
       local timeId = "builder_anim_ms_" .. fieldKey
       local timeValue = field(App, timeId, x + 114 * Kit.scale, rowY,
-        48 * Kit.scale, 24 * Kit.scale, tostring(frame.duration), "200")
+        48 * Kit.scale, 24 * Kit.scale, tostring(frame.duration), "200",
+        "Frame duration in milliseconds (minimum 16)")
       if Kit.focus ~= tileId and Kit.focus ~= timeId then
         local nextTile = clamp(math.floor(tonumber(tileValue) or frame.tile),
           0, math.max(0, (source.count or 1) - 1))
@@ -2591,14 +2692,16 @@ local function drawTilesetPane(S, x, y, w, h, App)
         end
       end
       local bx = x + w - 94 * Kit.scale
-      if Kit.stepper(bx, rowY, 22 * Kit.scale, 24 * Kit.scale, "^")
+      if Kit.stepper(bx, rowY, 22 * Kit.scale, 24 * Kit.scale, "^",
+          { tooltip = "Move this frame earlier" })
           and index > 1 then
         local nextFrames = copyFrames(frames)
         nextFrames[index - 1], nextFrames[index] = nextFrames[index], nextFrames[index - 1]
         saveFrames(nextFrames, "Moved animation frame up")
         break
       end
-      if Kit.stepper(bx + 24 * Kit.scale, rowY, 22 * Kit.scale, 24 * Kit.scale, "v")
+      if Kit.stepper(bx + 24 * Kit.scale, rowY, 22 * Kit.scale, 24 * Kit.scale, "v",
+          { tooltip = "Move this frame later" })
           and index < #frames then
         local nextFrames = copyFrames(frames)
         nextFrames[index + 1], nextFrames[index] = nextFrames[index], nextFrames[index + 1]
@@ -2606,7 +2709,8 @@ local function drawTilesetPane(S, x, y, w, h, App)
         break
       end
       if Kit.button(bx + 50 * Kit.scale, rowY, 44 * Kit.scale, 24 * Kit.scale,
-          "Delete", { kind = "danger", enabled = #frames > 2 }) then
+          "Delete", { kind = "danger", enabled = #frames > 2,
+            tooltip = "Remove this animation frame" }) then
         local nextFrames = copyFrames(frames)
         table.remove(nextFrames, index)
         saveFrames(nextFrames, "Deleted animation frame")
@@ -2650,13 +2754,17 @@ local function drawWarpsPane(S, source, x, y, w, h, App)
   y = y + 18 * Kit.scale
   local wx = x
   for _, mode in ipairs({
-    { id = "two_way", label = "Two-way" },
-    { id = "one_way", label = "One-way" },
-    { id = "custom_return", label = "Custom return" },
+    { id = "two_way", label = "Two-way",
+      tip = "Click source, then destination. Both cells warp to each other" },
+    { id = "one_way", label = "One-way",
+      tip = "Click source, then destination. Arrival is one-way" },
+    { id = "custom_return", label = "Custom return",
+      tip = "Click source, destination, then a third cell for the return" },
   }) do
     local bw = Kit.textWidth("micro", mode.label) + 16 * Kit.scale
     if Kit.chip(wx, y, bw, 24 * Kit.scale, mode.label,
-        (S.builderWarpMode or "two_way") == mode.id, PAL.blue, PAL.steel) then
+        (S.builderWarpMode or "two_way") == mode.id, PAL.blue, PAL.steel,
+        mode.tip) then
       S.builderWarpMode = mode.id
       S.builderWarpDraft = nil
       S.builderTool = "warp"
@@ -2732,7 +2840,8 @@ local function drawStampsPane(S, x, y, w, h, App)
   y = y + 20 * Kit.scale
   S._stampNameDraft = S._stampNameDraft or "House"
   S._stampNameDraft = Kit.textfield("builder_stamp_name", x, y,
-    w - 88 * Kit.scale, 26 * Kit.scale, S._stampNameDraft, "name")
+    w - 88 * Kit.scale, 26 * Kit.scale, S._stampNameDraft, "name",
+    "Name for the saved multi-tile brush")
   if Kit.button(x + w - 84 * Kit.scale, y, 84 * Kit.scale, 26 * Kit.scale,
       "Save", { kind = "good", enabled = type(cells) == "table" and #cells > 0,
         tooltip = "Save the current multi-tile brush" }) then
@@ -2779,7 +2888,8 @@ local function drawStampsPane(S, x, y, w, h, App)
         rowW - 64 * Kit.scale),
       x + 6 * Kit.scale, ry + 7 * Kit.scale, PAL.heading)
     if Kit.button(x + rowW - 48 * Kit.scale, ry + 2 * Kit.scale,
-        48 * Kit.scale, 23 * Kit.scale, "Del", { kind = "danger" }) then
+        48 * Kit.scale, 23 * Kit.scale, "Del", {
+          kind = "danger", tooltip = "Delete this saved stamp" }) then
       table.remove(stamps, index)
       App.markDirty()
       break
@@ -2854,22 +2964,32 @@ local function drawProperties(S, source, x, y, w, h, App)
       draft[key] = tostring(math.max(2, value + delta))
     end
     Kit.text("micro", "Width", px, py + 5 * Kit.scale, PAL.heading)
-    if Kit.stepper(px + 48 * Kit.scale, py, 24 * Kit.scale, 25 * Kit.scale, "-") then
+    Kit.offerTooltip(px, py, 48 * Kit.scale, 25 * Kit.scale,
+      "Walkable width in 16x16 cells. Must stay even")
+    if Kit.stepper(px + 48 * Kit.scale, py, 24 * Kit.scale, 25 * Kit.scale, "-",
+        { tooltip = "Decrease width by 2 cells" }) then
       stepSize("w", -2)
     end
     draft.w = Kit.textfield("builder_map_w", px + 76 * Kit.scale, py,
-      72 * Kit.scale, 25 * Kit.scale, draft.w, "20")
-    if Kit.stepper(px + 152 * Kit.scale, py, 24 * Kit.scale, 25 * Kit.scale, "+") then
+      72 * Kit.scale, 25 * Kit.scale, draft.w, "20",
+      "Width in 16x16 cells. Must be even, 2 or larger")
+    if Kit.stepper(px + 152 * Kit.scale, py, 24 * Kit.scale, 25 * Kit.scale, "+",
+        { tooltip = "Increase width by 2 cells" }) then
       stepSize("w", 2)
     end
     py = py + 31 * Kit.scale
     Kit.text("micro", "Height", px, py + 5 * Kit.scale, PAL.heading)
-    if Kit.stepper(px + 48 * Kit.scale, py, 24 * Kit.scale, 25 * Kit.scale, "-") then
+    Kit.offerTooltip(px, py, 48 * Kit.scale, 25 * Kit.scale,
+      "Walkable height in 16x16 cells. Must stay even")
+    if Kit.stepper(px + 48 * Kit.scale, py, 24 * Kit.scale, 25 * Kit.scale, "-",
+        { tooltip = "Decrease height by 2 cells" }) then
       stepSize("h", -2)
     end
     draft.h = Kit.textfield("builder_map_h", px + 76 * Kit.scale, py,
-      72 * Kit.scale, 25 * Kit.scale, draft.h, "18")
-    if Kit.stepper(px + 152 * Kit.scale, py, 24 * Kit.scale, 25 * Kit.scale, "+") then
+      72 * Kit.scale, 25 * Kit.scale, draft.h, "18",
+      "Height in 16x16 cells. Must be even, 2 or larger")
+    if Kit.stepper(px + 152 * Kit.scale, py, 24 * Kit.scale, 25 * Kit.scale, "+",
+        { tooltip = "Increase height by 2 cells" }) then
       stepSize("h", 2)
     end
 
@@ -2919,7 +3039,8 @@ local function drawProperties(S, source, x, y, w, h, App)
     py = py + 20 * Kit.scale
     local half = (innerW - 4 * Kit.scale) / 2
     if Kit.button(px, py, half, 26 * Kit.scale, "Reset", {
-        kind = "ghost", enabled = changed or not valid }) then
+        kind = "ghost", enabled = changed or not valid,
+        tooltip = "Restore the current map size" }) then
       draft.w, draft.h = tostring(source.cellWidth), tostring(source.cellHeight)
       Kit.blur()
     end

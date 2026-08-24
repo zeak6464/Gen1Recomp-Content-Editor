@@ -359,7 +359,9 @@ local function drawAnimPreview(S, rec, x, y, w, s)
 
   local playing = S.playerAnimPlaying
   if Kit.chip(x, y, 72 * s, fh, playing and "PLAY" or "PAUSE",
-      playing, PAL.green) then
+      playing, PAL.green, PAL.steel,
+      playing and "Pause the overworld walk cycle"
+        or "Play the overworld walk cycle") then
     S.playerAnimPlaying = not playing
     playing = S.playerAnimPlaying
   end
@@ -373,7 +375,8 @@ local function drawAnimPreview(S, rec, x, y, w, s)
   for _, face in ipairs(FACINGS) do
     local on = S.playerAnimFacing == face
     local bw = 36 * s
-    if Kit.chip(fx, y, bw, fh, FACING_LABEL[face] or face, on, PAL.yellow) then
+    if Kit.chip(fx, y, bw, fh, FACING_LABEL[face] or face, on, PAL.yellow,
+        PAL.steel, "Preview facing " .. face) then
       S.playerAnimFacing = face
       S.playerAnimAutoFace = false
     end

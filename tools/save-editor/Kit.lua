@@ -698,8 +698,11 @@ end
 -- Single-line editable field with click-to-caret, arrows, and selection.
 -- App routes love.textinput / love.keypressed in via Kit.textinput /
 -- Kit.keypressed.  Returns the (possibly edited) value; the caller stores it.
-function Kit.textfield(id, x, y, w, h, value, placeholder)
+function Kit.textfield(id, x, y, w, h, value, placeholder, tooltip)
   audit("control", x, y, w, h, id)
+  if type(tooltip) == "string" and tooltip ~= "" then
+    Kit.offerTooltip(x, y, w, h, tooltip)
+  end
   local original = tostring(value or "")
   local text = flatOneLine(original)
   local f = font("mono")

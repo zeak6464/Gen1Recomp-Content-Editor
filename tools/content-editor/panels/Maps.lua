@@ -7775,8 +7775,10 @@ function Maps.draw(S, x, y, w, h, App)
         tip = "Click empty cell to place · drag to move · Shift+click to place on occupied cell" },
       { id = "sign", label = "Sign",
         tip = "Click empty cell to place · drag to move · Shift+click to place on occupied cell" },
-      { id = "trainer", label = "Trainer", tip = "Place a trainer event" },
-      { id = "wild", label = "Wild", tip = "Place a fixed wild encounter" },
+      { id = "trainer", label = "Trainer",
+        tip = "Place a trainer. Pick the class from the dropdown, then click a cell" },
+      { id = "wild", label = "Wild",
+        tip = "Place a static wild Pokémon. Pick the species from the dropdown, then click a cell" },
     }
   else
     tools = {
@@ -8047,17 +8049,24 @@ function Maps.draw(S, x, y, w, h, App)
     local bx = mainX
     local defaultSp = Generation.isGen2(S) and "SUDOWOODO" or "ARTICUNO"
     Kit.text("micro", "Species", bx, barY + 2 * s, PAL.caption)
+    Kit.offerTooltip(bx, barY, 190 * s, 14 * s,
+      "Which Pokémon appears as this static encounter")
     Kit.text("micro", "Lv", bx + 200 * s, barY + 2 * s, PAL.caption)
+    Kit.offerTooltip(bx + 200 * s, barY, 48 * s, 14 * s,
+      "Level of the placed wild Pokémon (1–100)")
     SpeciesPicker.field(S, {
       x = bx, y = barY + 14 * s, w = 190 * s, h = 22 * s,
       current = S.placeWildSpecies or defaultSp,
       title = "PLACE WILD SPECIES",
+      tooltip = "Pick the Pokémon for this static wild encounter",
       onPick = function(id)
         S.placeWildSpecies = id
       end,
     })
     local lv = tonumber(field(App, "mp_wild_lv", bx + 200 * s, barY + 14 * s,
       48 * s, 22 * s, tostring(S.placeWildLevel or 50), "50")) or 50
+    Kit.offerTooltip(bx + 200 * s, barY + 14 * s, 48 * s, 22 * s,
+      "Level of the placed wild Pokémon (1–100)")
     S.placeWildLevel = math.max(1, math.min(100, lv))
   elseif map and (S.mapTool or "paint") == "trainer" then
     barH = 38 * s
@@ -8065,16 +8074,23 @@ function Maps.draw(S, x, y, w, h, App)
     Kit.text("micro",
       Generation.isGen2(S) and "Class" or "Class (OPP_*)",
       bx, barY + 2 * s, PAL.caption)
+    Kit.offerTooltip(bx, barY, 160 * s, 14 * s,
+      "Trainer class from the game. Click the field below to pick from the list")
     Kit.text("micro", "Party", bx + 170 * s, barY + 2 * s, PAL.caption)
+    Kit.offerTooltip(bx + 170 * s, barY, 48 * s, 14 * s,
+      "Which party this trainer uses (1 is the first team)")
     Maps.drawTrainerClassPicker(S, {
       x = bx, y = barY + 14 * s, w = 160 * s, h = 22 * s,
       current = S.trainerId,
+      tooltip = "Trainer class from the game. Click to pick from the list",
       onPick = function(id)
         S.trainerId = normalizeTrainerClassId(S, id) or id
       end,
     })
     local pty = tonumber(field(App, "mp_tr_pty", bx + 170 * s, barY + 14 * s,
       48 * s, 22 * s, tostring(S.placeTrainerParty or 1), "1")) or 1
+    Kit.offerTooltip(bx + 170 * s, barY + 14 * s, 48 * s, 22 * s,
+      "Which party this trainer uses (1 is the first team)")
     S.placeTrainerParty = math.max(1, pty)
   elseif map then
     local thumb = 28 * s
@@ -8641,19 +8657,25 @@ function Maps.drawClassicTerrain(S, x, y, w, h, App)
   local tools
   if (S.mapEditMode or "map") == "events" then
     tools = {
-      { id = "object", label = "Event" },
-      { id = "warp", label = "Transfer" },
-      { id = "sign", label = "Sign" },
-      { id = "trainer", label = "Trainer" },
-      { id = "wild", label = "Wild" },
+      { id = "object", label = "Event",
+        tip = "Place an NPC or scripted object on a cell" },
+      { id = "warp", label = "Transfer",
+        tip = "Place a warp / transfer on a cell" },
+      { id = "sign", label = "Sign",
+        tip = "Place a sign or background event on a cell" },
+      { id = "trainer", label = "Trainer",
+        tip = "Place a trainer. Pick the class from the dropdown, then click a cell" },
+      { id = "wild", label = "Wild",
+        tip = "Place a static wild Pokémon. Pick the species from the dropdown, then click a cell" },
     }
   else
     tools = {
-      { id = "paint", label = "Pencil" },
-      { id = "erase", label = "Eraser" },
-      { id = "pick", label = "Pick" },
-      { id = "select", label = "Select" },
-      { id = "collision", label = "Passage" },
+      { id = "paint", label = "Pencil", tip = "Paint the selected tileset block" },
+      { id = "erase", label = "Eraser", tip = "Paint block 0 (empty)" },
+      { id = "pick", label = "Pick", tip = "Sample a block from the map" },
+      { id = "select", label = "Select", tip = "Drag a range of blocks to copy or shift" },
+      { id = "collision", label = "Passage",
+        tip = "Paint walk, wall, grass, water, and ledges" },
     }
   end
   if Kit.chip(x + w - 66 * s, y, 66 * s, 26 * s, "World",
@@ -8671,7 +8693,7 @@ function Maps.drawClassicTerrain(S, x, y, w, h, App)
   for _, tool in ipairs(tools) do
     local bw = math.max(58 * s, Kit.textWidth("micro", tool.label) + 14 * s)
     if Kit.chip(tx, y, bw, 26 * s, tool.label,
-        (S.mapTool or "paint") == tool.id, PAL.blue, PAL.steel) then
+        (S.mapTool or "paint") == tool.id, PAL.blue, PAL.steel, tool.tip) then
       S.mapTool = tool.id
       syncMapEditMode(S, EVENT_TOOLS[tool.id] and "events" or "map")
       if tool.id == "warp" then S.mapSection = "warps"
@@ -8683,23 +8705,29 @@ function Maps.drawClassicTerrain(S, x, y, w, h, App)
   end
   local toggleLabel = (S.mapEditMode or "map") == "events" and "Terrain" or "Events"
   if Kit.button(tx + 4 * s, y, 72 * s, 26 * s, toggleLabel,
-      { kind = "accent" }) then
+      { kind = "accent",
+        tooltip = (S.mapEditMode or "map") == "events"
+          and "Switch back to painting tiles and passage"
+          or "Switch to placing NPCs, warps, signs, trainers, and wild Pokémon" }) then
     syncMapEditMode(S, (S.mapEditMode or "map") == "events" and "map" or "events")
   end
   tx = tx + 82 * s
-  if Kit.stepper(tx, y, 26 * s, 26 * s, "-") then
+  if Kit.stepper(tx, y, 26 * s, 26 * s, "-", { tooltip = "Zoom out" }) then
     S.mapZoom = clampZoom((S.mapZoom or 2) - 0.25)
   end
   Kit.text("mono", string.format("%.1fx", S.mapZoom or 2),
     tx + 29 * s, y + 6 * s, PAL.muted)
-  if Kit.stepper(tx + 70 * s, y, 26 * s, 26 * s, "+") then
+  Kit.offerTooltip(tx + 29 * s, y, 40 * s, 26 * s, "Current map zoom")
+  if Kit.stepper(tx + 70 * s, y, 26 * s, 26 * s, "+", { tooltip = "Zoom in" }) then
     S.mapZoom = clampZoom((S.mapZoom or 2) + 0.25)
   end
-  if Kit.button(tx + 100 * s, y, 44 * s, 26 * s, "Fit", { kind = "ghost" }) then
+  if Kit.button(tx + 100 * s, y, 44 * s, 26 * s, "Fit", {
+      kind = "ghost", tooltip = "Fit this map in the canvas" }) then
     S._mapCenteredFor = nil
   end
   if Kit.chip(tx + 150 * s, y, 54 * s, 26 * s, "Grid",
-      S.mapShowGrid, PAL.steel) then S.mapShowGrid = not S.mapShowGrid end
+      S.mapShowGrid, PAL.steel, PAL.steel,
+      "Show the block grid over the map") then S.mapShowGrid = not S.mapShowGrid end
 
   local extraY, extraH = y + 30 * s, 0
   if (S.mapTool or "paint") == "collision" then
@@ -8710,7 +8738,8 @@ function Maps.drawClassicTerrain(S, x, y, w, h, App)
     for _, mode in ipairs(modes) do
       local mw = Kit.textWidth("micro", mode) + 14 * s
       if Kit.chip(mx, extraY, mw, 24 * s, mode,
-          (S.mapCollisionMode or "solid") == mode, PAL.red, PAL.steel) then
+          (S.mapCollisionMode or "solid") == mode, PAL.red, PAL.steel,
+          Maps.PASSAGE_TIP[mode]) then
         S.mapCollisionMode = mode
       end
       mx = mx + mw + 3 * s
@@ -8718,22 +8747,26 @@ function Maps.drawClassicTerrain(S, x, y, w, h, App)
     extraH = 28 * s
   elseif (S.mapTool or "paint") == "select" then
     local bx = x
-    if Kit.button(bx, extraY, 46 * s, 24 * s, "All", { kind = "accent" }) then
+    if Kit.button(bx, extraY, 46 * s, 24 * s, "All", {
+        kind = "accent", tooltip = "Select every block on this map" }) then
       S.mapSel = selectAllBlocks(map)
     end
     bx = bx + 50 * s
-    if Kit.button(bx, extraY, 52 * s, 24 * s, "Copy", { kind = "accent" }) then
+    if Kit.button(bx, extraY, 52 * s, 24 * s, "Copy", {
+        kind = "accent", tooltip = "Copy the selected blocks" }) then
       local x0, y0, x1, y1 = normalizeBlockSel(S.mapSel)
       if x0 then copyBlocksToClip(S, map, x0, y0, x1, y1) end
     end
     bx = bx + 56 * s
-    if Kit.button(bx, extraY, 52 * s, 24 * s, "Paste", { kind = "good" }) then
+    if Kit.button(bx, extraY, 52 * s, 24 * s, "Paste", {
+        kind = "good", tooltip = "Paste at the selection origin, or the hovered cell" }) then
       local dx, dy = pasteDestBlock(S, map)
       local _, msg = pasteClipAt(S, S.mapId, dx, dy, App)
       if msg then S.status = msg end
     end
     bx = bx + 56 * s
-    if Kit.button(bx, extraY, 52 * s, 24 * s, "Clear", { kind = "ghost" }) then
+    if Kit.button(bx, extraY, 52 * s, 24 * s, "Clear", {
+        kind = "ghost", tooltip = "Clear the current selection" }) then
       S.mapSel, S._mapSelDraft = nil, nil
     end
     extraH = 28 * s
@@ -8755,6 +8788,18 @@ end
 function Maps.ensureOwnedMap(S, mapId)
   return ensureOwned(S, mapId)
 end
+
+Maps.PASSAGE_TIP = {
+  solid = "Wall — blocked from every direction",
+  walk = "Land — walkable floor",
+  water = "Water — surf only",
+  grass = "Tall grass — can roll a wild encounter",
+  door = "House / building door",
+  warp = "Warp / floor pad",
+  ledge = "Ledge — hop one-way",
+  shore = "Shore — land beside water",
+  none = "Clear painted passage on this tileset slot",
+}
 
 Maps.BERRY_TYPES = {
   { id = "BERRY", tree = 1, label = "Berry" },
@@ -8873,7 +8918,7 @@ function Maps.drawTrainerClassPicker(S, opts)
     ids = Autocomplete.trainerIds(S),
     emptyLabel = placeholder,
     title = "TRAINER CLASS",
-    tooltip = opts.tooltip or "Pick a trainer class",
+    tooltip = opts.tooltip or "Trainer class from the game. Click to pick from the list",
     onPick = opts.onPick,
   })
 end
