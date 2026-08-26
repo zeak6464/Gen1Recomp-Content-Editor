@@ -58,6 +58,8 @@ function ItemPicker.open(S, opts)
     focus = cur,
     current = cur,
     title = opts.title or "CHOOSE ITEM",
+    allowClear = opts.allowClear and true or false,
+    clearLabel = opts.clearLabel or "(none)",
     onPick = opts.onPick,
   }
 end
@@ -75,7 +77,7 @@ local function pick(S, id)
   local p = S.itemPicker
   local cb = p and p.onPick
   ItemPicker.close(S)
-  if cb and id then cb(id) end
+  if cb then cb(id) end
 end
 
 -- Compact control: icon + button that opens the picker.
@@ -98,6 +100,8 @@ function ItemPicker.field(S, opts)
     ItemPicker.open(S, {
       current = cur ~= "" and cur or nil,
       title = opts.title or "CHOOSE ITEM",
+      allowClear = opts.allowClear,
+      clearLabel = opts.clearLabel or opts.emptyLabel,
       onPick = opts.onPick,
     })
   end
@@ -163,7 +167,8 @@ function ItemPicker.draw(S, x, y, w, h)
   end
 
   local listY = cy + qh + 8 * s
-  local listH = py + ph - pad - listY - 4 * s
+  local extra = p.allowClear and (32 * s) or 0
+  local listH = py + ph - pad - listY - extra - 4 * s
   local rowH = 32 * s
   local perPage = math.max(1, math.floor(listH / (rowH + 3 * s)))
   local innerW = Kit.scrollInnerWidth(listW)
@@ -217,6 +222,13 @@ function ItemPicker.draw(S, x, y, w, h)
   if def and def.name then
     Kit.text("small", tostring(def.name), prevX, listY + 22 * s + big + 8 * s,
       PAL.text)
+  end
+  if p.allowClear then
+    if Kit.button(cx, py + ph - pad - 28 * s, listW, 28 * s,
+        p.clearLabel or "(none)", { kind = "ghost" }) then
+      pick(S, nil)
+      return
+    end
   end
   if focusId and Kit.button(prevX, py + ph - pad - 32 * s, prevW, 28 * s,
       "Use", { kind = "good" }) then

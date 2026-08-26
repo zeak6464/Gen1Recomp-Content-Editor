@@ -519,13 +519,10 @@ local function shapeGen2PartyMon(mon, trainerType)
     level = mon.level or 5,
     species = mon.species or "PIDGEY",
   }
-  local ttype = trainerType or "TRAINERTYPE_NORMAL"
-  if type(ttype) == "string" and ttype:find("ITEM", 1, true)
-      and type(mon.item) == "string" and mon.item ~= "" then
+  if type(mon.item) == "string" and mon.item ~= "" then
     out.item = mon.item
   end
-  if type(ttype) == "string" and ttype:find("MOVES", 1, true)
-      and type(mon.moves) == "table" then
+  if type(mon.moves) == "table" then
     local moves = {}
     for i = 1, math.min(4, #mon.moves) do
       local id = mon.moves[i]
@@ -535,7 +532,43 @@ local function shapeGen2PartyMon(mon, trainerType)
     end
     if #moves > 0 then out.moves = moves end
   end
+  if type(mon.dvs) == "table" then
+    local dvs, any = {}, false
+    for _, k in ipairs({ "attack", "defense", "speed", "special", "hp" }) do
+      local n = tonumber(mon.dvs[k])
+      if n ~= nil then
+        dvs[k] = math.max(0, math.min(15, math.floor(n)))
+        any = true
+      end
+    end
+    if any then out.dvs = dvs end
+  end
+  if type(mon.statExp) == "table" then
+    local se, any = {}, false
+    for _, k in ipairs({ "hp", "attack", "defense", "speed", "special" }) do
+      local n = tonumber(mon.statExp[k])
+      if n ~= nil then
+        se[k] = math.max(0, math.min(65535, math.floor(n)))
+        any = true
+      end
+    end
+    if any then out.statExp = se end
+  end
   return out
+end
+
+local function inferGen2TrainerType(party)
+  local hasItem, hasMoves = false, false
+  for _, mon in ipairs(party or {}) do
+    if type(mon) == "table" then
+      if type(mon.item) == "string" and mon.item ~= "" then hasItem = true end
+      if type(mon.moves) == "table" and #mon.moves > 0 then hasMoves = true end
+    end
+  end
+  if hasItem and hasMoves then return "TRAINERTYPE_ITEM_MOVES" end
+  if hasItem then return "TRAINERTYPE_ITEM" end
+  if hasMoves then return "TRAINERTYPE_MOVES" end
+  return "TRAINERTYPE_NORMAL"
 end
 
 local function shapeTrainerForEmit(rec, gen2)
@@ -557,6 +590,7 @@ local function shapeTrainerForEmit(rec, gen2)
           party[mi] = shapeGen2PartyMon(mon, named.trainerType)
         end
         named.party = party
+        named.trainerType = inferGen2TrainerType(party)
       end
     end
     return rec
@@ -571,7 +605,7 @@ local function shapeTrainerForEmit(rec, gen2)
       end
       trainers[i] = {
         name = rec.name or ("TRAINER" .. i),
-        trainerType = "TRAINERTYPE_NORMAL",
+        trainerType = inferGen2TrainerType(mons),
         party = mons,
       }
     end
@@ -1197,18 +1231,37 @@ local function trainerSlotHasStatOverrides(mon)
   return false
 end
 
--- True when Save must ship mod Schemas.lua (party moves/dvs/statExp).
-function ModWriter.trainerPartyHasOverrides(project)
+local function eachTrainerPartySlot(project, fn)
   for _, rec in pairs((project and project.trainers) or {}) do
-    if type(rec) == "table" and type(rec.parties) == "table" then
-      for _, party in ipairs(rec.parties) do
-        if type(party) == "table" then
-          for _, mon in ipairs(party) do
-            if trainerSlotHasFieldOverrides(mon) then return true end
+    if type(rec) == "table" then
+      if type(rec.parties) == "table" then
+        for _, party in ipairs(rec.parties) do
+          if type(party) == "table" then
+            for _, mon in ipairs(party) do
+              if fn(mon) then return true end
+            end
+          end
+        end
+      end
+      if type(rec.trainers) == "table" then
+        for _, named in ipairs(rec.trainers) do
+          local party = type(named) == "table" and named.party
+          if type(party) == "table" then
+            for _, mon in ipairs(party) do
+              if fn(mon) then return true end
+            end
           end
         end
       end
     end
+  end
+  return false
+end
+
+-- True when Save must ship mod Schemas.lua (party moves/dvs/statExp).
+function ModWriter.trainerPartyHasOverrides(project)
+  if eachTrainerPartySlot(project, trainerSlotHasFieldOverrides) then
+    return true
   end
   for _, spec in pairs((project and project.specialEncounters) or {}) do
     if type(spec) == "table" and (spec.kind or "gift") == "battle" then
@@ -1219,16 +1272,8 @@ function ModWriter.trainerPartyHasOverrides(project)
 end
 
 function ModWriter.trainerPartyHasStatOverrides(project)
-  for _, rec in pairs((project and project.trainers) or {}) do
-    if type(rec) == "table" and type(rec.parties) == "table" then
-      for _, party in ipairs(rec.parties) do
-        if type(party) == "table" then
-          for _, mon in ipairs(party) do
-            if trainerSlotHasStatOverrides(mon) then return true end
-          end
-        end
-      end
-    end
+  if eachTrainerPartySlot(project, trainerSlotHasStatOverrides) then
+    return true
   end
   for _, spec in pairs((project and project.specialEncounters) or {}) do
     if type(spec) == "table" and (spec.kind or "gift") == "battle" then
@@ -1284,7 +1329,7 @@ function ModWriter.contentSchemasLua(project, gen2)
   if ModWriter.mapsNeedWideBlocks(project) then
     parts[#parts + 1] = ModWriter.mapBlockSchemasLua()
   end
-  if (not gen2) and ModWriter.trainerPartyHasOverrides(project) then
+  if ModWriter.trainerPartyHasOverrides(project) then
     parts[#parts + 1] = ModWriter.trainerPartySchemasLua()
   end
   if projectHasEncounterForms(project) then
@@ -1324,10 +1369,11 @@ function ModWriter.trainerPartySchemasLua()
     "local Schemas = require(\"src.mods.Schemas\")",
     "local f = Schemas.f",
     "local tr = Schemas.REGISTRIES and Schemas.REGISTRIES.trainers",
-    "if not (tr and tr.fields) then return end",
-    "tr.fields.parties = f.list(f.list(f.rec{",
+    "if not tr then return end",
+    "local slot = f.rec{",
     "  level = f.int(1),",
     "  species = f.id(\"pokemon\"),",
+    "  item = f.opt(f.id(\"items\")),",
     "  moves = f.opt(f.list(f.id(\"moves\"))),",
     "  dvs = f.opt(f.rec{",
     "    attack = f.int(0, 15), defense = f.int(0, 15),",
@@ -1338,7 +1384,20 @@ function ModWriter.trainerPartySchemasLua()
     "    hp = f.int(0), attack = f.int(0), defense = f.int(0),",
     "    speed = f.int(0), special = f.int(0),",
     "  }),",
-    "}))",
+    "}",
+    "if tr.fields then",
+    "  tr.fields.parties = f.list(f.list(slot))",
+    "end",
+    "if tr.gen2Fields then",
+    "  tr.gen2Fields.trainers = f.list(f.rec{",
+    "    id = f.opt(f.str), name = f.str, index = f.opt(f.int(0, 255)),",
+    "    trainerType = f.opt(f.enum{",
+    "      \"TRAINERTYPE_NORMAL\", \"TRAINERTYPE_MOVES\",",
+    "      \"TRAINERTYPE_ITEM\", \"TRAINERTYPE_ITEM_MOVES\",",
+    "    }),",
+    "    party = f.list(slot),",
+    "  })",
+    "end",
     "",
   }, "\n")
 end
@@ -2531,6 +2590,9 @@ function ModWriter.emitMain(project, baseData)
       level = math.max(1, math.min(100, tonumber(mon.level) or 5)),
       species = tostring(mon.species or "PIDGEY"),
     }
+    if type(mon.item) == "string" and mon.item ~= "" then
+      slot.item = mon.item
+    end
     if type(mon.moves) == "table" and #mon.moves > 0 then
       local moves = {}
       for i = 1, math.min(4, #mon.moves) do
@@ -2767,7 +2829,71 @@ function ModWriter.emitMain(project, baseData)
     out[#out + 1] = ""
   end
 
-  -- Special encounters (Encounters tab): synthetic trainers + gift command.
+  -- Gold trainer DVs / Stat Exp: Trainers.party hardcodes 9/8/8/8.
+  if gen2 and ModWriter.trainerPartyHasStatOverrides(project) then
+    out[#out + 1] = "  -- Apply trainer party DVs / Stat Exp (Gold Trainers.party is fixed 9/8/8/8)"
+    out[#out + 1] = "  do"
+    out[#out + 1] = "    local dataRef"
+    out[#out + 1] = "    mod.events:on(\"mods.loaded\", function(ev)"
+    out[#out + 1] = "      dataRef = ev and ev.data"
+    out[#out + 1] = "    end)"
+    out[#out + 1] = "    mod.hooks:wrap(\"trainer.party\", function(nxt, class, idx, party)"
+    out[#out + 1] = "      party = nxt(class, idx, party) or party"
+    out[#out + 1] = "      local data = dataRef or (mod.game and mod.game.data)"
+    out[#out + 1] = "      local root = data and (data.gen2Trainers or data.trainers)"
+    out[#out + 1] = "      local cls = root and ((root.classes and root.classes[class]) or root[class])"
+    out[#out + 1] = "      local named"
+    out[#out + 1] = "      if cls and type(cls.trainers) == \"table\" then"
+    out[#out + 1] = "        if type(idx) == \"number\" then named = cls.trainers[idx] end"
+    out[#out + 1] = "        if not named then"
+    out[#out + 1] = "          for _, t in ipairs(cls.trainers) do"
+    out[#out + 1] = "            if t and (t.id == idx or t.name == idx or t.index == idx) then"
+    out[#out + 1] = "              named = t; break"
+    out[#out + 1] = "            end"
+    out[#out + 1] = "          end"
+    out[#out + 1] = "        end"
+    out[#out + 1] = "      end"
+    out[#out + 1] = "      local roster = named and named.party"
+    out[#out + 1] = "      if type(party) ~= \"table\" or type(roster) ~= \"table\" then return party end"
+    out[#out + 1] = "      local Mon = require(\"src.battle.gen2.Mon\")"
+    out[#out + 1] = "      for i, mon in ipairs(party) do"
+    out[#out + 1] = "        local slot = roster[i]"
+    out[#out + 1] = "        if mon and type(slot) == \"table\" then"
+    out[#out + 1] = "          if type(slot.dvs) == \"table\" then"
+    out[#out + 1] = "            local dvs = {"
+    out[#out + 1] = "              attack = tonumber(slot.dvs.attack) or 0,"
+    out[#out + 1] = "              defense = tonumber(slot.dvs.defense) or 0,"
+    out[#out + 1] = "              speed = tonumber(slot.dvs.speed) or 0,"
+    out[#out + 1] = "              special = tonumber(slot.dvs.special) or 0,"
+    out[#out + 1] = "            }"
+    out[#out + 1] = "            if slot.dvs.hp ~= nil then"
+    out[#out + 1] = "              dvs.hp = tonumber(slot.dvs.hp) or 0"
+    out[#out + 1] = "            else"
+    out[#out + 1] = "              dvs.hp = (dvs.attack % 2) * 8 + (dvs.defense % 2) * 4"
+    out[#out + 1] = "                + (dvs.speed % 2) * 2 + (dvs.special % 2)"
+    out[#out + 1] = "            end"
+    out[#out + 1] = "            mon.dvs = dvs"
+    out[#out + 1] = "            local def = data.pokemon and data.pokemon[mon.species]"
+    out[#out + 1] = "            mon.shiny = Mon.isShiny(dvs, { species = mon.species,"
+    out[#out + 1] = "              def = def, level = mon.level })"
+    out[#out + 1] = "          end"
+    out[#out + 1] = "          if type(slot.statExp) == \"table\" then"
+    out[#out + 1] = "            mon.statExp = {"
+    out[#out + 1] = "              hp = tonumber(slot.statExp.hp) or 0,"
+    out[#out + 1] = "              attack = tonumber(slot.statExp.attack) or 0,"
+    out[#out + 1] = "              defense = tonumber(slot.statExp.defense) or 0,"
+    out[#out + 1] = "              speed = tonumber(slot.statExp.speed) or 0,"
+    out[#out + 1] = "              special = tonumber(slot.statExp.special) or 0,"
+    out[#out + 1] = "            }"
+    out[#out + 1] = "          end"
+    out[#out + 1] = "          Mon.refreshStats(mon, data)"
+    out[#out + 1] = "        end"
+    out[#out + 1] = "      end"
+    out[#out + 1] = "      return party"
+    out[#out + 1] = "    end)"
+    out[#out + 1] = "  end"
+    out[#out + 1] = ""
+  end
   -- Gift path uses Gen1 src.script.Commands / Party / Boxes — Gen2 gets battle
   -- trainers only (gift command gated inside emitSpecialEncounters).
   ModWriter.emitSpecialEncounters(project, out, gen2)

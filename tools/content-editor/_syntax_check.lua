@@ -381,6 +381,39 @@ local ok, err = pcall(function()
     local schema = ModWriter.encounterFormSchemasLua()
     assert(schema:find("t.fields.form"), "missing encounter form schema")
   end
+  do
+    local out = ModWriter.emitMain({
+      id = "t", game = "crystal",
+      trainers = {
+        BEAUTY = {
+          id = "BEAUTY", name = "BEAUTY",
+          trainers = {
+            {
+              id = "BEAUTY_VICTORIA", name = "VICTORIA",
+              trainerType = "TRAINERTYPE_ITEM_MOVES",
+              party = {
+                {
+                  level = 9, species = "SENTRET", item = "BERRY",
+                  moves = { "TACKLE", "DEFENSE_CURL" },
+                  dvs = { attack = 14, defense = 10, speed = 10, special = 10 },
+                  statExp = { hp = 100, attack = 0, defense = 0, speed = 0,
+                    special = 0 },
+                },
+              },
+            },
+          },
+        },
+      },
+    }, { trainers = { classes = { BEAUTY = { id = "BEAUTY" } } } })
+    assert(out:find("item = \"BERRY\"") or out:find('item = "BERRY"'),
+      "missing gen2 held item emit")
+    assert(out:find("TACKLE"), "missing gen2 move list emit")
+    assert(out:find("statExp"), "missing gen2 statExp emit")
+    assert(out:find("Trainers.party is fixed"), "missing gen2 DV hook")
+    assert(out:find("Schemas.lua"), "missing trainer party schema load")
+    local schema = ModWriter.trainerPartySchemasLua()
+    assert(schema:find("gen2Fields.trainers"), "missing gen2 trainer party schema")
+  end
   print("OK modules load")
 end)
 if not ok then print("FAIL", err); os.exit(1) end

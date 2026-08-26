@@ -232,6 +232,7 @@ local function applyStatsToParty(party, dvs, se)
       level = mon.level or 5,
       species = mon.species or "PIDGEY",
       moves = copyMoves(mon.moves),
+      item = (type(mon.item) == "string" and mon.item ~= "") and mon.item or nil,
       dvs = dvs and copyStatBlock(dvs, DV_KEYS, 15) or copyStatBlock(mon.dvs, DV_KEYS, 15),
       statExp = se and copyStatBlock(se, EV_KEYS, 65535)
         or copyStatBlock(mon.statExp, EV_KEYS, 65535),
@@ -239,6 +240,49 @@ local function applyStatsToParty(party, dvs, se)
     n = n + 1
   end
   return n
+end
+
+local SHINY_ATK_DV = {
+  [2] = true, [3] = true, [6] = true, [7] = true,
+  [10] = true, [11] = true, [14] = true, [15] = true,
+}
+local SHINY_TRAINER_DVS = {
+  attack = 14, defense = 10, speed = 10, special = 10, hp = 0,
+}
+
+local function dvsAreShiny(dvs)
+  if type(dvs) ~= "table" then return false end
+  return (tonumber(dvs.defense) or 0) == 10
+     and (tonumber(dvs.speed) or 0) == 10
+     and (tonumber(dvs.special) or 0) == 10
+     and SHINY_ATK_DV[tonumber(dvs.attack) or 0] == true
+end
+
+local function inferTrainerType(party)
+  local hasItem, hasMoves = false, false
+  for _, mon in ipairs(party or {}) do
+    if type(mon) == "table" then
+      if type(mon.item) == "string" and mon.item ~= "" then hasItem = true end
+      if type(mon.moves) == "table" then
+        for i = 1, math.min(4, #mon.moves) do
+          if type(mon.moves[i]) == "string" and mon.moves[i] ~= "" then
+            hasMoves = true
+            break
+          end
+        end
+      end
+    end
+  end
+  if hasItem and hasMoves then return "TRAINERTYPE_ITEM_MOVES" end
+  if hasItem then return "TRAINERTYPE_ITEM" end
+  if hasMoves then return "TRAINERTYPE_MOVES" end
+  return "TRAINERTYPE_NORMAL"
+end
+
+local function syncNamedTrainerType(tr, idx)
+  local named = tr and tr.trainers and tr.trainers[idx]
+  if type(named) ~= "table" then return end
+  named.trainerType = inferTrainerType(named.party or {})
 end
 
 -- Vanilla parties store only level+species. Battle uses learnset moves and
@@ -300,7 +344,7 @@ local function defaultMovesForMon(S, oppClass, partyIndex, monIndex, mon)
   if def then
     local got = Pokemon.movesAtLevel({
       level1Moves = def.level1Moves or {},
-      learnset = def.learnset or {},
+      learnset = def.levelMoves or def.learnset or {},
     }, mon.level or 1)
     for i, id in ipairs(got) do moves[i] = id end
   end
@@ -1150,16 +1194,28 @@ function Trainers.draw(S, x, y, w, h, App)
           "TRAINERTYPE_NORMAL", "TRAINERTYPE_MOVES",
           "TRAINERTYPE_ITEM", "TRAINERTYPE_ITEM_MOVES",
         }
+        local TYPE_LABELS = {
+          TRAINERTYPE_NORMAL = "NORMAL",
+          TRAINERTYPE_MOVES = "MOVES",
+          TRAINERTYPE_ITEM = "ITEM",
+          TRAINERTYPE_ITEM_MOVES = "ITEM+MOVES",
+        }
         local cur = named.trainerType or "TRAINERTYPE_NORMAL"
-        if Kit.button(viewX, fy, math.min(viewW, 220 * s), fh,
-            cur:gsub("TRAINERTYPE_", ""), { kind = "accent" }) then
-          tr = mutate()
-          local idx = 1
-          for i, t in ipairs(TYPES) do if t == cur then idx = i; break end end
-          tr.trainers[S.trainerPartyIndex].trainerType =
-            TYPES[(idx % #TYPES) + 1]
-          App.markDirty()
-        end
+        ChoicePicker.field(S, {
+          x = viewX, y = fy, w = math.min(viewW, 220 * s), h = fh,
+          current = cur,
+          ids = TYPES,
+          labels = TYPE_LABELS,
+          emptyLabel = "NORMAL",
+          title = "TRAINER TYPE",
+          tooltip = "NORMAL / MOVES / ITEM / ITEM_MOVES — updates when you set items or moves",
+          onPick = function(id)
+            if type(id) ~= "string" or id == "" then return end
+            tr = mutate()
+            tr.trainers[S.trainerPartyIndex].trainerType = id
+            App.markDirty()
+          end,
+        })
         local nm = field(App, "tr_named", viewX + 230 * s, fy,
           math.max(80 * s, viewW - 240 * s), fh, named.name or "", "NAME")
         if nm ~= (named.name or "") then
@@ -1275,7 +1331,7 @@ function Trainers.draw(S, x, y, w, h, App)
     local defDvs = defaultTrainerDvs(S)
 
     -- Bulk DVs / Stat Exp for every mon in this party (or all parties).
-    if not Generation.isGen2(S) then do
+    do
       S.trainerBulkDvs = S.trainerBulkDvs or normalizeBulkDvs(nil, defDvs)
       S.trainerBulkSe = S.trainerBulkSe or normalizeBulkSe(nil)
       Kit.text("micro", "Bulk DVs / Stat Exp — written on Save",
@@ -1368,7 +1424,7 @@ function Trainers.draw(S, x, y, w, h, App)
         S.status = string.format("Applied Stat Exp to %d mon(s) across all parties", n)
       end
       fy = fy + 36 * s
-    end end
+    end
 
     local moveIds = Autocomplete.moveIds(S)
     for mi = 1, slots do
@@ -1377,7 +1433,14 @@ function Trainers.draw(S, x, y, w, h, App)
       local speciesDef = (S.project.pokemon and S.project.pokemon[mon.species])
         or (S.data and S.data.pokemon and S.data.pokemon[mon.species])
       if speciesDef and speciesDef.spriteFront then
-        local spPal = Preview.monPaletteName(S, speciesDef, mon.species)
+        local shinyPrev = Generation.isGen2(S)
+          and dvsAreShiny(mon.dvs or defDvs)
+        local spPal
+        if Generation.isGen2(S) then
+          spPal = Preview.gen2MonColors(S, mon.species, shinyPrev) or false
+        else
+          spPal = Preview.monPaletteName(S, speciesDef, mon.species)
+        end
         if speciesDef.trueColor then spPal = false end
         Preview.draw(S, speciesDef.spriteFront, viewX, fy, prevSize, prevSize,
           spPal)
@@ -1417,12 +1480,30 @@ function Trainers.draw(S, x, y, w, h, App)
       end
       fy = fy + fh + 4 * s
 
-      local named = Generation.isGen2(S)
-        and tr.trainers and tr.trainers[S.trainerPartyIndex] or nil
-      local ttype = named and named.trainerType or ""
-      local showItem = Generation.isGen2(S) and ttype:find("ITEM", 1, true)
-      local showMoves = (not Generation.isGen2(S))
-        or ttype:find("MOVES", 1, true)
+      local showItem = Generation.isGen2(S)
+      local showMoves = true
+
+      if Generation.isGen2(S) then
+        local shinyOn = dvsAreShiny(mon.dvs or defDvs)
+        if Kit.chip(mx, fy, 80 * s, fh, shinyOn and "SHINY" or "Normal",
+            shinyOn, PAL.yellow, PAL.steel,
+            "Gen 2 shiny DVs (Atk 14, Def/Spe/Spc 10)") then
+          tr = mutate()
+          local p = parties[S.trainerPartyIndex]
+          local cur = p[slotIndex] or { level = 5, species = "PIDGEY" }
+          if shinyOn then
+            cur.dvs = nil
+          else
+            local sd = {}
+            for k, v in pairs(SHINY_TRAINER_DVS) do sd[k] = v end
+            sd.hp = deriveHpDv(sd)
+            cur.dvs = sd
+          end
+          p[slotIndex] = cur
+          App.markDirty()
+        end
+        fy = fy + fh + 8 * s
+      end
 
       if showItem then
         Kit.text("micro", "Held item", mx, fy, PAL.caption)
@@ -1431,7 +1512,8 @@ function Trainers.draw(S, x, y, w, h, App)
         ItemPicker.field(S, {
           x = mx, y = fy, w = 180 * s, h = fh,
           current = curItem,
-          emptyLabel = "ITEM",
+          emptyLabel = "(none)",
+          allowClear = true,
           title = "HELD ITEM",
           tooltip = "Pick from the item list",
           onPick = function(id)
@@ -1440,9 +1522,21 @@ function Trainers.draw(S, x, y, w, h, App)
             local cur = p[slotIndex] or { level = 5, species = "PIDGEY" }
             cur.item = (type(id) == "string" and id ~= "" and id) or nil
             p[slotIndex] = cur
+            syncNamedTrainerType(tr, S.trainerPartyIndex)
             App.markDirty()
           end,
         })
+        if curItem ~= "" and Kit.button(mx + 188 * s, fy, 36 * s, fh, "X", {
+            kind = "danger", tooltip = "Clear held item",
+          }) then
+          tr = mutate()
+          local p = parties[S.trainerPartyIndex]
+          local cur = p[slotIndex] or { level = 5, species = "PIDGEY" }
+          cur.item = nil
+          p[slotIndex] = cur
+          syncNamedTrainerType(tr, S.trainerPartyIndex)
+          App.markDirty()
+        end
         fy = fy + fh + 8 * s
       end
 
@@ -1483,6 +1577,7 @@ function Trainers.draw(S, x, y, w, h, App)
               if moveListEq(packed, defMoves) then packed = nil end
               curMon.moves = packed
               p[slotIndex] = curMon
+              syncNamedTrainerType(tr, S.trainerPartyIndex)
               App.markDirty()
             end,
           })
@@ -1491,8 +1586,8 @@ function Trainers.draw(S, x, y, w, h, App)
       end
 
       local newDvs, newSe = mon.dvs, mon.statExp
-      if not Generation.isGen2(S) then
-      local dvHint = hasDvOverride and "override" or "class default"
+      local dvHint = hasDvOverride and "override"
+        or (Generation.isGen2(S) and "class 9/8/8/8" or "class default")
       Kit.text("micro", "DVs 0-15 · " .. dvHint, mx, fy, PAL.caption)
       fy = fy + 14 * s
       local dvs = hasDvOverride and (mon.dvs or {}) or defDvs
@@ -1528,8 +1623,10 @@ function Trainers.draw(S, x, y, w, h, App)
       end
       fy = fy + 12 * s + fh + 8 * s
 
-      local seHint = hasSeOverride and "Gen1 EV override" or "default 0"
-      Kit.text("micro", "Stat Exp · " .. seHint, mx, fy, PAL.caption)
+      local seHint = hasSeOverride
+        and (Generation.isGen2(S) and "EV override" or "Gen1 EV override")
+        or "default 0"
+      Kit.text("micro", "Stat Exp (EVs) · " .. seHint, mx, fy, PAL.caption)
       fy = fy + 14 * s
       local se = hasSeOverride and (mon.statExp or {}) or {
         hp = 0, attack = 0, defense = 0, speed = 0, special = 0,
@@ -1561,7 +1658,6 @@ function Trainers.draw(S, x, y, w, h, App)
         newSe = nil
       end
       fy = fy + 12 * s + fh + 10 * s
-      end
 
       local function optBlockChanged(oldB, newB, keys)
         local o = copyStatBlock(oldB, keys, nil)
@@ -1575,10 +1671,8 @@ function Trainers.draw(S, x, y, w, h, App)
 
       local live = parties[S.trainerPartyIndex][slotIndex] or mon
       local changed = lvl ~= (mon.level or 5)
-      if not Generation.isGen2(S) then
-        if optBlockChanged(mon.dvs, newDvs, DV_KEYS) then changed = true end
-        if optBlockChanged(mon.statExp, newSe, EV_KEYS) then changed = true end
-      end
+      if optBlockChanged(mon.dvs, newDvs, DV_KEYS) then changed = true end
+      if optBlockChanged(mon.statExp, newSe, EV_KEYS) then changed = true end
 
       if changed then
         tr = mutate()
@@ -1588,21 +1682,25 @@ function Trainers.draw(S, x, y, w, h, App)
           level = lvl,
           species = live.species or sp,
           moves = copyMoves(live.moves),
-          dvs = Generation.isGen2(S) and nil or newDvs,
-          statExp = Generation.isGen2(S) and nil or newSe,
+          dvs = newDvs,
+          statExp = newSe,
           item = live.item,
         }
       end
 
       fy = math.max(fy, rowTop + prevSize) + 10 * s
     end
-    if #party < 6 and Kit.button(viewX, fy, 100 * s, 28 * s, "+ Mon",
-        { kind = "accent" }) then
-      tr = mutate()
-      local p = parties[S.trainerPartyIndex]
-      p[#p + 1] = { level = 5, species = "PIDGEY" }
-      App.markDirty()
+    if #party < 6 then
+      if Kit.button(viewX, fy, 100 * s, 28 * s, "+ Mon",
+          { kind = "accent" }) then
+        tr = mutate()
+        local p = parties[S.trainerPartyIndex]
+        p[#p + 1] = { level = 5, species = "PIDGEY" }
+        App.markDirty()
+      end
+      fy = fy + 28 * s
     end
+    fy = fy + 16 * s
 
   else -- place
     Kit.text("micro", Generation.isGen2(S)
