@@ -3615,8 +3615,8 @@ local function applyToolAtCell(S, mapDef, cx, cy, App)
       class, party, n)
   elseif tool == "wild" then
     S.mapEditMode = "events"
-    -- Fixed wild (object.pokemon + level): Gen1 birds / Power Plant; Gold
-    -- uses the same payload — World interact battles it on A-press.
+    -- Fixed wild: Gen1 uses object.pokemon (OverworldController). Gold World
+    -- only battles from scriptKey loadwildmon — bind that script below.
     mapDef.objects = mapDef.objects or {}
     local n = #mapDef.objects + 1
     local defaultSp = Generation.isGen2(S) and "SUDOWOODO" or "ARTICUNO"
@@ -3626,8 +3626,8 @@ local function applyToolAtCell(S, mapDef, cx, cy, App)
     local spr = S.placeSprite
       or (Generation.isGen2(S) and "SPRITE_SUDOWOODO" or "SPRITE_BIRD")
     if Generation.isGen2(S) then
-      -- SPRITEMOVEDATA_POKEMON ($16): still facing, fixed; eventFlag $FFFF
-      -- stays visible until win/catch stamps save.defeatedTrainers.
+      -- SPRITEMOVEDATA_POKEMON ($16): still facing, fixed. scriptKey is
+      -- filled by Maps.bindGen2FixedWild (loadwildmon + startbattle).
       mapDef.objects[n] = {
         index = n, x = cx, y = cy, sprite = spr,
         movement = 0x16, radius = { x = 0, y = 0 },
@@ -3635,6 +3635,7 @@ local function applyToolAtCell(S, mapDef, cx, cy, App)
         script = 0, scriptKey = "", eventFlag = 65535,
         pokemon = species, level = level,
       }
+      Maps.bindGen2FixedWild(S, mapDef, mapDef.objects[n], n)
     else
       local textId = "TEXT_" .. (mapDef.id or "MAP") .. "_WILD" .. n
       mapDef.objects[n] = {
@@ -6565,8 +6566,10 @@ function Maps._section.drawObjects(S, map, mutate, App, px, py, propW, listBotto
       else
         map = mutate()
         if isStructWild then
+          Gen2Talk.clearFixedWild(S, map.objects[i])
           map.objects[i].pokemon = nil
           map.objects[i].level = nil
+          map.objects[i].forceShiny = nil
         else
           -- Mutually exclusive with trainer battle on the same object.
           map.objects[i].trainerClass = nil
@@ -6582,7 +6585,7 @@ function Maps._section.drawObjects(S, map, mutate, App, px, py, propW, listBotto
             if map.objects[i].eventFlag == nil then
               map.objects[i].eventFlag = 65535
             end
-            map.objects[i].scriptKey = map.objects[i].scriptKey or ""
+            Maps.bindGen2FixedWild(S, map, map.objects[i], i)
           else
             local tid = map.objects[i].text
             if not tid or tid == "" then
@@ -6626,6 +6629,7 @@ function Maps._section.drawObjects(S, map, mutate, App, px, py, propW, listBotto
           map = mutate()
           map.objects[i].pokemon = id
           S.placeWildSpecies = id
+          Maps.bindGen2FixedWild(S, map, map.objects[i], i)
           App.markDirty()
         end,
       })
@@ -6639,6 +6643,7 @@ function Maps._section.drawObjects(S, map, mutate, App, px, py, propW, listBotto
         map = mutate()
         map.objects[i].level = v
         S.placeWildLevel = v
+        Maps.bindGen2FixedWild(S, map, map.objects[i], i)
       end
     end)
     row("Form", function(fx, fy, fw, fh_)
@@ -6658,6 +6663,7 @@ function Maps._section.drawObjects(S, map, mutate, App, px, py, propW, listBotto
         if Kit.chip(fx, fy, 100 * s, fh_, on and "YES" or "NO", on, PAL.yellow) then
           map = mutate()
           map.objects[i].forceShiny = (not on) or nil
+          Maps.bindGen2FixedWild(S, map, map.objects[i], i)
           App.markDirty()
           obj = map.objects[i]
         end
@@ -6666,7 +6672,7 @@ function Maps._section.drawObjects(S, map, mutate, App, px, py, propW, listBotto
     if py + 14 * s <= listBottom then
       Kit.text("micro",
         Generation.isGen2(S)
-          and "A-press starts a wild battle; win/catch hides this object."
+          and "A-press starts a wild battle. Win/catch hides it until you leave the map."
           or "Talk cry uses this object's Text id (Dialog tab).",
         px + 10 * s, py, PAL.faint)
       py = py + 16 * s
@@ -6756,6 +6762,8 @@ function Maps._section.drawObjects(S, map, mutate, App, px, py, propW, listBotto
         else
           map.objects[i].pokemon = nil
           map.objects[i].level = nil
+          map.objects[i].forceShiny = nil
+          Gen2Talk.clearFixedWild(S, map.objects[i])
           if Generation.isGen2(S) then
             local classId = normalizeTrainerClassId(S, S.trainerId)
               or "YOUNGSTER"
@@ -8795,6 +8803,23 @@ Maps.BERRY_TYPES = {
   { id = "GRN_APRICORN", tree = 22, label = "Grn Apr" },
   { id = "YLW_APRICORN", tree = 23, label = "Ylw Apr" },
 }
+
+function Maps.bindGen2FixedWild(S, map, obj, index)
+  if not Generation.isGen2(S) or type(obj) ~= "table" then return nil end
+  if type(obj.pokemon) ~= "string" or obj.pokemon == "" then return nil end
+  local spIdx = speciesIndexForId(S, obj.pokemon)
+  if not spIdx then
+    S.status = "Wild battle needs a species with a known dex index"
+    return nil
+  end
+  local sk = Gen2Talk.bindFixedWild(S, (map and map.id) or S.mapId, obj, index, spIdx)
+  if sk then
+    S.dialogScriptKey = sk
+    local mid = (map and map.id) or S.mapId
+    if mid then MapLoader.invalidate(mid) end
+  end
+  return sk
+end
 
 function Maps.placeBerryTree(S, cx, cy, App)
   if not Generation.isGen2(S) then

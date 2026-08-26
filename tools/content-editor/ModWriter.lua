@@ -2290,6 +2290,12 @@ function ModWriter.emitMain(project, baseData)
     out[#out + 1] = ""
   end
 
+  -- Gold: object.pokemon is editor-only. World A-press needs scriptKey
+  -- loadwildmon, so bind those scripts before maps are emitted.
+  if gen2 then
+    ModWriter.applyGen2FixedWildBinds(project, baseData)
+  end
+
   local mIds = {}
   for mid in pairs(project.maps or {}) do mIds[#mIds + 1] = mid end
   table.sort(mIds)
@@ -4975,6 +4981,63 @@ function ModWriter.commitGoldMapHooks(project)
     end
   end
   return index
+end
+
+-- Gold: editor-placed static wilds store species on object.pokemon (Gen1
+-- shape). World:interactBody only starts a battle from scriptKey, so write
+-- a loadwildmon script and point the object at it. Vanilla ROM keys are
+-- left alone; only empty / mod:*_WILD_* keys are bound.
+function ModWriter.applyGen2FixedWildBinds(project, baseData)
+  if type(project) ~= "table" or type(project.maps) ~= "table" then return end
+  local Gen2Talk = require("Gen2Talk")
+  project.scripts = project.scripts or {}
+  project.scriptSteps = project.scriptSteps or {}
+  local function speciesIndex(id)
+    if type(id) == "number" then return id end
+    if type(id) ~= "string" or id == "" then return nil end
+    local rec = project.pokemon and project.pokemon[id]
+    if type(rec) == "table" and type(rec.index) == "number" then
+      return rec.index
+    end
+    rec = baseData and baseData.pokemon and baseData.pokemon[id]
+    if type(rec) == "table" and type(rec.index) == "number" then
+      return rec.index
+    end
+    return tonumber(id)
+  end
+  local mids = {}
+  for mid in pairs(project.maps) do mids[#mids + 1] = mid end
+  table.sort(mids)
+  for _, mid in ipairs(mids) do
+    local map = project.maps[mid]
+    if type(map) == "table" then
+      for i, obj in ipairs(map.objects or {}) do
+        if type(obj) == "table" and type(obj.pokemon) == "string"
+            and obj.pokemon ~= "" then
+          local idx = speciesIndex(obj.pokemon)
+          if idx then
+            local sk = obj.scriptKey
+            if not Gen2Talk.isModWildKey(sk) then
+              local n = i
+              sk = string.format("mod:%s_WILD_%d", mid, n)
+              while project.scripts[sk] do
+                n = n + 1
+                sk = string.format("mod:%s_WILD_%d", mid, n)
+              end
+              obj.scriptKey = sk
+            end
+            local cmds = Gen2Talk.fixedWildCmds(idx, obj.level, obj.forceShiny)
+            project.scripts[sk] = cmds
+            project.scriptSteps[sk] = {
+              mapId = mid,
+              scriptKey = sk,
+              steps = Gen2Talk.cmdsToSteps(cmds),
+            }
+          end
+        end
+      end
+    end
+  end
 end
 
 -- Gold: wire bindTextId specials (Encounters tab) into project.scripts as

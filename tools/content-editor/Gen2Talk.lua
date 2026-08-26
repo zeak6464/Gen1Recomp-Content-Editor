@@ -700,4 +700,67 @@ function Gen2Talk.copySteps(steps)
   return copySteps(steps)
 end
 
+-- Gold World only starts a wild battle from scriptKey (loadwildmon), not
+-- object.pokemon. Keep pokemon+level for the editor; this writes the script
+-- the overworld actually runs. LAST_TALKED is 0xfe (extracted -2).
+local LAST_TALKED = 0xfe
+
+function Gen2Talk.fixedWildCmds(speciesIndex, level, forceShiny)
+  local cmds = { { op = "faceplayer" } }
+  if forceShiny then
+    cmds[#cmds + 1] = {
+      op = "loadvar",
+      var = VAR_BATTLETYPE,
+      args = { VAR_BATTLETYPE, BATTLETYPE_FORCESHINY },
+    }
+  end
+  cmds[#cmds + 1] = {
+    op = "loadwildmon",
+    species = tonumber(speciesIndex) or 1,
+    level = tonumber(level) or 5,
+  }
+  cmds[#cmds + 1] = { op = "startbattle" }
+  cmds[#cmds + 1] = { op = "reloadmapafterbattle" }
+  cmds[#cmds + 1] = { op = "disappear", object = LAST_TALKED }
+  cmds[#cmds + 1] = { op = "end" }
+  return cmds
+end
+
+function Gen2Talk.isModWildKey(scriptKey)
+  return type(scriptKey) == "string" and scriptKey:find("_WILD_", 1, true) ~= nil
+end
+
+function Gen2Talk.bindFixedWild(S, mapId, obj, index, speciesIndex)
+  if not (S and obj) then return nil end
+  speciesIndex = tonumber(speciesIndex)
+  if not speciesIndex then return nil end
+  State.ensureProjectFields(S.project)
+  S.project.scripts = S.project.scripts or {}
+  S.project.scriptSteps = S.project.scriptSteps or {}
+  local sk = obj.scriptKey
+  if not Gen2Talk.isModWildKey(sk) then
+    sk = select(1, Gen2Talk.allocTalk(S, mapId or "MAP", "WILD", index or 1, false))
+    obj.scriptKey = sk
+  end
+  local cmds = Gen2Talk.fixedWildCmds(speciesIndex, obj.level, obj.forceShiny)
+  S.project.scripts[sk] = cmds
+  Gen2Talk.mirrorLive(S, sk, cmds)
+  S.project.scriptSteps[sk] = {
+    mapId = mapId,
+    scriptKey = sk,
+    steps = Gen2Talk.cmdsToSteps(cmds),
+  }
+  return sk
+end
+
+function Gen2Talk.clearFixedWild(S, obj)
+  if not (S and obj) then return end
+  local sk = obj.scriptKey
+  if not Gen2Talk.isModWildKey(sk) then return end
+  if S.project and S.project.scripts then S.project.scripts[sk] = nil end
+  if S.project and S.project.scriptSteps then S.project.scriptSteps[sk] = nil end
+  if S.data and S.data.scripts then S.data.scripts[sk] = nil end
+  obj.scriptKey = ""
+end
+
 return Gen2Talk

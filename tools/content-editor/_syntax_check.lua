@@ -65,6 +65,7 @@ local ok, err = pcall(function()
   assert(Encounters.draw)
   assert(ModWriter.emitSpecialEncounters)
   assert(ModWriter.applySpecialEncounterBinds)
+  assert(ModWriter.applyGen2FixedWildBinds)
   assert(ModWriter.ensureTrainerHeaders)
   do
     local stubS = { project = { sprites = {} }, data = { sprites = {} } }
@@ -299,6 +300,57 @@ local ok, err = pcall(function()
       if c.op == "loadwildmon" then sawWild = true end
     end
     assert(sawLoadvar and sawWild, "forceShiny wild_battle lost loadvar")
+  end
+  do
+    local Gen2Talk = require("Gen2Talk")
+    local cmds = Gen2Talk.fixedWildCmds(185, 50, true)
+    local saw, shiny, hide = false, false, false
+    for _, c in ipairs(cmds) do
+      if c.op == "loadwildmon" and c.species == 185 and c.level == 50 then
+        saw = true
+      end
+      if c.op == "loadvar" then shiny = true end
+      if c.op == "disappear" and c.object == 0xfe then hide = true end
+    end
+    assert(saw and shiny and hide, "fixedWildCmds missing loadwildmon/shiny/disappear")
+    local S = {
+      project = { scripts = {}, scriptSteps = {}, text = {} },
+      data = { scripts = {} },
+    }
+    local obj = { pokemon = "SUDOWOODO", level = 50, scriptKey = "" }
+    local sk = Gen2Talk.bindFixedWild(S, "PLAYERS_HOUSE_2F", obj, 5, 185)
+    assert(type(sk) == "string" and sk:find("_WILD_", 1, true), sk)
+    assert(obj.scriptKey == sk)
+    local bound = S.project.scripts[sk]
+    local hit = false
+    for _, c in ipairs(bound) do
+      if c.op == "loadwildmon" and c.species == 185 then hit = true end
+    end
+    assert(hit, "bindFixedWild did not write loadwildmon")
+    local ModWriter = require("ModWriter")
+    local project = {
+      maps = {
+        PLAYERS_HOUSE_2F = {
+          objects = {
+            { pokemon = "SUDOWOODO", level = 50, scriptKey = "" },
+          },
+        },
+      },
+    }
+    ModWriter.applyGen2FixedWildBinds(project, {
+      pokemon = { SUDOWOODO = { id = "SUDOWOODO", index = 185 } },
+    })
+    local obj2 = project.maps.PLAYERS_HOUSE_2F.objects[1]
+    assert(type(obj2.scriptKey) == "string" and obj2.scriptKey:find("_WILD_", 1, true),
+      obj2.scriptKey)
+    local saved = project.scripts[obj2.scriptKey]
+    local wrote = false
+    for _, c in ipairs(saved) do
+      if c.op == "loadwildmon" and c.species == 185 and c.level == 50 then
+        wrote = true
+      end
+    end
+    assert(wrote, "applyGen2FixedWildBinds did not write loadwildmon")
   end
   do
     -- Gold emit paths for shiny rate / breeding (stub GameVersion → gold).
