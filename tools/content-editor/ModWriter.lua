@@ -332,6 +332,10 @@ local function shapePokemonForEmit(rec, gen2)
   rec.dexEntry = nil
   rec.icon = nil
   rec.palette = nil
+  -- ROM species byte is 0–255 (253 is EGG). Extra species omit index.
+  if type(rec.index) == "number" and (rec.index < 0 or rec.index > 255) then
+    rec.index = nil
+  end
   return rec
 end
 
@@ -1649,31 +1653,67 @@ function ModWriter.emitMain(project, baseData)
   end
 
   -- Gold pokedex entries (kind / height / weight / text) — not on the mon.
-  if gen2 and type(project.pokedex) == "table" then
-    local dIds = {}
-    for did in pairs(project.pokedex) do dIds[#dIds + 1] = did end
+  -- New Gold species omit the ROM index byte; they still need a dex row so
+  -- NEW/OLD/A-Z lists pick them up past #251.
+  if gen2 then
+    local dIds, seen = {}, {}
+    local function addDexId(id)
+      if type(id) == "string" and id ~= "" and not seen[id] then
+        seen[id] = true
+        dIds[#dIds + 1] = id
+      end
+    end
+    local nextDex = 252
+    local function bump(n)
+      n = tonumber(n)
+      if n and n >= nextDex then nextDex = n + 1 end
+    end
+    local vanilla = baseData.gen2Pokedex and baseData.gen2Pokedex.entries
+    for _, rec in pairs(vanilla or {}) do
+      if type(rec) == "table" then bump(rec.dex) end
+    end
+    for _, rec in pairs(baseData.pokemon or {}) do
+      if type(rec) == "table" then bump(rec.dex) end
+    end
+    for did, rec in pairs(project.pokedex or {}) do
+      addDexId(did)
+      if type(rec) == "table" then bump(rec.dex) end
+    end
+    for _, rec in pairs(project.pokemon or {}) do
+      if type(rec) == "table" then bump(rec.dex) end
+    end
+    for _, pid in ipairs(pIds) do
+      if emitVerb(project.pokemon[pid]) == "register" then addDexId(pid) end
+    end
     table.sort(dIds)
     if #dIds > 0 then
       out[#out + 1] = "  -- Gold pokedex entries (gen2Pokedex.entries)"
       out[#out + 1] = "  do"
       out[#out + 1] = "    local _dex = {"
       for _, did in ipairs(dIds) do
-        local row = project.pokedex[did]
-        if type(row) == "table" then
+        local row = (project.pokedex and project.pokedex[did]) or {}
+        local mon = project.pokemon and project.pokemon[did]
+        local dexNo = tonumber(row.dex) or (mon and tonumber(mon.dex))
+        if emitVerb(mon) == "register"
+            and (type(row) ~= "table" or row.dex == nil)
+            and (not dexNo or dexNo <= 251) then
+          dexNo = nextDex
+          nextDex = nextDex + 1
+        end
+        if type(row) == "table" or dexNo then
           local patch = {
             id = row.id or did,
-            kind = row.kind,
-            height = row.height,
-            weight = row.weight,
-            text = row.text,
+            kind = row.kind or "???",
+            height = row.height or 0,
+            weight = row.weight or 10,
+            text = row.text or "",
             text2 = row.text2,
-            dex = row.dex,
+            dex = dexNo or row.dex,
           }
           out[#out + 1] = string.format("      [%q] = %s,",
             did, emitTableLiteral(patch, 3))
         end
       end
-      
       out[#out + 1] = "    }"
       out[#out + 1] = "    mod.events:on(\"mods.loaded\", function(ev)"
       out[#out + 1] = "      local data = ev and ev.data"
@@ -1686,7 +1726,7 @@ function ModWriter.emitMain(project, baseData)
       out[#out + 1] = "      dex.entries = dex.entries or {}"
       out[#out + 1] = "      dex.newOrder = dex.newOrder or {}"
       out[#out + 1] = "      dex.alphabeticalOrder = dex.alphabeticalOrder or {}"
-      out[#out + 1] = "" 
+      out[#out + 1] = ""
       out[#out + 1] = "      local inNew, inAZ = {}, {}"
       out[#out + 1] = "      for _, id in ipairs(dex.newOrder) do inNew[id] = true end"
       out[#out + 1] = "      for _, id in ipairs(dex.alphabeticalOrder) do inAZ[id] = true end"

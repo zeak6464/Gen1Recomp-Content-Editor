@@ -289,12 +289,33 @@ local function ensureOwned(S, id)
   return copy
 end
 
+local function considerDex(bucket, maxDex)
+  for _, rec in pairs(bucket or {}) do
+    local n = type(rec) == "table" and tonumber(rec.dex)
+    if n and n > maxDex then maxDex = n end
+  end
+  return maxDex
+end
+
+-- Gold's species `index` is the ROM byte (Celebi is 251; 253 is EGG). Extra
+-- species omit that field and take the next national dex number from 252 up.
+local function nextOverflowDex(S)
+  local maxDex = 251
+  maxDex = considerDex(S.data and S.data.pokemon, maxDex)
+  maxDex = considerDex(S.project and S.project.pokemon, maxDex)
+  maxDex = considerDex(S.project and S.project.pokedex, maxDex)
+  local entries = S.data and S.data.gen2Pokedex and S.data.gen2Pokedex.entries
+  maxDex = considerDex(entries, maxDex)
+  return maxDex + 1
+end
+
 local function defaultMon(id, S)
   if Generation.isGen2(S) then
+    local dex = nextOverflowDex(S)
     return {
       id = id,
       name = id,
-      dex = 1,
+      dex = dex,
       types = { "NORMAL" },
       baseStats = {
         hp = 50, attack = 50, defense = 50, speed = 50,
@@ -492,10 +513,16 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
        and not S.project.pokemon[v]
        and not (S.data.pokemon and S.data.pokemon[v]) then
       mon = mutate()
-      S.project.pokemon[mon.id] = nil
+      local old = mon.id
+      S.project.pokemon[old] = nil
       mon.id = v
       S.project.pokemon[v] = mon
       S.pokemonId = v
+      if S.project.pokedex and S.project.pokedex[old] then
+        S.project.pokedex[v] = S.project.pokedex[old]
+        S.project.pokedex[old] = nil
+        S.project.pokedex[v].id = v
+      end
       App.markDirty()
     end
   end)
@@ -506,11 +533,38 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
   row("Dex #", function(fx, fy_, fw, fh_)
     local v = numField(S, App, "pk_dex", fx, fy_, 80 * s, fh_, mon.dex)
     if v ~= mon.dex then mon = mutate(); mon.dex = v end
+    if Generation.isGen2(S) then
+      Kit.offerTooltip(fx, fy_, 80 * s, fh_,
+        "National dex number. Extra species start at 252")
+    end
   end)
   row("Index", function(fx, fy_, fw, fh_)
-    local cur = mon.index or 0
-    local v = numField(S, App, "pk_idx", fx, fy_, 80 * s, fh_, cur)
-    if v ~= cur then mon = mutate(); mon.index = v end
+    if Generation.isGen2(S) then
+      local cur = mon.index
+      local shown = (type(cur) == "number" and cur >= 0 and cur <= 255)
+        and tostring(cur) or ""
+      Kit.offerTooltip(formX, fy, labelW + fw, fh,
+        "ROM species byte (0–255). Leave empty for extra species past Celebi")
+      local v = field(S, App, "pk_idx", fx, fy_, 80 * s, fh_, shown, "overflow")
+      if v == "" then
+        if cur ~= nil then mon = mutate(); mon.index = nil end
+      else
+        local n = tonumber(v)
+        if n and n >= 0 and n <= 255 then
+          if n ~= cur then mon = mutate(); mon.index = n end
+        elseif Kit.focus ~= "pk_idx" then
+          if cur ~= nil then mon = mutate(); mon.index = nil end
+          S.status = "Gold species index is a ROM byte (0–255). Extra species omit it."
+        end
+      end
+      Kit.text("micro", shown == "" and "dex overflow — no ROM byte"
+        or "ROM byte; 253 is EGG",
+        fx + 90 * s, fy_ + 8 * s, PAL.faint)
+    else
+      local cur = mon.index or 0
+      local v = numField(S, App, "pk_idx", fx, fy_, 80 * s, fh_, cur)
+      if v ~= cur then mon = mutate(); mon.index = v end
+    end
   end)
 
   Kit.text("small", "Types", formX, fy + 6 * s, PAL.caption)
@@ -1326,7 +1380,7 @@ local function drawDex(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
       local cur = de.dex or 0
       local v = numField(S, App, "pk_ddex", fx, fy_, 80 * s, fh_, cur)
       if v ~= cur then de = mutateDex(); de.dex = v end
-      Kit.text("micro", "National order (used by NEW/OLD/A-Z list + printed #)",
+      Kit.text("micro", "National order (used by NEW/OLD/A-Z list + printed #). Extra species start at 252.",
         fx + 90 * s, fy_ + 8 * s, PAL.faint)
     end)
     row("Kind", function(fx, fy_, fw, fh_)
@@ -1485,15 +1539,31 @@ function Pokemon.draw(S, x, y, w, h, App)
   Kit.scrollbar(listInnerX, listInnerY, listInnerW, listInnerH,
     S.pokemonListOffset or 0, #ids, perPage)
 
-  if Kit.button(x, y + h - 36 * s, listW, 32 * s, "+ New species",
-      { kind = "good" }) then
+  if Kit.button(x, y + h - 36 * s, listW, 32 * s, "+ New species", {
+      kind = "good",
+      tooltip = Generation.isGen2(S)
+        and "Adds a species past #251 with no ROM index byte (dex overflow)"
+        or "Register a new species in this mod",
+    }) then
     local nid = "NEW_MON"
     local n = 1
     while S.project.pokemon[nid] or (S.data.pokemon and S.data.pokemon[nid]) do
       n = n + 1
       nid = "NEW_MON_" .. n
     end
-    S.project.pokemon[nid] = defaultMon(nid, S)
+    local rec = defaultMon(nid, S)
+    S.project.pokemon[nid] = rec
+    if Generation.isGen2(S) then
+      S.project.pokedex = S.project.pokedex or {}
+      S.project.pokedex[nid] = {
+        id = nid,
+        dex = rec.dex,
+        kind = "???",
+        height = 0,
+        weight = 10,
+        text = "",
+      }
+    end
     S.pokemonId = nid
     App.markDirty()
   end
@@ -1571,6 +1641,7 @@ function Pokemon.draw(S, x, y, w, h, App)
         tooltip = "Remove from this mod (Save emits content:remove)" }) then
     State.markDeleted(S.project, "pokemon", mon.id, mon,
       S.data and S.data.pokemon)
+    if S.project.pokedex then S.project.pokedex[mon.id] = nil end
     local ids = allSpeciesIds(S)
     S.pokemonId = ids[1]
     App.markDirty()

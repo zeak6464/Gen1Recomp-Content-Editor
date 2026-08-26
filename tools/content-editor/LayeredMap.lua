@@ -272,6 +272,9 @@ local SIDE_FACE = {
 }
 
 local function collisionModeFromByte(coll)
+  -- Permissions.isGrass does `coll % 256` and cannot take a boolean.
+  -- Lua `cond and value` is false when there is no quad; 0 is valid COLL walk.
+  coll = tonumber(coll)
   if coll == nil then return nil end
   local okP, Permissions = pcall(require, "src.world.gen2.Permissions")
   if not (okP and Permissions) then return nil end
@@ -321,10 +324,21 @@ function LayeredMap.collisionForRef(S, ref)
   if not tilesetId then return nil end
   local tileset = resolveTileset(S, tilesetId)
   local tile = tonumber(ref.tile) or 0
-  local quad = tileset and type(tileset.collision) == "table"
-    and tileset.collision[math.floor(tile / 4) + 1]
-  local coll = type(quad) == "table" and quad[(tile % 4) + 1]
-  return collisionModeFromByte(coll)
+  local bucket = tileset and tileset.collision
+  local coll
+  if type(bucket) == "table" then
+    local quad = bucket[math.floor(tile / 4) + 1]
+    if type(quad) == "table" then
+      coll = quad[(tile % 4) + 1]
+    elseif type(quad) == "number" then
+      coll = quad
+    end
+  end
+  local mode = collisionModeFromByte(coll)
+  if mode then return mode end
+  -- Gold tilesets answer from COLL_* quads. A missing quad is not "solid".
+  if type(bucket) == "table" then return nil end
+  return collisionMode(tileset, tile)
 end
 
 local function rawCellTile(map, tileset, x, y)
