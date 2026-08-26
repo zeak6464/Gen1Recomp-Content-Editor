@@ -197,6 +197,7 @@ end
 
 function Preview.invalidate()
   cache = {}
+  Preview._rev = (Preview._rev or 0) + 1
 end
 
 -- Drop only keys that mention this relative/absolute path (avoids reloading

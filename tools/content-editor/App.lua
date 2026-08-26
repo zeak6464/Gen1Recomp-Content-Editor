@@ -19,6 +19,7 @@ local PAL = Theme.PAL
 
 local Project = require("Project")
 local Manifest = require("Manifest")
+local Cart = require("Cart")
 local Code = require("Code")
 local Pokemon = require("Pokemon")
 local Items = require("Items")
@@ -43,6 +44,7 @@ local BattleAnimPreview = require("BattleAnimPreview")
 local Player = require("Player")
 local Ui = require("Ui")
 local UiPreview = require("UiPreview")
+local Rules = require("Rules")
 local PalettePicker = require("PalettePicker")
 local SpeciesPicker = require("SpeciesPicker")
 local ItemPicker = require("ItemPicker")
@@ -69,6 +71,8 @@ local TABS = {
     tip = "Create / open mod, boot & constants, validate / playtest" },
   { id = "manifest", label = "MANIFEST",
     tip = "Edit mods/<id>/manifest.json" },
+  { id = "cart",     label = "CART",
+    tip = "Custom cart: pin local or published mods, preview the cartridge, pack a .g1rcart.\nGitHub/GameBanana are only needed if you turn ONLINE on to check the index." },
   { id = "code",     label = "CODE",
     tip = "Browse and edit Lua files under mods/" },
   { id = "maps",     label = "MAPS",
@@ -103,17 +107,20 @@ local TABS = {
     tip = "Author move_effects from templates" },
   { id = "types",    label = "TYPES",
     tip = "Type chart and matchup multipliers" },
+  { id = "rules",    label = "RULES",
+    tip = "Statuses, rulesets, warp fades, battle sprite scales" },
   { id = "audio",    label = "AUDIO",
     tip = "Music, cries, SFX, and map songs" },
   { id = "gfx",      label = "GFX",
     tip = "Palettes, overworld sprites, tilesets" },
   { id = "events",   label = "EVENTS",
-    tip = "Talk scripts, flags, and save-flag tester" },
+    tip = "Talk scripts, std/phone/scene scripts, flags, save-flag tester" },
 }
 
 local PANELS = {
   project = Project,
   manifest = Manifest,
+  cart = Cart,
   code = Code,
   pokemon = Pokemon,
   breeding = Breeding,
@@ -122,6 +129,7 @@ local PANELS = {
   anims = BattleAnims,
   effects = MoveEffects,
   types = Types,
+  rules = Rules,
   maps = MapsWorkspace,
   encounters = Encounters,
   dialog = Dialog,
@@ -137,7 +145,8 @@ local PANELS = {
 }
 
 local function anyDirty(state)
-  return state and (state.dirty or state.manifestDirty or state.codeDirty)
+  return state and (state.dirty or state.manifestDirty or state.codeDirty
+    or state.cartDirty)
 end
 
 local function say(msg)
@@ -498,6 +507,32 @@ function App.clearCache()
   return true
 end
 
+function App.openCacheFolder()
+  local version = (S and (S.version or App.dataVersion)) or "red"
+  local folder = DataSource.importedCacheFolder(version)
+  if not folder or folder == "" then
+    return say("No save directory — cannot open cache folder")
+  end
+  local osName = (love.system and love.system.getOS and love.system.getOS()) or ""
+  if osName == "" and package.config:sub(1, 1) == "\\" then osName = "Windows" end
+  local path = folder:gsub('"', "")
+  local ok
+  if osName == "Windows" then
+    path = path:gsub("/", "\\")
+    ok = os.execute('explorer "' .. path .. '"')
+  elseif osName == "OS X" then
+    ok = os.execute('open "' .. path .. '"')
+  else
+    ok = os.execute('xdg-open "' .. path .. '"')
+  end
+  if ok == true or ok == 0 then
+    say("Opened cache folder: " .. folder)
+    return true
+  end
+  say("Could not open cache folder: " .. folder)
+  return false
+end
+
 function App.unload()
   if S and S._romImporter then S._romImporter = nil end
   pcall(function() require("DataSource").unmountLinked() end)
@@ -532,6 +567,7 @@ function App.openMod(path)
   S._codeFor = nil
   S.manifestDirty = false
   S.codeDirty = false
+  S.cartDirty = false
   S.pokemonId = next(project.pokemon)
   if not S.pokemonId and S.data and S.data.pokemon then
     local ids = {}
@@ -606,12 +642,17 @@ function App.createMod(id)
   S._codeFor = nil
   S.manifestDirty = false
   S.codeDirty = false
+  S.cartDirty = false
   History.clear(S)
   say("Created " .. path)
   return true
 end
 
 function App.save()
+  if S and S.cartDirty then
+    if not Cart.save(S, App) then return false end
+    if not (S.path and S.project) then return true end
+  end
   if not S or not S.path or not S.project then
     say("No mod open")
     return false
@@ -988,6 +1029,7 @@ function App.markDirty()
   History.noteDirty(S)
   S.dirty = true
   S._quitArmed = nil
+  S.uiPreviewTick = (S.uiPreviewTick or 0) + 1
 end
 
 function App.beginEditBatch()

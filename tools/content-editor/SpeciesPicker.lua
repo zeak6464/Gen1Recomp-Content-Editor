@@ -45,6 +45,28 @@ local function speciesDef(S, id)
     or (S.data and S.data.pokemon and S.data.pokemon[id])
 end
 
+function SpeciesPicker.indexForId(S, id)
+  if type(id) ~= "string" or id == "" then return nil end
+  local rec = speciesDef(S, id)
+  if type(rec) == "table" and type(rec.index) == "number" then
+    return rec.index
+  end
+  return nil
+end
+
+function SpeciesPicker.idForIndex(S, index)
+  index = tonumber(index)
+  if not index then return nil end
+  local function scan(bucket)
+    if type(bucket) ~= "table" then return nil end
+    for sid, rec in pairs(bucket) do
+      if type(rec) == "table" and rec.index == index then return sid end
+    end
+  end
+  return scan(S and S.project and S.project.pokemon)
+    or scan(S and S.data and S.data.pokemon)
+end
+
 -- opts: current, title, onPick(id)
 function SpeciesPicker.open(S, opts)
   opts = opts or {}

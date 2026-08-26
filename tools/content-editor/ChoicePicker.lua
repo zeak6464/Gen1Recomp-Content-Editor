@@ -75,6 +75,33 @@ function ChoicePicker.field(S, opts)
   end
 end
 
+function ChoicePicker.songField(S, opts)
+  opts = opts or {}
+  local Autocomplete = require("Autocomplete")
+  local ids = opts.ids
+  if type(ids) ~= "table" or #ids == 0 then
+    ids = Autocomplete.songIds(S)
+  end
+  if #ids == 0 then
+    ids = {
+      "Music_PalletTown", "Music_Cities1", "Music_Gym",
+      "Music_NewBarkTown", "Music_AzaleaTown", "Music_VioletCity",
+    }
+  end
+  ChoicePicker.field(S, {
+    x = opts.x, y = opts.y, w = opts.w, h = opts.h,
+    current = opts.current or "",
+    ids = ids,
+    emptyLabel = opts.emptyLabel or "(music)",
+    allowClear = opts.allowClear,
+    clearLabel = opts.clearLabel or "(none)",
+    title = opts.title or "MUSIC",
+    tooltip = opts.tooltip or "Pick a song from the list",
+    kind = opts.kind,
+    onPick = opts.onPick,
+  })
+end
+
 function ChoicePicker.draw(S, x, y, w, h)
   local p = S and S.choicePicker
   if not p then return end

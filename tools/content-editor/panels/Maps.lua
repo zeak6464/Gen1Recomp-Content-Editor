@@ -13,9 +13,11 @@ local ColorWheel = require("ColorWheel")
 local SpeciesPicker = require("SpeciesPicker")
 local FormPane = require("FormPane")
 local SpriteUtil = require("SpriteUtil")
+local SpriteAnimPreview = require("SpriteAnimPreview")
 local EncounterEdit = require("EncounterEdit")
 local RegList = require("RegList")
 local Autocomplete = require("Autocomplete")
+local ChoicePicker = require("ChoicePicker")
 local MapLoader = require("src.world.MapLoader")
 local Map = require("src.world.Map")
 local SpriteRenderer = require("src.render.SpriteRenderer")
@@ -1547,35 +1549,6 @@ local function cycle(list, cur, dir)
     n = 1
   end
   return list[n]
-end
-
--- Songs available for map_songs overrides (AUDIO tab + this Maps field).
-local function songIds(S)
-  local ids, seen = {}, {}
-  local function add(id)
-    if type(id) == "string" and id ~= "" and not seen[id] then
-      seen[id] = true
-      ids[#ids + 1] = id
-    end
-  end
-  if S.data and S.data.audio and type(S.data.audio.songs) == "table" then
-    for id in pairs(S.data.audio.songs) do add(id) end
-  end
-  if S.project and S.project.audio and type(S.project.audio.songs) == "table" then
-    for id in pairs(S.project.audio.songs) do add(id) end
-  end
-  if #ids == 0 then
-    for _, id in ipairs({
-      "Music_PalletTown", "Music_Cities1", "Music_Cities2",
-      "Music_Routes1", "Music_Routes2", "Music_Routes3", "Music_Routes4",
-      "Music_IndigoPlateau", "Music_Gym", "Music_Pokecenter",
-      "Music_Dungeon1", "Music_Dungeon2", "Music_Dungeon3",
-      "Music_Cinnabar", "Music_Lavender", "Music_Celadon",
-      "Music_ViridianForest", "Music_SSAnne",
-    }) do add(id) end
-  end
-  table.sort(ids)
-  return ids
 end
 
 local function mapSongFor(S, mapId)
@@ -5643,30 +5616,24 @@ function Maps._section.drawBasics(S, map, mutate, App, px, py, propW, listBottom
 
   if prow("Music", function(fx, fy, fw, fh_)
     local cur, ownedSong = mapSongFor(S, map.id)
-    local label = cur ~= "" and cur or "(none)"
     local clearW = ownedSong and 64 * s or 0
     local gap = ownedSong and 4 * s or 0
-    local cycleW = math.max(80 * s, fw - clearW - gap)
-    if Kit.button(fx, fy, cycleW, fh_,
-        Kit.ellipsize("small", label, cycleW - 8 * s), {
-          kind = "ghost",
-          tooltip = "Cycle this map's song (mod.content.map_songs)",
+    ChoicePicker.songField(S, {
+      x = fx, y = fy, w = math.max(80 * s, fw - clearW - gap), h = fh_,
+      current = cur,
+      emptyLabel = "(none)",
+      tooltip = "Song that plays on this map",
+      onPick = function(id)
+        setMapSong(S, map.id,
+          (type(id) == "string" and id ~= "") and id or nil, App)
+      end,
+    })
+    if ownedSong and Kit.button(fx + math.max(80 * s, fw - clearW - gap) + gap,
+        fy, clearW, fh_, "Clear", {
+          kind = "danger",
+          tooltip = "Remove mod song override (restore vanilla)",
         }) then
-      setMapSong(S, map.id, cycle(songIds(S), cur), App)
-    end
-    if ownedSong and Kit.button(fx + cycleW + gap, fy, clearW, fh_, "Clear", {
-        kind = "danger",
-        tooltip = "Remove mod song override (restore vanilla)",
-      }) then
       setMapSong(S, map.id, nil, App)
-    end
-  end) then return py end
-  if prow("Music id", function(fx, fy, fw, fh_)
-    local cur = select(1, mapSongFor(S, map.id))
-    local v = field(App, "mp_music", fx, fy, fw, fh_, cur, "Music_...",
-      function() return Autocomplete.songIds(S) end)
-    if v ~= cur then
-      setMapSong(S, map.id, (v ~= "" and v) or nil, App)
     end
   end) then return py end
 
@@ -6137,8 +6104,7 @@ function Maps._section.drawObjects(S, map, mutate, App, px, py, propW, listBotto
   local def = spriteDef(S, obj.sprite)
   if py + 56 * s < listBottom then
     if def and def.image then
-      Preview.draw(S, def.image, px + 10 * s, py, 48 * s, 48 * s,
-        spritePreviewPal(S, def))
+      SpriteAnimPreview.drawCompact(S, def, px + 10 * s, py, 48 * s)
     else
       Theme.col(PAL.rowBg, 1)
       love.graphics.rectangle("fill", px + 10 * s, py, 48 * s, 48 * s, 6 * s, 6 * s)
@@ -6673,6 +6639,17 @@ function Maps._section.drawObjects(S, map, mutate, App, px, py, propW, listBotto
         map = mutate()
         map.objects[i].level = v
         S.placeWildLevel = v
+      end
+    end)
+    row("Form", function(fx, fy, fw, fh_)
+      local cur = obj.form or ""
+      local v = field(App, "ob_wild_form", fx, fy, math.min(140 * s, fw), fh_,
+        cur, "FORM"):upper():gsub("%s+", "_"):gsub("[^A-Z0-9_]", "")
+      if v == "FORM" then v = "" end
+      if v ~= cur then
+        map = mutate()
+        map.objects[i].form = (v ~= "" and v) or nil
+        App.markDirty()
       end
     end)
     if Generation.isGen2(S) and py + fh + 6 * s <= listBottom then

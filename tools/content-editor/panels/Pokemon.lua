@@ -11,11 +11,13 @@ local PalettePicker = require("PalettePicker")
 local PaletteEdit = require("PaletteEdit")
 local ItemPicker = require("ItemPicker")
 local ChoicePicker = require("ChoicePicker")
+local SpeciesPicker = require("SpeciesPicker")
 local ColorWheel = require("ColorWheel")
 local FormPane = require("FormPane")
 local RegList = require("RegList")
 local Autocomplete = require("Autocomplete")
 local Generation = require("Generation")
+local EvoBreedTrees = require("EvoBreedTrees")
 local PAL = Theme.PAL
 
 local Pokemon = {}
@@ -53,17 +55,10 @@ local SECTIONS = {
   { id = "basics", label = "Basics" },
   { id = "learnset", label = "Learnset" },
   { id = "evolutions", label = "Evos" },
+  { id = "trees", label = "Trees" },
   { id = "tmhm", label = "TM/HM" },
   { id = "dex", label = "Dex" },
 }
-
-local function cycle(list, cur)
-  local idx = 0
-  for i, v in ipairs(list) do
-    if v == cur then idx = i; break end
-  end
-  return list[(idx % #list) + 1]
-end
 
 local function iconNameOf(mon)
   local entry = mon and mon.icon
@@ -210,6 +205,13 @@ local function ensureGen2MonPalette(S, speciesId, App)
   return copy
 end
 
+local function cloneAnim(src)
+  if type(src) ~= "table" then return nil end
+  local a = {}
+  for k, v in pairs(src) do a[k] = v end
+  return a
+end
+
 local function deepCloneMon(def)
   local copy = {}
   for k, v in pairs(def) do
@@ -247,12 +249,20 @@ local function deepCloneMon(def)
         end
       end
       copy.evolutions = a
-    elseif (k == "dexEntry" or k == "letters") and type(v) == "table" then
+    elseif k == "anim" and type(v) == "table" then
+      copy.anim = cloneAnim(v)
+    elseif (k == "dexEntry" or k == "letters" or k == "forms") and type(v) == "table" then
       local d = {}
       for dk, dv in pairs(v) do
         if type(dv) == "table" then
           local sub = {}
-          for sk, sv in pairs(dv) do sub[sk] = sv end
+          for sk, sv in pairs(dv) do
+            if sk == "anim" and type(sv) == "table" then
+              sub.anim = cloneAnim(sv)
+            else
+              sub[sk] = sv
+            end
+          end
           d[dk] = sub
         else
           d[dk] = dv
@@ -395,6 +405,177 @@ local function monSpritePath(S, mon, field)
   return nil
 end
 
+local UNOWN_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+local function isUnownLetterId(id)
+  return type(id) == "string" and #id == 1 and UNOWN_LETTERS:find(id, 1, true)
+end
+
+local function normalizeFormId(s)
+  if type(s) ~= "string" then return nil end
+  s = s:upper():gsub("%s+", "_"):gsub("[^A-Z0-9_]", "")
+  if s == "" then return nil end
+  return s
+end
+
+-- Unown keeps `letters` (engine UnownPicPointers). Everyone else uses `forms`.
+local function formBucketKey(mon, formId)
+  if not mon then return "forms" end
+  if mon.id == "UNOWN" then return "letters" end
+  if formId and type(mon.letters) == "table" and type(mon.letters[formId]) == "table" then
+    return "letters"
+  end
+  return "forms"
+end
+
+local function formRecord(mon, formId)
+  if not formId or type(mon) ~= "table" then return nil end
+  for _, key in ipairs({ "letters", "forms" }) do
+    local bucket = mon[key]
+    if type(bucket) == "table" then
+      local rec = bucket[formId]
+      if type(rec) == "table" then return rec end
+    end
+  end
+  return nil
+end
+
+local function formIdList(mon)
+  local ids, seen = {}, {}
+  if mon and mon.id == "UNOWN" then
+    for i = 1, 26 do
+      local L = UNOWN_LETTERS:sub(i, i)
+      ids[#ids + 1] = L
+      seen[L] = true
+    end
+  end
+  local extra = {}
+  for _, key in ipairs({ "letters", "forms" }) do
+    local bucket = mon and mon[key]
+    if type(bucket) == "table" then
+      for k in pairs(bucket) do
+        if type(k) == "string" and k ~= "" and not seen[k] then
+          extra[#extra + 1] = k
+          seen[k] = true
+        end
+      end
+    end
+  end
+  table.sort(extra)
+  for _, k in ipairs(extra) do ids[#ids + 1] = k end
+  return ids
+end
+
+local function selectedFormId(S, mon)
+  local ids = formIdList(mon)
+  local cur = normalizeFormId(S.pokemonFormId or S.pokemonUnownLetter)
+  if mon and mon.id == "UNOWN" then
+    if not cur then return "A" end
+    for _, id in ipairs(ids) do
+      if id == cur then return id end
+    end
+    return "A"
+  end
+  if not cur then return nil end
+  for _, id in ipairs(ids) do
+    if id == cur then return id end
+  end
+  return nil
+end
+
+local function isLockedForm(mon, formId)
+  return mon and mon.id == "UNOWN" and isUnownLetterId(formId)
+end
+
+local function vanillaMon(S, mon)
+  local id = (mon and mon.id) or S.pokemonId
+  return id and S.data and S.data.pokemon and S.data.pokemon[id] or nil
+end
+
+local function formSpritePath(S, mon, field, formId)
+  local rec = formRecord(mon, formId)
+  if rec and type(rec[field]) == "string" and rec[field] ~= "" then
+    return rec[field]
+  end
+  rec = formRecord(vanillaMon(S, mon), formId)
+  if rec and type(rec[field]) == "string" and rec[field] ~= "" then
+    return rec[field]
+  end
+  return monSpritePath(S, mon, field)
+end
+
+local function formAnim(S, mon, formId)
+  local rec = formRecord(mon, formId)
+  if rec and type(rec.anim) == "table" and rec.anim.sheet then return rec.anim end
+  rec = formRecord(vanillaMon(S, mon), formId)
+  if rec and type(rec.anim) == "table" and rec.anim.sheet then return rec.anim end
+  if type(mon.anim) == "table" and mon.anim.sheet then return mon.anim end
+  local vanilla = vanillaMon(S, mon)
+  if type(vanilla) == "table" and type(vanilla.anim) == "table" and vanilla.anim.sheet then
+    return vanilla.anim
+  end
+  return nil
+end
+
+local function assignFormSprite(mon, formId, key, rel)
+  if formId then
+    local bucket = formBucketKey(mon, formId)
+    mon[bucket] = mon[bucket] or {}
+    mon[bucket][formId] = mon[bucket][formId] or {}
+    mon[bucket][formId][key] = rel
+    if mon.id == "UNOWN" and formId == "A" then mon[key] = rel end
+  else
+    mon[key] = rel
+  end
+end
+
+local function assignFormAnimSheet(mon, formId, rel)
+  if formId then
+    local bucket = formBucketKey(mon, formId)
+    mon[bucket] = mon[bucket] or {}
+    local rec = mon[bucket][formId] or {}
+    mon[bucket][formId] = rec
+    rec.anim = cloneAnim(rec.anim) or cloneAnim(mon.anim)
+      or { tiles = mon.picSize or 5, count = 1 }
+    rec.anim.sheet = rel
+    if mon.id == "UNOWN" and formId == "A" then
+      mon.anim = cloneAnim(mon.anim) or rec.anim
+      mon.anim.sheet = rel
+    end
+  else
+    mon.anim = cloneAnim(mon.anim) or { tiles = mon.picSize or 5, count = 1 }
+    mon.anim.sheet = rel
+  end
+end
+
+local function drawAnimPreview(S, anim, x, y, box, pal)
+  local path = anim and anim.sheet
+  if type(path) ~= "string" or path == "" then return false end
+  local img = Preview.image(S, path)
+  if not img then return false end
+  local s = Kit.scale
+  Theme.col(PAL.bgBot or { 10, 10, 20 }, 1)
+  love.graphics.rectangle("fill", x, y, box, box, 8 * s, 8 * s)
+  local tiles = tonumber(anim.tiles) or 5
+  local size = math.max(8, tiles * 8)
+  local count = math.max(1, tonumber(anim.count) or 1)
+  local ok, iw, ih = pcall(function() return img:getDimensions() end)
+  if not (ok and iw and ih and ih >= size) then return false end
+  local t = 0
+  if love.timer and love.timer.getTime then t = love.timer.getTime() end
+  local frame = math.floor(t * 8) % count
+  if (frame + 1) * size > ih then frame = 0 end
+  local quad = love.graphics.newQuad(0, frame * size, math.min(size, iw), size, iw, ih)
+  local scale = math.min(box / size, box / size)
+  local dw, dh = size * scale, size * scale
+  local shaded = false
+  if pal then shaded = Preview.pushPaletteShader(S, pal) end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(img, quad, x + (box - dw) / 2, y + (box - dh) / 2, 0, scale, scale)
+  Preview.popPaletteShader(shaded)
+  return true
+end
+
 local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
   local prevSize = 96 * s
   local iconSize = 40 * s
@@ -449,9 +630,14 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
   Preview.drawPokemonIcon(S, mon, iconX, fy, iconSize, iconSize, sid, iconPal)
   if not gen2 and Kit.press(iconX, fy, iconSize, iconSize) then openMonPal() end
   local frontX = formX + formW - prevSize * 2 - gap
-  local frontPath = monSpritePath(S, mon, "spriteFront")
-  local backPath = monSpritePath(S, mon, "spriteBack")
-  Preview.draw(S, frontPath, frontX, fy, prevSize, prevSize, drawPal)
+  local formId = selectedFormId(S, mon)
+  local anim = formAnim(S, mon, formId)
+  local playAnim = anim and (S.pokemonAnimPreview ~= false)
+  local frontPath = formSpritePath(S, mon, "spriteFront", formId)
+  local backPath = formSpritePath(S, mon, "spriteBack", formId)
+  if not (playAnim and drawAnimPreview(S, anim, frontX, fy, prevSize, drawPal)) then
+    Preview.draw(S, frontPath, frontX, fy, prevSize, prevSize, drawPal)
+  end
   Preview.draw(S, backPath, formX + formW - prevSize, fy, prevSize, prevSize,
     drawPal)
   if not gen2 and Kit.press(frontX, fy, prevSize * 2 + gap, prevSize) then
@@ -461,13 +647,24 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
     local chipY = fy + prevSize + 2 * s
     local nw = Kit.textWidth("micro", "Normal") + 12 * s
     local sw = Kit.textWidth("micro", "Shiny") + 12 * s
-    if Kit.chip(frontX, chipY, nw, 16 * s, "Normal", not shinyPrev, PAL.blue) then
+    local cx = frontX
+    if Kit.chip(cx, chipY, nw, 16 * s, "Normal", not shinyPrev, PAL.blue) then
       S.pokemonShinyPreview = false
     end
-    if Kit.chip(frontX + nw + 4 * s, chipY, sw, 16 * s, "Shiny", shinyPrev, PAL.yellow) then
+    cx = cx + nw + 4 * s
+    if Kit.chip(cx, chipY, sw, 16 * s, "Shiny", shinyPrev, PAL.yellow) then
       S.pokemonShinyPreview = true
     end
-    if Kit.button(frontX + nw + sw + 12 * s, chipY, 70 * s, 16 * s, "GFX", {
+    cx = cx + sw + 4 * s
+    if anim then
+      local aw = Kit.textWidth("micro", "Anim") + 12 * s
+      if Kit.chip(cx, chipY, aw, 16 * s, "Anim", playAnim, PAL.green, PAL.steel,
+          "Crystal battle front animation") then
+        S.pokemonAnimPreview = not playAnim
+      end
+      cx = cx + aw + 4 * s
+    end
+    if Kit.button(cx, chipY, 70 * s, 16 * s, "GFX", {
         kind = "ghost", font = "micro",
         tooltip = "Edit normal/shiny colors on GFX → Palettes → Pokemon",
       }) then
@@ -494,7 +691,7 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
     end
   end
   Kit.text("micro", "icon", iconX + 4 * s, fy + iconSize + 2 * s, PAL.faint)
-  Kit.text("micro", "front", frontX + 4 * s,
+  Kit.text("micro", playAnim and "front (anim)" or "front", frontX + 4 * s,
     fy + prevSize + (gen2 and 34 * s or 14 * s), PAL.faint)
   Kit.text("micro", "back", formX + formW - prevSize + 4 * s,
     fy + prevSize + (gen2 and 34 * s or 14 * s), PAL.faint)
@@ -840,30 +1037,21 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
       fx, fy_ + 8 * s, PAL.muted)
     if Kit.button(fx + pathW + gap, fy_, aliasW, fh_, "Alias", {
         kind = "ghost", font = "small",
-        tooltip = "Cycle a vanilla cry id (ABRA, …) for this species",
+        tooltip = "Pick a species whose cry to reuse",
       }) then
-      local cries = {}
-      if S.project and S.project.audio and S.project.audio.cries then
-        for id in pairs(S.project.audio.cries) do cries[#cries + 1] = id end
-      end
-      if S.data and S.data.audio and S.data.audio.cries then
-        local seen = {}
-        for _, id in ipairs(cries) do seen[id] = true end
-        for id in pairs(S.data.audio.cries) do
-          if not seen[id] then cries[#cries + 1] = id end
-        end
-      end
-      table.sort(cries)
-      if #cries > 0 then
-        mon = mutate()
-        mon.cry = cycle(cries, cur)
-        if mon.cry == "" then mon.cry = nil end
-        -- Drop custom file so the alias is what plays.
-        if S.project.audio and S.project.audio.cries then
-          S.project.audio.cries[sid] = nil
-        end
-        App.markDirty()
-      end
+      SpeciesPicker.open(S, {
+        current = cur ~= "" and cur or sid,
+        title = "CRY ALIAS",
+        onPick = function(id)
+          if type(id) ~= "string" or id == "" then return end
+          mon = mutate()
+          mon.cry = id
+          if S.project.audio and S.project.audio.cries then
+            S.project.audio.cries[sid] = nil
+          end
+          App.markDirty()
+        end,
+      })
     end
     if Kit.button(fx + pathW + gap + aliasW + gap, fy_, browseW, fh_, "Browse", {
         kind = "ghost", font = "small",
@@ -1107,33 +1295,93 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
       end)
     end
   end
-  row("Front PNG", function(fx, fy_, fw, fh_)
-    local path = mon.spriteFront or ""
-    if path == "" then
-      local vp = monSpritePath(S, mon, "spriteFront")
-      path = vp and ("(vanilla) " .. vp) or ""
+  do
+    local ids = formIdList(mon)
+    Kit.text("small", "Forms", formX, fy + 6 * s, PAL.caption)
+    local fx = formX + labelW
+    local x = fx
+    local rowH = 22 * s
+    local placed = false
+    local function placeChip(label, selected, color, onClick)
+      placed = true
+      local cw = math.max(22 * s, Kit.textWidth("micro", label) + 12 * s)
+      if x + cw > fx + fieldW then
+        x = fx
+        fy = fy + rowH
+      end
+      if Kit.chip(x, fy, cw, 20 * s, label, selected, color) then
+        onClick()
+      end
+      x = x + cw + 3 * s
     end
-    Kit.text("micro", path ~= "" and path or "(none)", fx, fy_ + 8 * s, PAL.muted)
-    if Kit.button(fx + fw - 90 * s, fy_, 90 * s, fh_, "Browse", {
-        kind = "ghost",
-        tooltip = "Copies abrab.png → assets/abrab.png (keeps your filename)",
+    if mon.id ~= "UNOWN" and #ids > 0 then
+      placeChip("Base", formId == nil, PAL.blue, function()
+        S.pokemonFormId = nil
+        S.pokemonUnownLetter = nil
+      end)
+    end
+    for _, id in ipairs(ids) do
+      placeChip(id, formId == id, PAL.green, function()
+        S.pokemonFormId = id
+        S.pokemonUnownLetter = id
+      end)
+    end
+    if placed then
+      fy = fy + rowH + 4 * s
+    else
+      fy = fy + 4 * s
+    end
+    local typed = Kit.textfield("pk_form_new", fx, fy,
+      fieldW, fh, S.pokemonNewFormId or "", "ALOLAN")
+    S.pokemonNewFormId = typed
+    fy = fy + fh + 4 * s
+    local addId = normalizeFormId(typed)
+    if Kit.button(fx, fy, 64 * s, fh, "Add", {
+        kind = "good",
+        tooltip = "Add a named form with its own front / back / anim",
       }) then
-      mon = mutate()
-      local id = mon.id
-      App.pickFile("Front sprite PNG", "PNG (*.png)|*.png|All (*.*)|*.*",
-        function(picked)
-          local m = S.project.pokemon[id]
-          if not m then return end
-          App.importToMod(picked, nil, function(rel)
-            m.spriteFront = rel
-          end)
-        end)
+      if addId then
+        local exists = false
+        for _, id in ipairs(ids) do
+          if id == addId then exists = true; break end
+        end
+        if not exists then
+          mon = mutate()
+          local bucket = formBucketKey(mon, addId)
+          mon[bucket] = mon[bucket] or {}
+          mon[bucket][addId] = mon[bucket][addId] or {}
+          App.markDirty()
+        end
+        S.pokemonFormId = addId
+        S.pokemonUnownLetter = addId
+        S.pokemonNewFormId = ""
+      end
     end
-  end)
-  row("Back PNG", function(fx, fy_, fw, fh_)
-    local path = mon.spriteBack or ""
+    if formId and not isLockedForm(mon, formId) then
+      if Kit.button(fx + 70 * s, fy, 64 * s, fh, "Del", {
+          kind = "danger",
+          tooltip = "Remove this form (Unown A-Z stay)",
+        }) then
+        mon = mutate()
+        for _, key in ipairs({ "letters", "forms" }) do
+          if type(mon[key]) == "table" then
+            mon[key][formId] = nil
+            if next(mon[key]) == nil then mon[key] = nil end
+          end
+        end
+        S.pokemonFormId = (mon.id == "UNOWN") and "A" or nil
+        S.pokemonUnownLetter = S.pokemonFormId
+        App.markDirty()
+      end
+    end
+    fy = fy + fh + 8 * s
+  end
+  local frontLabel = formId and ("Front " .. formId) or "Front PNG"
+  row(frontLabel, function(fx, fy_, fw, fh_)
+    local owned = formId and formRecord(mon, formId)
+    local path = owned and owned.spriteFront or (not formId and mon.spriteFront) or ""
     if path == "" then
-      local vp = monSpritePath(S, mon, "spriteBack")
+      local vp = formSpritePath(S, mon, "spriteFront", formId)
       path = vp and ("(vanilla) " .. vp) or ""
     end
     Kit.text("micro", path ~= "" and path or "(none)", fx, fy_ + 8 * s, PAL.muted)
@@ -1143,16 +1391,72 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
       }) then
       mon = mutate()
       local id = mon.id
+      local L = formId
+      App.pickFile("Front sprite PNG", "PNG (*.png)|*.png|All (*.*)|*.*",
+        function(picked)
+          local m = S.project.pokemon[id]
+          if not m then return end
+          App.importToMod(picked, nil, function(rel)
+            assignFormSprite(m, L, "spriteFront", rel)
+          end)
+        end)
+    end
+  end)
+  local backLabel = formId and ("Back " .. formId) or "Back PNG"
+  row(backLabel, function(fx, fy_, fw, fh_)
+    local owned = formId and formRecord(mon, formId)
+    local path = owned and owned.spriteBack or (not formId and mon.spriteBack) or ""
+    if path == "" then
+      local vp = formSpritePath(S, mon, "spriteBack", formId)
+      path = vp and ("(vanilla) " .. vp) or ""
+    end
+    Kit.text("micro", path ~= "" and path or "(none)", fx, fy_ + 8 * s, PAL.muted)
+    if Kit.button(fx + fw - 90 * s, fy_, 90 * s, fh_, "Browse", {
+        kind = "ghost",
+        tooltip = "Copies your file into assets/ with the same name",
+      }) then
+      mon = mutate()
+      local id = mon.id
+      local L = formId
       App.pickFile("Back sprite PNG", "PNG (*.png)|*.png|All (*.*)|*.*",
         function(picked)
           local m = S.project.pokemon[id]
           if not m then return end
           App.importToMod(picked, nil, function(rel)
-            m.spriteBack = rel
+            assignFormSprite(m, L, "spriteBack", rel)
           end)
         end)
     end
   end)
+  if anim or Generation.isCrystal(S) then
+    local animLabel = formId and ("Anim " .. formId) or "Anim sheet"
+    row(animLabel, function(fx, fy_, fw, fh_)
+      local rec = formId and formRecord(mon, formId)
+      local sheet = rec and rec.anim and rec.anim.sheet
+        or (not formId and mon.anim and mon.anim.sheet) or ""
+      if sheet == "" then
+        local va = formAnim(S, mon, formId)
+        sheet = va and va.sheet and ("(vanilla) " .. va.sheet) or ""
+      end
+      Kit.text("micro", sheet ~= "" and sheet or "(none)", fx, fy_ + 8 * s, PAL.muted)
+      if Kit.button(fx + fw - 90 * s, fy_, 90 * s, fh_, "Browse", {
+          kind = "ghost",
+          tooltip = "Crystal battle anim: one column of full front pics",
+        }) then
+        mon = mutate()
+        local id = mon.id
+        local L = formId
+        App.pickFile("Anim sheet PNG", "PNG (*.png)|*.png|All (*.*)|*.*",
+          function(picked)
+            local m = S.project.pokemon[id]
+            if not m then return end
+            App.importToMod(picked, nil, function(rel)
+              assignFormAnimSheet(m, L, rel)
+            end)
+          end)
+      end
+    end)
+  end
   return math.max(fy, previewBottom), mon
 end
 
@@ -1198,14 +1502,35 @@ local function drawLearnset(S, mon, mutate, App, formX, fy, formW, fh, s)
   return fy + fh + 8 * s, mon
 end
 
+local function applyEvoMethod(evo, method, gen2)
+  evo.method = method
+  if not gen2 then return end
+  if method == "EVOLVE_HAPPINESS" then
+    evo.time = evo.time or "ANYTIME"
+    evo.level, evo.item, evo.comparison = nil, nil, nil
+  elseif method == "EVOLVE_STAT" then
+    evo.comparison = evo.comparison or "ATK_LT_DEF"
+    evo.level = evo.level or 20
+    evo.time, evo.item = nil, nil
+  elseif method == "EVOLVE_ITEM" then
+    evo.item = evo.item or "MOON_STONE"
+    evo.level, evo.time, evo.comparison = nil, nil, nil
+  elseif method == "EVOLVE_TRADE" then
+    evo.level, evo.time, evo.comparison = nil, nil, nil
+  else
+    evo.level = evo.level or 16
+    evo.item, evo.time, evo.comparison = nil, nil, nil
+  end
+end
+
 local function drawEvolutions(S, mon, mutate, App, formX, fy, formW, fh, s)
   local gen2 = Generation.isGen2(S)
   local methods = gen2 and EVO_METHODS_GEN2 or EVO_METHODS
   local intoKey = gen2 and "into" or "species"
   Kit.text("micro",
     gen2
-      and "EVOLVE_LEVEL / ITEM / TRADE / HAPPINESS (+time) / STAT (+comparison). Target: into."
-      or "Methods: LEVEL (needs level), ITEM (needs item id), TRADE.",
+      and "Pick method, species, and item / time / stat from the lists."
+      or "Pick method, species, and item from the lists. Level evolutions still use a number.",
     formX, fy, PAL.muted)
   fy = fy + 20 * s
   mon.evolutions = mon.evolutions or {}
@@ -1213,54 +1538,37 @@ local function drawEvolutions(S, mon, mutate, App, formX, fy, formW, fh, s)
     local method = evo.method or (gen2 and "EVOLVE_LEVEL" or "LEVEL")
     if gen2 then method = normalizeEvoMethod(method) end
     local methodW = gen2 and 150 * s or 100 * s
-    if Kit.button(formX, fy, methodW, fh, method, { kind = "accent" }) then
-      mon = mutate()
-      local idx = 1
-      for mi, m in ipairs(methods) do
-        if m == method then idx = mi; break end
-      end
-      mon.evolutions[i].method = methods[(idx % #methods) + 1]
-      if gen2 then
-        local next = mon.evolutions[i].method
-        if next == "EVOLVE_HAPPINESS" then
-          mon.evolutions[i].time = mon.evolutions[i].time or "ANYTIME"
-          mon.evolutions[i].level = nil
-          mon.evolutions[i].item = nil
-          mon.evolutions[i].comparison = nil
-        elseif next == "EVOLVE_STAT" then
-          mon.evolutions[i].comparison = mon.evolutions[i].comparison or "ATK_LT_DEF"
-          mon.evolutions[i].level = mon.evolutions[i].level or 20
-          mon.evolutions[i].time = nil
-          mon.evolutions[i].item = nil
-        elseif next == "EVOLVE_ITEM" then
-          mon.evolutions[i].item = mon.evolutions[i].item or "MOON_STONE"
-          mon.evolutions[i].level = nil
-          mon.evolutions[i].time = nil
-          mon.evolutions[i].comparison = nil
-        elseif next == "EVOLVE_TRADE" then
-          mon.evolutions[i].level = nil
-          mon.evolutions[i].time = nil
-          mon.evolutions[i].comparison = nil
-        else
-          mon.evolutions[i].level = mon.evolutions[i].level or 16
-          mon.evolutions[i].item = nil
-          mon.evolutions[i].time = nil
-          mon.evolutions[i].comparison = nil
-        end
-      end
-      App.markDirty()
-    end
+    local row = i
+    ChoicePicker.field(S, {
+      x = formX, y = fy, w = methodW, h = fh,
+      current = method,
+      ids = methods,
+      title = "EVOLUTION METHOD",
+      tooltip = "Pick how this species evolves",
+      onPick = function(id)
+        if type(id) ~= "string" or id == "" then return end
+        mon = mutate()
+        applyEvoMethod(mon.evolutions[row], id, gen2)
+        App.markDirty()
+      end,
+    })
     local curInto = evo[intoKey] or evo.into or evo.species or ""
-    local species = field(S, App, "pk_ev_sp_" .. i, formX + methodW + 10 * s, fy,
-      130 * s, fh, curInto, "SPECIES")
-    species = species:upper():gsub("%s+", "_")
-    if species ~= curInto then
-      mon = mutate()
-      mon.evolutions[i][intoKey] = species
-      if gen2 then mon.evolutions[i].species = nil
-      else mon.evolutions[i].into = nil end
-    end
+    SpeciesPicker.field(S, {
+      x = formX + methodW + 10 * s, y = fy, w = 130 * s, h = fh,
+      current = curInto,
+      emptyLabel = "SPECIES",
+      title = "EVOLVES INTO",
+      tooltip = "Species this evolution becomes",
+      onPick = function(id)
+        mon = mutate()
+        mon.evolutions[row][intoKey] = id
+        if gen2 then mon.evolutions[row].species = nil
+        else mon.evolutions[row].into = nil end
+        App.markDirty()
+      end,
+    })
     local paramX = formX + methodW + 150 * s
+    local paramW = math.max(80 * s, formW - (paramX - formX) - 78 * s)
     if method == "LEVEL" or method == "EVOLVE_LEVEL"
         or method == "STAT" or method == "EVOLVE_STAT" then
       local lvl = numField(S, App, "pk_ev_lv_" .. i, paramX, fy,
@@ -1269,30 +1577,53 @@ local function drawEvolutions(S, mon, mutate, App, formX, fy, formW, fh, s)
         mon = mutate(); mon.evolutions[i].level = lvl
       end
       if gen2 and method == "EVOLVE_STAT" then
-        local cur = evo.comparison or "ATK_LT_DEF"
-        if Kit.button(paramX + 70 * s, fy, 120 * s, fh, cur, { kind = "ghost" }) then
-          mon = mutate()
-          mon.evolutions[i].comparison = cycle(EVO_COMPARISON, cur)
-          App.markDirty()
-        end
+        ChoicePicker.field(S, {
+          x = paramX + 70 * s, y = fy, w = math.max(80 * s, paramW - 70 * s), h = fh,
+          current = evo.comparison or "ATK_LT_DEF",
+          ids = EVO_COMPARISON,
+          title = "STAT COMPARISON",
+          tooltip = "Attack vs Defense check at this level",
+          kind = "ghost",
+          onPick = function(id)
+            if type(id) ~= "string" or id == "" then return end
+            mon = mutate()
+            mon.evolutions[row].comparison = id
+            App.markDirty()
+          end,
+        })
       end
     elseif method == "ITEM" or method == "EVOLVE_ITEM" then
-      local item = field(S, App, "pk_ev_it_" .. i, paramX, fy,
-        120 * s, fh, evo.item or "", "STONE")
-      item = item:upper():gsub("%s+", "_")
-      if item ~= (evo.item or "") then
-        mon = mutate(); mon.evolutions[i].item = item
-      end
+      ItemPicker.field(S, {
+        x = paramX, y = fy, w = paramW, h = fh,
+        current = evo.item or "",
+        emptyLabel = "ITEM",
+        title = "EVOLUTION ITEM",
+        tooltip = "Stone or item that triggers this evolution",
+        onPick = function(id)
+          if type(id) ~= "string" or id == "" then return end
+          mon = mutate()
+          mon.evolutions[row].item = id
+          App.markDirty()
+        end,
+      })
     elseif gen2 and method == "EVOLVE_HAPPINESS" then
-      local cur = evo.time or "ANYTIME"
-      if Kit.button(paramX, fy, 110 * s, fh, cur, { kind = "ghost" }) then
-        mon = mutate()
-        mon.evolutions[i].time = cycle(EVO_TIME, cur)
-        App.markDirty()
-      end
+      ChoicePicker.field(S, {
+        x = paramX, y = fy, w = math.min(paramW, 130 * s), h = fh,
+        current = evo.time or "ANYTIME",
+        ids = EVO_TIME,
+        title = "TIME OF DAY",
+        tooltip = "When happiness evolution can happen",
+        kind = "ghost",
+        onPick = function(id)
+          if type(id) ~= "string" or id == "" then return end
+          mon = mutate()
+          mon.evolutions[row].time = id
+          App.markDirty()
+        end,
+      })
     end
-    if Kit.button(formX + formW - 70 * s, fy, 60 * s, fh, "Del",
-        { kind = "danger" }) then
+    if Kit.button(formX + formW - 70 * s, fy, 60 * s, fh, "Del", {
+        kind = "danger" }) then
       mon = mutate()
       table.remove(mon.evolutions, i)
       App.markDirty()
@@ -1312,27 +1643,106 @@ local function drawEvolutions(S, mon, mutate, App, formX, fy, formW, fh, s)
   return fy + fh + 8 * s, mon
 end
 
+local function tmhmSlotLabel(S, index)
+  index = tonumber(index) or 0
+  if index < 1 then return "TM/HM" end
+  if index <= 50 then return string.format("TM%02d", index) end
+  local hm = index - 50
+  if Generation.isGen2(S) then
+    if hm <= 7 then return string.format("HM%02d", hm) end
+    return string.format("TUTOR%d", hm - 7)
+  end
+  return string.format("HM%02d", hm)
+end
+
+-- Move id -> "TM29" / "HM05" from the ROM TMHMMoves table and item records.
+local function tmhmCatalog(S)
+  local byMove, ids = {}, {}
+  local function add(move, label)
+    if type(move) ~= "string" or move == "" then return end
+    if not byMove[move] then
+      ids[#ids + 1] = move
+    end
+    byMove[move] = byMove[move] or label or "TM/HM"
+  end
+  local list = S.data and S.data.pokemon and S.data.pokemon.tmhmMoves
+  if type(list) == "table" then
+    for i, move in ipairs(list) do
+      if type(move) == "string" then add(move, tmhmSlotLabel(S, i)) end
+    end
+  end
+  local function consider(items)
+    if type(items) ~= "table" then return end
+    for id, rec in pairs(items) do
+      if type(rec) == "table" then
+        local move = rec.teaches
+        if not move and type(rec.machine) == "table" then
+          move = rec.machine.move
+        end
+        local label = rec.tmLabel
+        if not label and type(rec.machine) == "table" then
+          label = string.format("%s%02d",
+            rec.machine.kind or "TM", rec.machine.number or 0)
+        end
+        if not label then
+          local sid = tostring(id)
+          if sid:sub(1, 3) == "HM_" or sid:sub(1, 3) == "TM_" then
+            label = sid:gsub("_", " ")
+          end
+        end
+        add(move, label)
+      end
+    end
+  end
+  consider(S.data and S.data.items)
+  consider(S.project and S.project.items)
+  table.sort(ids)
+  return byMove, ids
+end
+
 local function drawTmhm(S, mon, mutate, App, formX, fy, formW, fh, s)
-  Kit.text("micro", "Comma-separated move ids this species can learn via TM/HM.",
+  Kit.text("micro", "TM/HM compatibility. Add a machine move the same way as Learnset.",
     formX, fy, PAL.muted)
   fy = fy + 20 * s
-  -- Keep a draft string while focused so a trailing comma (mid-list typing)
-  -- is not wiped when we re-join from the parsed array each frame.
-  local joined = table.concat(mon.tmhm or {}, ",")
-  if S._pkTmhmDraftFor ~= S.pokemonId or Kit.focus ~= "pk_tmhm" then
-    S._pkTmhmDraft = joined
-    S._pkTmhmDraftFor = S.pokemonId
+  local labels, suggest = tmhmCatalog(S)
+  if not suggest or #suggest == 0 then
+    suggest = Autocomplete.moveIds(S)
   end
-  local shown = S._pkTmhmDraft or joined
-  local v = field(S, App, "pk_tmhm", formX, fy, formW - 20 * s, fh, shown,
-    "MEGA_PUNCH,TOXIC,…")
-  if v ~= shown then
-    S._pkTmhmDraft = v
-    S._pkTmhmDraftFor = S.pokemonId
+  mon.tmhm = mon.tmhm or {}
+  for i, mv in ipairs(mon.tmhm) do
+    mv = tostring(mv or "")
+    local tag = labels[mv] or "TM/HM"
+    Kit.text("micro", tag, formX, fy + 8 * s, PAL.caption)
+    local vMv = field(S, App, "pk_tm_" .. i, formX + 70 * s, fy,
+      formW - 160 * s, fh, mv, "MOVE",
+      function() return suggest end)
+    vMv = vMv:upper():gsub("%s+", "_")
+    if vMv ~= mv then
+      mon = mutate()
+      mon.tmhm[i] = vMv
+    end
+    if Kit.button(formX + formW - 70 * s, fy, 60 * s, fh, "Del",
+        { kind = "danger" }) then
+      mon = mutate()
+      table.remove(mon.tmhm, i)
+      App.markDirty()
+      break
+    end
+    fy = fy + fh + 6 * s
+  end
+  if Kit.button(formX, fy, 140 * s, fh, "+ TM/HM", { kind = "good" }) then
     mon = mutate()
-    mon.tmhm = parseMoveList(v)
+    mon.tmhm = mon.tmhm or {}
+    local have = {}
+    for _, id in ipairs(mon.tmhm) do have[id] = true end
+    local add = "FLASH"
+    for _, id in ipairs(suggest or {}) do
+      if not have[id] then add = id; break end
+    end
+    mon.tmhm[#mon.tmhm + 1] = add
+    App.markDirty()
   end
-  fy = fy + fh + 12 * s
+  fy = fy + fh + 8 * s
   Kit.text("micro", string.format("%d TM/HM moves", #(mon.tmhm or {})),
     formX, fy, PAL.faint)
   return fy + 24 * s, mon
@@ -1619,6 +2029,8 @@ function Pokemon.draw(S, x, y, w, h, App)
     fy, mon = drawLearnset(S, mon, mutate, App, viewX, fy, viewW, fh, s)
   elseif S.pokemonSection == "evolutions" then
     fy, mon = drawEvolutions(S, mon, mutate, App, viewX, fy, viewW, fh, s)
+  elseif S.pokemonSection == "trees" then
+    fy = EvoBreedTrees.draw(S, S.pokemonId, viewX, fy, viewW)
   elseif S.pokemonSection == "tmhm" then
     fy, mon = drawTmhm(S, mon, mutate, App, viewX, fy, viewW, fh, s)
   elseif S.pokemonSection == "dex" then

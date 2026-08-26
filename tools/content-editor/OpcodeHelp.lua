@@ -16,7 +16,7 @@ local ITEM = {
 local SCRIPT = { F("script", "which talk", "", false, "script") }
 local TEXT = { F("text", "text", "") }
 local SPEC = { F("id", "special #", "0", true) }
-local SPECIES = { F("species", "pokemon", "") }
+local SPECIES = { F("species", "pokemon", "", false, "pokemon") }
 local MAP = { F("map", "map", "") }
 
 local function I(label, fields, hint)
@@ -84,7 +84,7 @@ local INFO = {
   checkcellnum = I("Check phone number", { F("contact", "contact", "") }),
   checktime = I("Check time of day", { F("time", "time", "") }),
   checkpoke = I("Check party for pokemon", SPECIES),
-  givepoke = I("Give pokemon", { F("species", "pokemon", ""), F("level", "level", "5", true) }),
+  givepoke = I("Give pokemon", { F("species", "pokemon", "", false, "pokemon"), F("level", "level", "5", true) }),
   giveegg = I("Give egg", SPECIES),
   givepokemail = I("Give mail", { F("mail", "mail", "") }),
   checkpokemail = I("Check mail", { F("mail", "mail", "") }),
@@ -134,7 +134,7 @@ local INFO = {
   loadpikachudata = I("Load Pikachu data"),
   randomwildmon = I("Random wild pokemon"),
   loadtemptrainer = I("Load temp trainer"),
-  loadwildmon = I("Load wild pokemon", { F("species", "pokemon", ""), F("level", "level", "5", true) }),
+  loadwildmon = I("Load wild pokemon", { F("species", "pokemon", "", false, "pokemon"), F("level", "level", "5", true) }),
   loadtrainer = I("Load trainer", { F("class", "class", "1", true), F("member", "member", "1", true) }),
   startbattle = I("Start battle"),
   reloadmapafterbattle = I("Reload map after battle"),
@@ -169,7 +169,7 @@ local INFO = {
   refreshmap = I("Refresh map"),
   writecmdqueue = I("Write command queue"),
   delcmdqueue = I("Delete command queue"),
-  playmusic = I("Play music", { F("music", "song", "") }),
+  playmusic = I("Play music", { F("music", "song", "", false, "song") }),
   encountermusic = I("Play encounter music"),
   musicfadeout = I("Fade out music"),
   playmapmusic = I("Play map music"),
@@ -219,14 +219,14 @@ local FALLBACK_FIELDS = {
   F("script", "script", ""),
   F("text", "text", ""),
   F("id", "id", ""),
-  F("species", "pokemon", ""),
+  F("species", "pokemon", "", false, "pokemon"),
   F("map", "map", ""),
   F("x", "x", "0", true),
   F("y", "y", "0", true),
   F("value", "value", ""),
   F("var", "variable", ""),
   F("sound", "sound", ""),
-  F("music", "song", ""),
+  F("music", "song", "", false, "song"),
   F("object", "person", ""),
 }
 

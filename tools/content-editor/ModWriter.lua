@@ -68,6 +68,17 @@ local function scrubRomCachePaths(t, seen)
   return t
 end
 
+local function pruneEmpty(t)
+  if type(t) ~= "table" then return t end
+  for k, v in pairs(t) do
+    if type(v) == "table" then
+      pruneEmpty(v)
+      if next(v) == nil then t[k] = nil end
+    end
+  end
+  return t
+end
+
 local function writeValue(v, indent, lines)
   indent = indent or 0
   local pad = string.rep("  ", indent)
@@ -284,57 +295,156 @@ local EVO_METHOD_TO_GEN2 = {
   HAPPINESS_NITE = "EVOLVE_HAPPINESS", STAT = "EVOLVE_STAT",
 }
 
+local function formHasArt(form)
+  if type(form) ~= "table" then return false end
+  if type(form.spriteFront) == "string" and form.spriteFront ~= "" then return true end
+  if type(form.spriteBack) == "string" and form.spriteBack ~= "" then return true end
+  local anim = form.anim
+  return type(anim) == "table" and type(anim.sheet) == "string" and anim.sheet ~= ""
+end
+
+local function projectNeedsFormSpriteHook(project)
+  for pid, mon in pairs(project.pokemon or {}) do
+    if type(mon) == "table" then
+      if type(mon.forms) == "table" and next(mon.forms) ~= nil then
+        return true
+      end
+      if type(mon.letters) == "table" then
+        if pid ~= "UNOWN" and next(mon.letters) ~= nil then return true end
+        for k in pairs(mon.letters) do
+          if type(k) ~= "string" or #k ~= 1 or not k:find("^[A-Z]$") then
+            return true
+          end
+        end
+      end
+    end
+  end
+  return false
+end
+
+local function slotHasForm(slot)
+  return type(slot) == "table" and type(slot.form) == "string" and slot.form ~= ""
+end
+
+local function walkSlotsForForm(slots, found)
+  if found[1] or type(slots) ~= "table" then return end
+  if slots.MORN or slots.DAY or slots.NITE then
+    walkSlotsForForm(slots.MORN, found)
+    walkSlotsForForm(slots.DAY, found)
+    walkSlotsForForm(slots.NITE, found)
+    return
+  end
+  for _, slot in ipairs(slots) do
+    if slotHasForm(slot) then found[1] = true; return end
+    walkSlotsForForm(slot.day, found)
+    walkSlotsForForm(slot.nite, found)
+  end
+end
+
+local function projectHasEncounterForms(project)
+  local found = { false }
+  for _, map in pairs((project and project.maps) or {}) do
+    if type(map) == "table" then
+      local enc = map.encounters
+      if type(enc) == "table" then
+        for _, band in pairs(enc) do
+          if type(band) == "table" then walkSlotsForForm(band.slots, found) end
+        end
+      end
+      walkSlotsForForm(map.superRod, found)
+      for _, obj in ipairs(map.objects or {}) do
+        if slotHasForm(obj) then found[1] = true end
+      end
+    end
+  end
+  for _, group in pairs((project and project.fishGroups) or {}) do
+    if type(group) == "table" then
+      walkSlotsForForm(group.old, found)
+      walkSlotsForForm(group.good, found)
+      walkSlotsForForm(group.super, found)
+    end
+  end
+  for _, set in pairs((project and project.treeSets) or {}) do
+    if type(set) == "table" then
+      walkSlotsForForm(set.common, found)
+      walkSlotsForForm(set.rare, found)
+    end
+  end
+  local fishing = project and project.fishing
+  if type(fishing) == "table" then
+    if fishing.OLD_ROD and slotHasForm(fishing.OLD_ROD.always) then
+      found[1] = true
+    end
+    walkSlotsForForm(fishing.GOOD_ROD and fishing.GOOD_ROD.pool, found)
+  end
+  return found[1]
+end
+
 -- Remap editor Gen1 keys to Gen2 schema shapes when authoring Gold.
 local function shapePokemonForEmit(rec, gen2)
-  if not gen2 or type(rec) ~= "table" then return rec end
-  local bs = rec.baseStats
-  if type(bs) == "table" then
-    if bs.special ~= nil then
-      if bs.specialAttack == nil then bs.specialAttack = bs.special end
-      if bs.specialDefense == nil then bs.specialDefense = bs.special end
-      bs.special = nil
-    end
-  end
-  if rec.learnset and not rec.levelMoves then
-    rec.levelMoves = rec.learnset
-  end
-  rec.learnset = nil
-  rec.level1Moves = nil
-  if rec.frontSize and not rec.picSize then
-    rec.picSize = rec.frontSize
-  end
-  rec.frontSize = nil
-  if type(rec.growthRate) == "string" then
-    if rec.growthRate:sub(1, 7) ~= "GROWTH_" then
-      rec.growthRate = GROWTH_TO_GEN2[rec.growthRate]
-        or ("GROWTH_" .. rec.growthRate)
-    end
-    if rec.growthRateId == nil then
-      rec.growthRateId = GROWTH_RATE_IDS[rec.growthRate]
-    end
-  end
-  for _, evo in ipairs(rec.evolutions or {}) do
-    if type(evo) == "table" then
-      if evo.species and not evo.into then
-        evo.into = evo.species
-      end
-      evo.species = nil
-      if type(evo.method) == "string" and evo.method:sub(1, 7) ~= "EVOLVE_" then
-        local prev = evo.method
-        evo.method = EVO_METHOD_TO_GEN2[prev] or evo.method
-        if prev == "HAPPINESS_DAY" then evo.time = evo.time or "MORNDAY" end
-        if prev == "HAPPINESS_NITE" then evo.time = evo.time or "NITE" end
-        if prev == "HAPPINESS" then evo.time = evo.time or "ANYTIME" end
+  if type(rec) ~= "table" then return rec end
+  if gen2 then
+    local bs = rec.baseStats
+    if type(bs) == "table" then
+      if bs.special ~= nil then
+        if bs.specialAttack == nil then bs.specialAttack = bs.special end
+        if bs.specialDefense == nil then bs.specialDefense = bs.special end
+        bs.special = nil
       end
     end
+    if rec.learnset and not rec.levelMoves then
+      rec.levelMoves = rec.learnset
+    end
+    rec.learnset = nil
+    rec.level1Moves = nil
+    if rec.frontSize and not rec.picSize then
+      rec.picSize = rec.frontSize
+    end
+    rec.frontSize = nil
+    if type(rec.growthRate) == "string" then
+      if rec.growthRate:sub(1, 7) ~= "GROWTH_" then
+        rec.growthRate = GROWTH_TO_GEN2[rec.growthRate]
+          or ("GROWTH_" .. rec.growthRate)
+      end
+      if rec.growthRateId == nil then
+        rec.growthRateId = GROWTH_RATE_IDS[rec.growthRate]
+      end
+    end
+    for _, evo in ipairs(rec.evolutions or {}) do
+      if type(evo) == "table" then
+        if evo.species and not evo.into then
+          evo.into = evo.species
+        end
+        evo.species = nil
+        if type(evo.method) == "string" and evo.method:sub(1, 7) ~= "EVOLVE_" then
+          local prev = evo.method
+          evo.method = EVO_METHOD_TO_GEN2[prev] or evo.method
+          if prev == "HAPPINESS_DAY" then evo.time = evo.time or "MORNDAY" end
+          if prev == "HAPPINESS_NITE" then evo.time = evo.time or "NITE" end
+          if prev == "HAPPINESS" then evo.time = evo.time or "ANYTIME" end
+        end
+      end
+    end
+    -- Dex / Gen1 icon live elsewhere on Gold.
+    rec.dexEntry = nil
+    rec.icon = nil
+    rec.palette = nil
+    -- ROM species byte is 0–255 (253 is EGG). Extra species omit index.
+    if type(rec.index) == "number" and (rec.index < 0 or rec.index > 255) then
+      rec.index = nil
+    end
   end
-  -- Dex / Gen1 icon live elsewhere on Gold.
-  rec.dexEntry = nil
-  rec.icon = nil
-  rec.palette = nil
-  -- ROM species byte is 0–255 (253 is EGG). Extra species omit index.
-  if type(rec.index) == "number" and (rec.index < 0 or rec.index > 255) then
-    rec.index = nil
+  -- Unown A–Z cloned from the ROM cache become empty shells after path
+  -- scrub. Drop those so Save does not emit letters.B = {} and hide vanilla art.
+  local letters = rec.letters
+  if type(letters) == "table" then
+    for id, form in pairs(letters) do
+      if type(id) == "string" and #id == 1
+          and id:find("^[A-Z]$") and not formHasArt(form) then
+        letters[id] = nil
+      end
+    end
+    if next(letters) == nil then rec.letters = nil end
   end
   return rec
 end
@@ -1177,6 +1287,9 @@ function ModWriter.contentSchemasLua(project, gen2)
   if (not gen2) and ModWriter.trainerPartyHasOverrides(project) then
     parts[#parts + 1] = ModWriter.trainerPartySchemasLua()
   end
+  if projectHasEncounterForms(project) then
+    parts[#parts + 1] = ModWriter.encounterFormSchemasLua()
+  end
   if #parts == 0 then return nil end
   return table.concat(parts, "\n")
 end
@@ -1226,6 +1339,37 @@ function ModWriter.trainerPartySchemasLua()
     "    speed = f.int(0), special = f.int(0),",
     "  }),",
     "}))",
+    "",
+  }, "\n")
+end
+
+function ModWriter.encounterFormSchemasLua()
+  return table.concat({
+    "-- Generated by tools/content-editor. Adds optional form on wild slots",
+    "-- so grass/water/fish rows may name a species form without engine edits.",
+    "local Schemas = require(\"src.mods.Schemas\")",
+    "local f = Schemas.f",
+    "local function addForm(t, seen)",
+    "  if type(t) ~= \"table\" or seen[t] then return end",
+    "  seen[t] = true",
+    "  if t.kind == \"opt\" or t.kind == \"list\" then",
+    "    addForm(t.inner, seen)",
+    "  elseif t.kind == \"map\" then",
+    "    addForm(t.value, seen)",
+    "  elseif t.kind == \"union\" then",
+    "    for _, alt in ipairs(t.alts or {}) do addForm(alt, seen) end",
+    "  elseif t.kind == \"rec\" and t.fields then",
+    "    if t.fields.level and t.fields.species then",
+    "      t.fields.form = f.opt(f.str)",
+    "    end",
+    "    for _, sub in pairs(t.fields) do addForm(sub, seen) end",
+    "  end",
+    "end",
+    "local enc = Schemas.REGISTRIES and Schemas.REGISTRIES.encounters",
+    "if enc then",
+    "  addForm({ kind = \"rec\", fields = enc.fields or {} }, {})",
+    "  for _, t in pairs(enc.gen2Keys or {}) do addForm(t, {}) end",
+    "end",
     "",
   }, "\n")
 end
@@ -1649,6 +1793,129 @@ function ModWriter.emitMain(project, baseData)
   table.sort(delP)
   for _, pid in ipairs(delP) do
     out[#out + 1] = string.format("  mod.content.pokemon:remove(%q)", pid)
+    out[#out + 1] = ""
+  end
+
+  -- Extra forms (not Unown A–Z) live on the species record. The engine only
+  -- swaps Unown letters by DV; pokemon.sprite picks other forms from mon.form.
+  if projectNeedsFormSpriteHook(project) then
+    out[#out + 1] = "  -- Form pics: species.forms / letters keyed by mon.form"
+    out[#out + 1] = "  mod.hooks:wrap(\"pokemon.sprite\", function(next, path, ctx)"
+    out[#out + 1] = "    if not (ctx and type(ctx.mon) == \"table\") then"
+    out[#out + 1] = "      return next(path, ctx)"
+    out[#out + 1] = "    end"
+    out[#out + 1] = "    local id = ctx.mon.form"
+    out[#out + 1] = "    if type(id) ~= \"string\" or id == \"\" then"
+    out[#out + 1] = "      return next(path, ctx)"
+    out[#out + 1] = "    end"
+    out[#out + 1] = "    local data = ctx.data or (ctx.game and ctx.game.data)"
+    out[#out + 1] = "    local def = data and data.pokemon and ctx.species"
+    out[#out + 1] = "      and data.pokemon[ctx.species]"
+    out[#out + 1] = "    local rec = def and ((def.forms and def.forms[id])"
+    out[#out + 1] = "      or (def.letters and def.letters[id]))"
+    out[#out + 1] = "    if type(rec) == \"table\" then"
+    out[#out + 1] = "      local p = (ctx.side == \"back\") and rec.spriteBack or rec.spriteFront"
+    out[#out + 1] = "      if type(p) == \"string\" and p ~= \"\" then path = p end"
+    out[#out + 1] = "    end"
+    out[#out + 1] = "    return next(path, ctx)"
+    out[#out + 1] = "  end)"
+    out[#out + 1] = ""
+  end
+
+  -- Wild slots copy form onto the battler. The engine roll returns
+  -- {species, level} only; stamp mon.form before pokemon.sprite runs.
+  if projectHasEncounterForms(project) then
+    out[#out + 1] = "  -- Wild form: slot.form -> pending -> battle enemy.mon.form"
+    out[#out + 1] = "  do"
+    out[#out + 1] = "    local pendingForm = nil"
+    out[#out + 1] = "    local function takeForm(enc)"
+    out[#out + 1] = "      pendingForm = enc and enc.form or nil"
+    out[#out + 1] = "      return enc"
+    out[#out + 1] = "    end"
+    out[#out + 1] = "    local function formFromSlots(slots, enc)"
+    out[#out + 1] = "      if not (type(slots) == \"table\" and enc) then return nil end"
+    out[#out + 1] = "      if type(enc.slot) == \"number\" then"
+    out[#out + 1] = "        local row = slots[enc.slot]"
+    out[#out + 1] = "        return row and row.form or nil"
+    out[#out + 1] = "      end"
+    out[#out + 1] = "      for _, row in ipairs(slots) do"
+    out[#out + 1] = "        if row.species == enc.species and row.level == enc.level"
+    out[#out + 1] = "            and type(row.form) == \"string\" and row.form ~= \"\" then"
+    out[#out + 1] = "          return row.form"
+    out[#out + 1] = "        end"
+    out[#out + 1] = "      end"
+    out[#out + 1] = "      return nil"
+    out[#out + 1] = "    end"
+    out[#out + 1] = "    mod.hooks:wrap(\"encounter.roll\", function(next, tables, ctx)"
+    out[#out + 1] = "      local enc = next(tables, ctx)"
+    out[#out + 1] = "      if not enc then return takeForm(nil) end"
+    out[#out + 1] = "      local form = enc.form"
+    out[#out + 1] = "      local grass = tables and tables.grass"
+    out[#out + 1] = "      if type(grass) == \"table\" and grass.slots then"
+    out[#out + 1] = "        form = form or formFromSlots(grass.slots, enc)"
+    out[#out + 1] = "      elseif ctx then"
+    out[#out + 1] = "        local root = ctx.tables or tables"
+    out[#out + 1] = "        local kind = (ctx.terrain == \"water\") and \"water\" or \"grass\""
+    out[#out + 1] = "        local entry = root and root[kind] and ctx.mapId and root[kind][ctx.mapId]"
+    out[#out + 1] = "        local slots = entry and entry.slots"
+    out[#out + 1] = "        if kind == \"grass\" and type(slots) == \"table\" and slots.MORN then"
+    out[#out + 1] = "          local tod = ctx.daytime == \"DARK\" and \"NITE\" or (ctx.daytime or \"DAY\")"
+    out[#out + 1] = "          slots = slots[tod] or slots.DAY"
+    out[#out + 1] = "        end"
+    out[#out + 1] = "        form = form or formFromSlots(slots, enc)"
+    out[#out + 1] = "      end"
+    out[#out + 1] = "      if type(form) == \"string\" and form ~= \"\" then enc.form = form end"
+    out[#out + 1] = "      return takeForm(enc)"
+    out[#out + 1] = "    end)"
+    out[#out + 1] = "    mod.hooks:wrap(\"encounter.fishing\", function(next, rod, mapId, pool, ctx)"
+    out[#out + 1] = "      local enc = next(rod, mapId, pool, ctx)"
+    out[#out + 1] = "      if not enc then return takeForm(nil) end"
+    out[#out + 1] = "      local list = pool"
+    out[#out + 1] = "      if type(pool) == \"table\" and (pool.old or pool.good or pool.super) then"
+    out[#out + 1] = "        local key = rod"
+    out[#out + 1] = "        if rod == \"OLD_ROD\" then key = \"old\""
+    out[#out + 1] = "        elseif rod == \"GOOD_ROD\" then key = \"good\""
+    out[#out + 1] = "        elseif rod == \"SUPER_ROD\" then key = \"super\" end"
+    out[#out + 1] = "        list = pool[key] or pool[rod]"
+    out[#out + 1] = "      end"
+    out[#out + 1] = "      local tod = ctx and (ctx.tod or ctx.daytime)"
+    out[#out + 1] = "      if type(list) == \"table\" then"
+    out[#out + 1] = "        for _, row in ipairs(list) do"
+    out[#out + 1] = "          local sub = row"
+    out[#out + 1] = "          if tod == \"NITE\" or tod == \"DARK\" then sub = row.nite or row"
+    out[#out + 1] = "          else sub = row.day or row end"
+    out[#out + 1] = "          if sub.species == enc.species and sub.level == enc.level then"
+    out[#out + 1] = "            enc.form = sub.form or row.form or enc.form"
+    out[#out + 1] = "            break"
+    out[#out + 1] = "          end"
+    out[#out + 1] = "        end"
+    out[#out + 1] = "      end"
+    out[#out + 1] = "      return takeForm(enc)"
+    out[#out + 1] = "    end)"
+    out[#out + 1] = "    mod.events:on(\"battle.started\", function(ev)"
+    out[#out + 1] = "      local form = pendingForm"
+    out[#out + 1] = "      pendingForm = nil"
+    out[#out + 1] = "      if not (ev and ev.kind == \"wild\") then return end"
+    out[#out + 1] = "      if type(form) ~= \"string\" or form == \"\" then"
+    out[#out + 1] = "        local b = ev.battle"
+    out[#out + 1] = "        local game = b and b.game"
+    out[#out + 1] = "        local map = game and ((game.world and game.world.map) or game.map)"
+    out[#out + 1] = "        local def = map and (map.def or map)"
+    out[#out + 1] = "        local species = ev.species"
+    out[#out + 1] = "        local level = ev.level"
+    out[#out + 1] = "        for _, obj in ipairs((def and def.objects) or {}) do"
+    out[#out + 1] = "          if obj.pokemon == species and obj.level == level"
+    out[#out + 1] = "              and type(obj.form) == \"string\" and obj.form ~= \"\" then"
+    out[#out + 1] = "            form = obj.form; break"
+    out[#out + 1] = "          end"
+    out[#out + 1] = "        end"
+    out[#out + 1] = "      end"
+    out[#out + 1] = "      if type(form) ~= \"string\" or form == \"\" then return end"
+    out[#out + 1] = "      local mon = ev.battle and ev.battle.enemy"
+    out[#out + 1] = "      if type(mon) == \"table\" and type(mon.mon) == \"table\" then mon = mon.mon end"
+    out[#out + 1] = "      if type(mon) == \"table\" then mon.form = form end"
+    out[#out + 1] = "    end)"
+    out[#out + 1] = "  end"
     out[#out + 1] = ""
   end
 
@@ -2793,6 +3060,45 @@ function ModWriter.emitMain(project, baseData)
     out[#out + 1] = ""
   end
 
+  -- Wiki data registries (statuses / rulesets / fades / scales / Gold extras).
+  -- Functions (canInflict, draw, …) stay on the Code tab — strip them here.
+  local function emitDataRegistry(bag, regName, rewritePaths)
+    local ids = {}
+    for id in pairs(bag or {}) do ids[#ids + 1] = id end
+    table.sort(ids)
+    for _, id in ipairs(ids) do
+      local raw = bag[id]
+      local rec = stripEditorFields(raw)
+      for k, v in pairs(rec) do
+        if type(v) == "function" then rec[k] = nil end
+      end
+      if type(rec.statPenalty) == "table"
+          and (type(rec.statPenalty.stat) ~= "string" or rec.statPenalty.stat == "") then
+        rec.statPenalty = nil
+      end
+      if regName == "battle_sprite_scales"
+          and (type(rec.path) ~= "string" or rec.path == "") then
+        -- incomplete; skip
+      else
+        local lit = emitTableLiteral(rec, 1)
+        if rewritePaths then lit = rewriteModPaths(lit) end
+        out[#out + 1] = string.format("  mod.content.%s:%s(%q, %s)",
+          regName, emitVerb(raw), id, lit)
+        out[#out + 1] = ""
+      end
+    end
+  end
+  emitDataRegistry(project.statuses, "statuses")
+  if not gen2 then
+    emitDataRegistry(project.rulesets, "rulesets")
+    emitDataRegistry(project.transitions, "transitions")
+  end
+  emitDataRegistry(project.battle_sprite_scales, "battle_sprite_scales", true)
+  if gen2 then
+    emitDataRegistry(project.apricorns, "apricorns")
+    emitDataRegistry(project.radio_channels, "radio_channels")
+  end
+
   -- constants (deep patches / overrides for lists)
   local constants = project.constants or {}
   local constKeys = {}
@@ -2820,6 +3126,26 @@ function ModWriter.emitMain(project, baseData)
   -- landmarks → mod.content.landmarks, boot → data.gen2BootScreens,
   -- trainer card sheets → gen2MenuGfx.trainerCard.
   if gen2 then
+    if type(project.boot) == "table" then
+      local presets = project.boot.namePresets
+      if type(presets) == "table"
+          and (type(presets.player) == "table" or type(presets.rival) == "table") then
+        local lit = emitTableLiteral(presets, 2)
+        out[#out + 1] = "  -- Naming-screen presets (OakSpeech reads field.boot.namePresets)"
+        out[#out + 1] = "  do"
+        out[#out + 1] = "    local _presets = " .. lit
+        out[#out + 1] = "    mod.events:on(\"mods.loaded\", function(ev)"
+        out[#out + 1] = "      local data = ev and ev.data"
+        out[#out + 1] = "      if type(data) ~= \"table\" then return end"
+        out[#out + 1] = "      data.field = data.field or {}"
+        out[#out + 1] = "      data.field.boot = data.field.boot or {}"
+        out[#out + 1] = "      data.field.boot.namePresets = _presets"
+        out[#out + 1] = "    end)"
+        out[#out + 1] = "  end"
+        out[#out + 1] = ""
+      end
+    end
+
     if type(project.boot) == "table" and type(project.boot.screens) == "table"
         and next(project.boot.screens) then
       local lit = emitTableLiteral(project.boot.screens, 2)
@@ -2854,9 +3180,18 @@ function ModWriter.emitMain(project, baseData)
 
     if type(project.intro) == "table" and next(project.intro) then
       local lit = rewriteModPaths(emitTableLiteral(stripEditorFields(project.intro), 2))
-      out[#out + 1] = "  -- Gold intro cinema (data.gen2Intro)"
+      out[#out + 1] = "  -- Gen2 intro cinema (data.gen2Intro)"
       out[#out + 1] = "  do"
       out[#out + 1] = "    local _intro = " .. lit
+      out[#out + 1] = "    local function merge(dst, src)"
+      out[#out + 1] = "      for k, v in pairs(src) do"
+      out[#out + 1] = "        if type(v) == \"table\" and type(dst[k]) == \"table\" then"
+      out[#out + 1] = "          merge(dst[k], v)"
+      out[#out + 1] = "        else"
+      out[#out + 1] = "          dst[k] = v"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "    end"
       out[#out + 1] = "    mod.events:on(\"mods.loaded\", function(ev)"
       out[#out + 1] = "      local data = ev and ev.data"
       out[#out + 1] = "      if type(data) ~= \"table\" then return end"
@@ -2864,13 +3199,40 @@ function ModWriter.emitMain(project, baseData)
       out[#out + 1] = "      if type(intro) ~= \"table\" then"
       out[#out + 1] = "        intro = {}; data.gen2Intro = intro; data.intro = intro"
       out[#out + 1] = "      end"
-      out[#out + 1] = "      for act, patch in pairs(_intro) do"
-      out[#out + 1] = "        if type(patch) == \"table\" then"
-      out[#out + 1] = "          intro[act] = intro[act] or {}"
-      out[#out + 1] = "          for k, v in pairs(patch) do intro[act][k] = v end"
+      out[#out + 1] = "      merge(intro, _intro)"
+      out[#out + 1] = "    end)"
+      out[#out + 1] = "  end"
+      out[#out + 1] = ""
+    end
+
+    if type(project.oakSpeech) == "table" and next(project.oakSpeech) then
+      local lit = rewriteModPaths(emitTableLiteral(stripEditorFields(project.oakSpeech), 2))
+      out[#out + 1] = "  -- Gen2 Oak speech (game.oakSpeechData)"
+      out[#out + 1] = "  do"
+      out[#out + 1] = "    local _oak = " .. lit
+      out[#out + 1] = "    local function merge(dst, src)"
+      out[#out + 1] = "      for k, v in pairs(src) do"
+      out[#out + 1] = "        if type(v) == \"table\" and type(dst[k]) == \"table\" then"
+      out[#out + 1] = "          merge(dst[k], v)"
       out[#out + 1] = "        else"
-      out[#out + 1] = "          intro[act] = patch"
+      out[#out + 1] = "          dst[k] = v"
       out[#out + 1] = "        end"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "    end"
+      out[#out + 1] = "    mod.events:on(\"mods.loaded\", function(ev)"
+      out[#out + 1] = "      local data = ev and ev.data"
+      out[#out + 1] = "      local game = ev and ev.loader and ev.loader.game"
+      out[#out + 1] = "      local function apply(dst)"
+      out[#out + 1] = "        if type(dst) ~= \"table\" then return end"
+      out[#out + 1] = "        merge(dst, _oak)"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      if game then"
+      out[#out + 1] = "        game.oakSpeechData = game.oakSpeechData or {}"
+      out[#out + 1] = "        apply(game.oakSpeechData)"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      if type(data) == \"table\" then"
+      out[#out + 1] = "        data.oakSpeech = data.oakSpeech or {}"
+      out[#out + 1] = "        apply(data.oakSpeech)"
       out[#out + 1] = "      end"
       out[#out + 1] = "    end)"
       out[#out + 1] = "  end"
@@ -2920,6 +3282,287 @@ function ModWriter.emitMain(project, baseData)
       out[#out + 1] = "  end"
       out[#out + 1] = ""
     end
+
+    local menuGfx = project.menuGfx
+    if type(menuGfx) == "table" then
+      menuGfx = pruneEmpty(stripEditorFields(deepCopy(menuGfx)))
+      menuGfx.trainerCard = nil
+      menuGfx.trainerPics = nil
+      if menuGfx.battleHud then
+        menuGfx.battleHud.playerBack = nil
+        menuGfx.battleHud.playerBackFemale = nil
+        menuGfx.battleHud.dudeBack = nil
+        menuGfx.battleHud.trainerPics = nil
+        if next(menuGfx.battleHud) == nil then menuGfx.battleHud = nil end
+      end
+    end
+    if type(menuGfx) == "table" and next(menuGfx) then
+      local lit = rewriteModPaths(emitTableLiteral(menuGfx, 2))
+      out[#out + 1] = "  -- Gold menu chrome (data.gen2MenuGfx)"
+      out[#out + 1] = "  do"
+      out[#out + 1] = "    local _mg = " .. lit
+      out[#out + 1] = "    local function merge(dst, src)"
+      out[#out + 1] = "      for k, v in pairs(src) do"
+      out[#out + 1] = "        if type(v) == \"table\" and type(dst[k]) == \"table\" then"
+      out[#out + 1] = "          merge(dst[k], v)"
+      out[#out + 1] = "        else"
+      out[#out + 1] = "          dst[k] = v"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "    end"
+      out[#out + 1] = "    mod.events:on(\"mods.loaded\", function(ev)"
+      out[#out + 1] = "      local data = ev and ev.data"
+      out[#out + 1] = "      if type(data) ~= \"table\" then return end"
+      out[#out + 1] = "      local gfx = data.gen2MenuGfx or data.menu_gfx"
+      out[#out + 1] = "      if type(gfx) ~= \"table\" then"
+      out[#out + 1] = "        gfx = {}; data.gen2MenuGfx = gfx; data.menu_gfx = gfx"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      merge(gfx, _mg)"
+      out[#out + 1] = "    end)"
+      out[#out + 1] = "  end"
+      out[#out + 1] = ""
+    end
+
+    if type(project.diploma) == "table" and next(project.diploma) then
+      local dip = pruneEmpty(stripEditorFields(deepCopy(project.diploma)))
+      if type(dip) == "table" and next(dip) then
+        local lit = rewriteModPaths(emitTableLiteral(dip, 2))
+        out[#out + 1] = "  -- Gold diploma sheet (data.gen2Diploma)"
+        out[#out + 1] = "  do"
+        out[#out + 1] = "    local _dip = " .. lit
+        out[#out + 1] = "    local function merge(dst, src)"
+        out[#out + 1] = "      for k, v in pairs(src) do"
+        out[#out + 1] = "        if type(v) == \"table\" and type(dst[k]) == \"table\" then"
+        out[#out + 1] = "          merge(dst[k], v)"
+        out[#out + 1] = "        else"
+        out[#out + 1] = "          dst[k] = v"
+        out[#out + 1] = "        end"
+        out[#out + 1] = "      end"
+        out[#out + 1] = "    end"
+        out[#out + 1] = "    mod.events:on(\"mods.loaded\", function(ev)"
+        out[#out + 1] = "      local data = ev and ev.data"
+        out[#out + 1] = "      if type(data) ~= \"table\" then return end"
+        out[#out + 1] = "      local d = data.gen2Diploma or data.diploma"
+        out[#out + 1] = "      if type(d) ~= \"table\" then"
+        out[#out + 1] = "        d = {}; data.gen2Diploma = d; data.diploma = d"
+        out[#out + 1] = "      end"
+        out[#out + 1] = "      merge(d, _dip)"
+        out[#out + 1] = "    end)"
+        out[#out + 1] = "  end"
+        out[#out + 1] = ""
+      end
+    end
+
+    if type(project.credits) == "table" and next(project.credits) then
+      local gfx = {}
+      for k, v in pairs(project.credits) do
+        if k ~= "strings" then gfx[k] = v end
+      end
+      if next(gfx) then
+        local lit = rewriteModPaths(emitTableLiteral(stripEditorFields(gfx), 2))
+        out[#out + 1] = "  -- Gen2 credits gfx (data.gen2Credits)"
+        out[#out + 1] = "  do"
+        out[#out + 1] = "    local _cred = " .. lit
+        out[#out + 1] = "    local function merge(dst, src)"
+        out[#out + 1] = "      for k, v in pairs(src) do"
+        out[#out + 1] = "        if type(v) == \"table\" and type(dst[k]) == \"table\" then"
+        out[#out + 1] = "          merge(dst[k], v)"
+        out[#out + 1] = "        else"
+        out[#out + 1] = "          dst[k] = v"
+        out[#out + 1] = "        end"
+        out[#out + 1] = "      end"
+        out[#out + 1] = "    end"
+        out[#out + 1] = "    mod.events:on(\"mods.loaded\", function(ev)"
+        out[#out + 1] = "      local data = ev and ev.data"
+        out[#out + 1] = "      if type(data) ~= \"table\" then return end"
+        out[#out + 1] = "      local cred = data.gen2Credits or data.credits"
+        out[#out + 1] = "      if type(cred) ~= \"table\" then"
+        out[#out + 1] = "        cred = {}; data.gen2Credits = cred; data.credits = cred"
+        out[#out + 1] = "      end"
+        out[#out + 1] = "      merge(cred, _cred)"
+        out[#out + 1] = "    end)"
+        out[#out + 1] = "  end"
+        out[#out + 1] = ""
+      end
+      local strings = project.credits.strings
+      if type(strings) == "table" and next(strings) then
+        local lit = emitTableLiteral(strings, 2)
+        out[#out + 1] = "  -- Gen2 credits staff-roll strings"
+        out[#out + 1] = "  do"
+        out[#out + 1] = "    local _names = " .. lit
+        out[#out + 1] = "    local C = require(\"src.ui.gen2.Credits\")"
+        out[#out + 1] = "    for name, text in pairs(_names) do"
+        out[#out + 1] = "      local id = C.ID and C.ID[name]"
+        out[#out + 1] = "      if id ~= nil and C.STRINGS then C.STRINGS[id] = text end"
+        out[#out + 1] = "    end"
+        out[#out + 1] = "  end"
+        out[#out + 1] = ""
+      end
+    end
+
+    local function minigameTextMap(src)
+      if type(src) ~= "table" then return nil end
+      local outT = {}
+      for k, v in pairs(src) do
+        if type(k) == "string" then
+          local lines
+          if type(v) == "string" and v ~= "" then
+            lines = {}
+            for line in (v .. "\n"):gmatch("(.-)\n") do
+              lines[#lines + 1] = line
+            end
+            if #lines == 0 then lines[1] = v end
+          elseif type(v) == "table" and v[1] then
+            lines = v
+          end
+          if lines then outT[k] = lines end
+        end
+      end
+      return next(outT) and outT or nil
+    end
+
+    local function gfxPathMap(src, keys)
+      if type(src) ~= "table" then return nil end
+      local mapped = {}
+      for _, k in ipairs(keys) do
+        local v = src[k]
+        if type(v) == "table" then v = v.path or v.sheet or v.image end
+        if type(v) == "string" and v ~= "" then mapped[k] = v end
+      end
+      return next(mapped) and mapped or nil
+    end
+
+    local mg = type(project.minigames) == "table" and project.minigames or {}
+    local menu = type(project.menuGfx) == "table" and project.menuGfx or {}
+
+    local slotTexts = type(mg.slots) == "table" and minigameTextMap(mg.slots.texts)
+    if slotTexts then
+      out[#out + 1] = "  -- Slot machine prompts (SlotMachine.TEXTS)"
+      out[#out + 1] = "  do"
+      out[#out + 1] = "    local _t = " .. emitTableLiteral(slotTexts, 2)
+      out[#out + 1] = "    local SM = require(\"src.ui.gen2.SlotMachine\")"
+      out[#out + 1] = "    if SM and SM.TEXTS then"
+      out[#out + 1] = "      for k, v in pairs(_t) do SM.TEXTS[k] = v end"
+      out[#out + 1] = "    end"
+      out[#out + 1] = "  end"
+      out[#out + 1] = ""
+    end
+
+    local cardTexts = type(mg.cardflip) == "table" and minigameTextMap(mg.cardflip.texts)
+    if cardTexts then
+      out[#out + 1] = "  -- Card flip prompts (CardFlip.TEXTS)"
+      out[#out + 1] = "  do"
+      out[#out + 1] = "    local _t = " .. emitTableLiteral(cardTexts, 2)
+      out[#out + 1] = "    local CF = require(\"src.ui.gen2.CardFlip\")"
+      out[#out + 1] = "    if CF and CF.TEXTS then"
+      out[#out + 1] = "      for k, v in pairs(_t) do CF.TEXTS[k] = v end"
+      out[#out + 1] = "    end"
+      out[#out + 1] = "  end"
+      out[#out + 1] = ""
+    end
+
+    local slotSong = type(mg.slots) == "table" and mg.slots.music
+    local cardSong = type(mg.cardflip) == "table" and mg.cardflip.music
+    if type(slotSong) == "string" and slotSong ~= "" then
+      out[#out + 1] = "  -- Slot machine music (SlotMachine:playMusic hardcodes Game Corner)"
+      out[#out + 1] = "  do"
+      out[#out + 1] = "    local SM = require(\"src.ui.gen2.SlotMachine\")"
+      out[#out + 1] = string.format("    local _song = %s", escapeStr(slotSong))
+      out[#out + 1] = "    function SM.playMusic(self)"
+      out[#out + 1] = "      local data = self.game and self.game.data"
+      out[#out + 1] = "      if data then require(\"src.core.Music\").play(data, _song) end"
+      out[#out + 1] = "    end"
+      out[#out + 1] = "  end"
+      out[#out + 1] = ""
+    end
+    if type(cardSong) == "string" and cardSong ~= "" then
+      out[#out + 1] = "  -- Card flip music (CardFlip:playMusic hardcodes Game Corner)"
+      out[#out + 1] = "  do"
+      out[#out + 1] = "    local CF = require(\"src.ui.gen2.CardFlip\")"
+      out[#out + 1] = string.format("    local _song = %s", escapeStr(cardSong))
+      out[#out + 1] = "    function CF.playMusic(self)"
+      out[#out + 1] = "      local data = self.game and self.game.data"
+      out[#out + 1] = "      if data then require(\"src.core.Music\").play(data, _song) end"
+      out[#out + 1] = "    end"
+      out[#out + 1] = "  end"
+      out[#out + 1] = ""
+    end
+
+    local slotGfx = gfxPathMap(menu.slots, { "sheet1", "sheet2", "sheet3", "actors" })
+    if slotGfx then
+      local lit = rewriteModPaths(emitTableLiteral(slotGfx, 2))
+      out[#out + 1] = "  -- Slot machine sheets (SlotMachine:sheets hardcodes generated paths)"
+      out[#out + 1] = "  do"
+      out[#out + 1] = "    local _g = " .. lit
+      out[#out + 1] = "    local SM = require(\"src.ui.gen2.SlotMachine\")"
+      out[#out + 1] = "    local origSheets = SM.sheets"
+      out[#out + 1] = "    function SM.sheets(self)"
+      out[#out + 1] = "      if self.sheet1 == nil then"
+      out[#out + 1] = "        local TileSheet = require(\"src.ui.gen2.TileSheet\")"
+      out[#out + 1] = "        local function p(key, fallback)"
+      out[#out + 1] = "          local v = _g[key]"
+      out[#out + 1] = "          if type(v) == \"string\" and v ~= \"\" then return v end"
+      out[#out + 1] = "          return fallback"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "        self.sheet1 = TileSheet.new({ path = p(\"sheet1\", \"assets/generated/slots/gold_slots_1.png\"), wide = 2, firstTile = 0 })"
+      out[#out + 1] = "        self.sheet2 = TileSheet.new({ path = p(\"sheet2\", \"assets/generated/slots/gold_slots_2.png\"), wide = 2, firstTile = 0 })"
+      out[#out + 1] = "        self.sheet3 = TileSheet.new({ path = p(\"sheet3\", \"assets/generated/slots/gold_slots_3.png\"), wide = 3, firstTile = 0 })"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      return origSheets(self)"
+      out[#out + 1] = "    end"
+      if slotGfx.actors or slotGfx.sheet3 then
+        out[#out + 1] = "    local origActors = SM.actorsImage"
+        out[#out + 1] = "    function SM.actorsImage(self)"
+        out[#out + 1] = "      if self.actorsLoaded ~= nil then return self.actorsLoaded or nil end"
+        out[#out + 1] = "      local path = _g.actors or _g.sheet3"
+        out[#out + 1] = "      if type(path) ~= \"string\" or path == \"\" then return origActors(self) end"
+        out[#out + 1] = "      local Assets = require(\"src.render.Assets\")"
+        out[#out + 1] = "      local ok, img = pcall(Assets.image, path)"
+        out[#out + 1] = "      if not (ok and img) then return origActors(self) end"
+        out[#out + 1] = "      self.actorsLoaded = img"
+        out[#out + 1] = "      local G = love.graphics"
+        out[#out + 1] = "      self.quadGolemStand  = G.newQuad(0, 0,   24, 32, 24, 240)"
+        out[#out + 1] = "      self.quadGolemBall   = G.newQuad(0, 32,  24, 32, 24, 240)"
+        out[#out + 1] = "      self.quadChansey1    = G.newQuad(0, 64,  24, 32, 24, 240)"
+        out[#out + 1] = "      self.quadChansey2    = G.newQuad(0, 96,  24, 32, 24, 240)"
+        out[#out + 1] = "      self.quadChansey3    = G.newQuad(0, 128, 24, 32, 24, 240)"
+        out[#out + 1] = "      self.quadChansey4    = G.newQuad(0, 160, 24, 32, 24, 240)"
+        out[#out + 1] = "      self.quadChanseyDrop = G.newQuad(0, 192, 24, 32, 24, 240)"
+        out[#out + 1] = "      self.quadEgg         = G.newQuad(0, 224, 8,  16, 24, 240)"
+        out[#out + 1] = "      return img"
+        out[#out + 1] = "    end"
+      end
+      out[#out + 1] = "  end"
+      out[#out + 1] = ""
+    end
+
+    local cardGfx = gfxPathMap(menu.cardFlip, { "sheet1", "sheet2", "sheet3", "on", "off" })
+    if cardGfx then
+      local lit = rewriteModPaths(emitTableLiteral(cardGfx, 2))
+      out[#out + 1] = "  -- Card flip sheets (CardFlip:sheets hardcodes generated paths)"
+      out[#out + 1] = "  do"
+      out[#out + 1] = "    local _g = " .. lit
+      out[#out + 1] = "    local CF = require(\"src.ui.gen2.CardFlip\")"
+      out[#out + 1] = "    local origSheets = CF.sheets"
+      out[#out + 1] = "    function CF.sheets(self)"
+      out[#out + 1] = "      if self.sheet1 == nil then"
+      out[#out + 1] = "        local TileSheet = require(\"src.ui.gen2.TileSheet\")"
+      out[#out + 1] = "        local function p(key, fallback)"
+      out[#out + 1] = "          local v = _g[key]"
+      out[#out + 1] = "          if type(v) == \"string\" and v ~= \"\" then return v end"
+      out[#out + 1] = "          return fallback"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "        self.sheet1 = TileSheet.new({ path = p(\"sheet1\", \"assets/generated/card_flip/card_flip_1.png\"), wide = 16, firstTile = 0 })"
+      out[#out + 1] = "        self.sheet2 = TileSheet.new({ path = p(\"sheet2\", \"assets/generated/card_flip/card_flip_2.png\"), wide = 3, firstTile = 0 })"
+      out[#out + 1] = "        self.sheet3 = TileSheet.new({ path = p(\"sheet3\", \"assets/generated/card_flip/card_flip_3.png\"), wide = 1, firstTile = 0 })"
+      out[#out + 1] = "        self.sheetOn = TileSheet.new({ path = p(\"on\", \"assets/generated/card_flip/on.png\"), wide = 1, firstTile = 0 })"
+      out[#out + 1] = "        self.sheetOff = TileSheet.new({ path = p(\"off\", \"assets/generated/card_flip/off.png\"), wide = 1, firstTile = 0 })"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      return origSheets(self)"
+      out[#out + 1] = "    end"
+      out[#out + 1] = "  end"
+      out[#out + 1] = ""
+    end
   else
     if type(project.boot) == "table" and next(project.boot) then
       out[#out + 1] = string.format(
@@ -2928,7 +3571,7 @@ function ModWriter.emitMain(project, baseData)
       out[#out + 1] = ""
     end
 
-    for _, key in ipairs({ "title", "intro", "theme", "townMap" }) do
+    for _, key in ipairs({ "title", "intro", "oakSpeech", "credits", "theme", "townMap" }) do
       local rec = project[key]
       if type(rec) == "table" and next(rec) then
         local lit = rewriteModPaths(emitTableLiteral(stripEditorFields(rec), 1))
@@ -2936,6 +3579,276 @@ function ModWriter.emitMain(project, baseData)
           "  mod.content.field:patch(%q, %s)", key, lit)
         out[#out + 1] = ""
       end
+    end
+
+    if type(project.menuGfx) == "table" then
+      local chrome = pruneEmpty(stripEditorFields(deepCopy(project.menuGfx)))
+      if type(chrome) == "table" then
+        local keys = {}
+        for k in pairs(chrome) do keys[#keys + 1] = k end
+        table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+        for _, key in ipairs(keys) do
+          local rec = chrome[key]
+          if rec ~= nil then
+            local lit = rewriteModPaths(emitTableLiteral(rec, 1))
+            out[#out + 1] = string.format(
+              "  mod.content.field:patch(%q, %s)", tostring(key), lit)
+            out[#out + 1] = ""
+          end
+        end
+      end
+    end
+
+    -- YellowIntro hardcodes atlas paths via love.graphics.newImage, so a
+    -- field.intro patch alone never reaches the cinema.  Re-load the
+    -- sheets from field.intro.yellowIntro after construction.
+    local yellowIntro = project.intro and project.intro.yellowIntro
+    if type(yellowIntro) == "table" and next(yellowIntro) then
+      out[#out + 1] = "  -- Yellow cinema atlases (YellowIntro.new bypasses field.intro)"
+      out[#out + 1] = "  do"
+      out[#out + 1] = "    local YI = require(\"src.ui.YellowIntro\")"
+      out[#out + 1] = "    local orig = YI.new"
+      out[#out + 1] = "    function YI.new(game, onDone)"
+      out[#out + 1] = "      local self = orig(game, onDone)"
+      out[#out + 1] = "      local intro = game and game.data and game.data.field"
+      out[#out + 1] = "        and game.data.field.intro"
+      out[#out + 1] = "      local y = type(intro) == \"table\" and intro.yellowIntro"
+      out[#out + 1] = "      if type(y) ~= \"table\" then return self end"
+      out[#out + 1] = "      local function load(path)"
+      out[#out + 1] = "        if type(path) == \"table\" then path = path.path end"
+      out[#out + 1] = "        if type(path) ~= \"string\" or path == \"\" then return nil end"
+      out[#out + 1] = "        local Assets = require(\"src.render.Assets\")"
+      out[#out + 1] = "        local ok, img = pcall(Assets.image, path)"
+      out[#out + 1] = "        if ok and img then return img end"
+      out[#out + 1] = "        ok, img = pcall(love.graphics.newImage, path)"
+      out[#out + 1] = "        return ok and img or nil"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      local a1, a2, clouds = load(y.atlas1), load(y.atlas2), load(y.clouds)"
+      out[#out + 1] = "      if a1 then self.atlas1 = a1 end"
+      out[#out + 1] = "      if a2 then self.atlas2 = a2 end"
+      out[#out + 1] = "      if clouds then self.clouds = clouds end"
+      out[#out + 1] = "      self.quads = {}"
+      out[#out + 1] = "      return self"
+      out[#out + 1] = "    end"
+      out[#out + 1] = "  end"
+      out[#out + 1] = ""
+    end
+
+    -- OakSpeech.new loads trainer / species pics and ignores oakSpeech.oakPic
+    -- etc. Re-load those paths after construction so the editor fields work.
+    local oakGfx = project.oakSpeech
+    if type(oakGfx) == "table" and (oakGfx.oakPic or oakGfx.rivalPic
+        or oakGfx.playerPic or oakGfx.demoPic) then
+      out[#out + 1] = "  -- Oak intro pics (OakSpeech.new bypasses field.oakSpeech paths)"
+      out[#out + 1] = "  do"
+      out[#out + 1] = "    local OS = require(\"src.ui.OakSpeech\")"
+      out[#out + 1] = "    local orig = OS.new"
+      out[#out + 1] = "    function OS.new(game, onDone)"
+      out[#out + 1] = "      local self = orig(game, onDone)"
+      out[#out + 1] = "      local gfx = game and game.data and game.data.field"
+      out[#out + 1] = "        and game.data.field.oakSpeech"
+      out[#out + 1] = "      if type(gfx) ~= \"table\" then return self end"
+      out[#out + 1] = "      local function load(path)"
+      out[#out + 1] = "        if type(path) == \"table\" then path = path.path end"
+      out[#out + 1] = "        if type(path) ~= \"string\" or path == \"\" then return nil end"
+      out[#out + 1] = "        local Assets = require(\"src.render.Assets\")"
+      out[#out + 1] = "        local ok, img = pcall(Assets.image, path)"
+      out[#out + 1] = "        if ok and img then return img end"
+      out[#out + 1] = "        ok, img = pcall(love.graphics.newImage, path)"
+      out[#out + 1] = "        return ok and img or nil"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      local oak, rival = load(gfx.oakPic), load(gfx.rivalPic)"
+      out[#out + 1] = "      local player, demo = load(gfx.playerPic), load(gfx.demoPic)"
+      out[#out + 1] = "      if oak then self.oakPic = oak end"
+      out[#out + 1] = "      if rival then self.rivalPic = rival end"
+      out[#out + 1] = "      if player then self.playerPic = player end"
+      out[#out + 1] = "      if demo then self.demoPic = demo end"
+      out[#out + 1] = "      return self"
+      out[#out + 1] = "    end"
+      out[#out + 1] = "  end"
+      out[#out + 1] = ""
+    end
+
+    local surfGfx = project.menuGfx and project.menuGfx.surfPikachu
+    local surfMini = project.minigames and project.minigames.surf
+    local hasSurfArt = type(surfGfx) == "table" and next(surfGfx)
+    local surfTexts, surfSong
+    if type(surfMini) == "table" then
+      if type(surfMini.texts) == "table" then
+        surfTexts = {}
+        for k, v in pairs(surfMini.texts) do
+          if type(k) == "string" and type(v) == "string" and v ~= "" then
+            surfTexts[k] = v
+          elseif type(k) == "string" and type(v) == "table" and v[1] then
+            surfTexts[k] = table.concat(v, "\n")
+          end
+        end
+        if not next(surfTexts) then surfTexts = nil end
+      end
+      if type(surfMini.music) == "string" and surfMini.music ~= "" then
+        surfSong = surfMini.music
+      end
+    end
+    if hasSurfArt or surfTexts or surfSong then
+      out[#out + 1] = "  -- Surfing Pikachu minigame (SurfingMinigame.new hardcodes paths / music)"
+      out[#out + 1] = "  do"
+      if hasSurfArt then
+        out[#out + 1] = "    local _g = " .. rewriteModPaths(
+          emitTableLiteral(stripEditorFields(deepCopy(surfGfx)), 2))
+      else
+        out[#out + 1] = "    local _g = {}"
+      end
+      if surfTexts then
+        out[#out + 1] = "    local _t = " .. emitTableLiteral(surfTexts, 2)
+      else
+        out[#out + 1] = "    local _t = {}"
+      end
+      if surfSong then
+        out[#out + 1] = string.format("    local _song = %s", escapeStr(surfSong))
+      else
+        out[#out + 1] = "    local _song = nil"
+      end
+      out[#out + 1] = "    local SM = require(\"src.ui.SurfingMinigame\")"
+      out[#out + 1] = "    local orig = SM.new"
+      out[#out + 1] = "    function SM.new(game, onDone, skipTitle)"
+      out[#out + 1] = "      local self = orig(game, onDone, skipTitle)"
+      out[#out + 1] = "      local function load(path)"
+      out[#out + 1] = "        if type(path) == \"table\" then path = path.path or path.sheet or path.image end"
+      out[#out + 1] = "        if type(path) ~= \"string\" or path == \"\" then return nil end"
+      out[#out + 1] = "        local Assets = require(\"src.render.Assets\")"
+      out[#out + 1] = "        local ok, img = pcall(Assets.image, path)"
+      out[#out + 1] = "        if ok and img then return img end"
+      out[#out + 1] = "        ok, img = pcall(love.graphics.newImage, path)"
+      out[#out + 1] = "        return ok and img or nil"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      local gfx = game and game.data and game.data.field"
+      out[#out + 1] = "        and game.data.field.surfPikachu"
+      out[#out + 1] = "      if type(gfx) ~= \"table\" then gfx = _g end"
+      out[#out + 1] = "      local G = love.graphics"
+      out[#out + 1] = "      local bg = load(gfx.bg)"
+      out[#out + 1] = "      local ob = load(gfx.sprites)"
+      out[#out + 1] = "      local intro = load(gfx.intro)"
+      out[#out + 1] = "      local titleBg = load(gfx.titleBg)"
+      out[#out + 1] = "      if bg and G and G.newQuad then"
+      out[#out + 1] = "        self.bg = bg"
+      out[#out + 1] = "        self.tq = {}"
+      out[#out + 1] = "        local bgW, bgH = bg:getDimensions()"
+      out[#out + 1] = "        for n = 0, 64 do"
+      out[#out + 1] = "          self.tq[n] = G.newQuad((n % 5) * 8, math.floor(n / 5) * 8, 8, 8, bgW, bgH)"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      if ob and G and G.newQuad then"
+      out[#out + 1] = "        self.ob = ob"
+      out[#out + 1] = "        self.oq = {}"
+      out[#out + 1] = "        local obW, obH = ob:getDimensions()"
+      out[#out + 1] = "        for n = 0, 255 do"
+      out[#out + 1] = "          self.oq[n] = G.newQuad((n % 16) * 8, math.floor(n / 16) * 8, 8, 8, obW, obH)"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      if intro and G and G.newQuad then"
+      out[#out + 1] = "        self.intro = intro"
+      out[#out + 1] = "        local iW, iH = intro:getDimensions()"
+      out[#out + 1] = "        self.iq = {}"
+      out[#out + 1] = "        for n = 0, 143 do"
+      out[#out + 1] = "          self.iq[n] = G.newQuad((n % 12) * 8, math.floor(n / 12) * 8, 8, 8, iW, iH)"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "        self.introPikaQuad1 = G.newQuad(0, 0, 24, 32, iW, iH)"
+      out[#out + 1] = "        self.introPikaQuad2 = G.newQuad(24, 0, 24, 32, iW, iH)"
+      out[#out + 1] = "        self.introPikaQuad3 = G.newQuad(48, 0, 24, 32, iW, iH)"
+      out[#out + 1] = "        self.introLogoQuad = G.newQuad(0, 32, 96, 32, iW, iH)"
+      out[#out + 1] = "        self.introTextQuad = G.newQuad(0, 64, 96, 32, iW, iH)"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      if titleBg then self.titleBg = titleBg end"
+      out[#out + 1] = "      if _song then"
+      out[#out + 1] = "        require(\"src.core.Music\").play(game and game.data, _song)"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      if next(_t) then"
+      out[#out + 1] = "        local function wrap(origDrawFn)"
+      out[#out + 1] = "          if type(origDrawFn) ~= \"function\" then return origDrawFn end"
+      out[#out + 1] = "          return function(screen)"
+      out[#out + 1] = "            local Font = require(\"src.render.Font\")"
+      out[#out + 1] = "            local origDraw = Font.draw"
+      out[#out + 1] = "            Font.draw = function(text, x, y, ...)"
+      out[#out + 1] = "              text = tostring(text or \"\")"
+      out[#out + 1] = "              if text == \"PIKACHU'S BEACH\" and _t.beach then text = _t.beach"
+      out[#out + 1] = "              elseif text == \"PRESS START\" and _t.pressStart then text = _t.pressStart"
+      out[#out + 1] = "              elseif text == \"Hi-Score!!\" and _t.hiScoreRecord then text = _t.hiScoreRecord"
+      out[#out + 1] = "              elseif _t.hiScore and text:sub(1, 8) == \"Hi-Score\" then"
+      out[#out + 1] = "                if _t.hiScore:find(\"%\", 1, true) then"
+      out[#out + 1] = "                  text = string.format(_t.hiScore, screen.hiScore or 0)"
+      out[#out + 1] = "                else text = _t.hiScore end"
+      out[#out + 1] = "              elseif text == \"HP Left\" and _t.hpLeft then text = _t.hpLeft"
+      out[#out + 1] = "              elseif text == \"Radness\" and _t.radness then text = _t.radness"
+      out[#out + 1] = "              elseif text == \"Total\" and _t.total then text = _t.total"
+      out[#out + 1] = "              elseif text == \"Pts\" and _t.pts then text = _t.pts end"
+      out[#out + 1] = "              return origDraw(text, x, y, ...)"
+      out[#out + 1] = "            end"
+      out[#out + 1] = "            local ok, err = pcall(origDrawFn, screen)"
+      out[#out + 1] = "            Font.draw = origDraw"
+      out[#out + 1] = "            if not ok then error(err) end"
+      out[#out + 1] = "          end"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "        self.drawTitleScreen = wrap(self.drawTitleScreen)"
+      out[#out + 1] = "        self.drawResultsOutro = wrap(self.drawResultsOutro)"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      return self"
+      out[#out + 1] = "    end"
+      out[#out + 1] = "  end"
+      out[#out + 1] = ""
+    end
+
+    local cardGfx = project.trainerCard
+    if type(cardGfx) == "table" and next(cardGfx) then
+      out[#out + 1] = "  -- Trainer card sheets (TrainerCard.new hardcodes generated paths)"
+      out[#out + 1] = "  do"
+      out[#out + 1] = "    local _tc = " .. rewriteModPaths(emitTableLiteral(cardGfx, 2))
+      out[#out + 1] = "    local TC = require(\"src.ui.TrainerCard\")"
+      out[#out + 1] = "    local orig = TC.new"
+      out[#out + 1] = "    function TC.new(game, opts)"
+      out[#out + 1] = "      local self = orig(game, opts)"
+      out[#out + 1] = "      local function load(path)"
+      out[#out + 1] = "        if type(path) == \"table\" then path = path.path end"
+      out[#out + 1] = "        if type(path) ~= \"string\" or path == \"\" then return nil end"
+      out[#out + 1] = "        local Assets = require(\"src.render.Assets\")"
+      out[#out + 1] = "        local ok, img = pcall(Assets.image, path)"
+      out[#out + 1] = "        if ok and img then return img end"
+      out[#out + 1] = "        ok, img = pcall(love.graphics.newImage, path)"
+      out[#out + 1] = "        return ok and img or nil"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      local function quads16(img, count, stride, x0, y0)"
+      out[#out + 1] = "        local q = {}"
+      out[#out + 1] = "        local iw, ih = img:getDimensions()"
+      out[#out + 1] = "        for i = 0, count - 1 do"
+      out[#out + 1] = "          q[i] = love.graphics.newQuad(x0 or 0, (y0 or 0) + i * stride, 16, 16, iw, ih)"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "        return q"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      local sheet = load(_tc.badges)"
+      out[#out + 1] = "      if sheet then"
+      out[#out + 1] = "        self.faces = { img = sheet, quads = quads16(sheet, 8, 32, 0, 0) }"
+      out[#out + 1] = "        self.badges = { img = sheet, quads = quads16(sheet, 8, 32, 0, 16) }"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      local nums = load(_tc.numbers)"
+      out[#out + 1] = "      if nums then"
+      out[#out + 1] = "        self.nums = { img = nums, quads = {} }"
+      out[#out + 1] = "        local iw, ih = nums:getDimensions()"
+      out[#out + 1] = "        for i = 0, 7 do"
+      out[#out + 1] = "          self.nums.quads[i] = love.graphics.newQuad((i % 2) * 8, math.floor(i / 2) * 8, 8, 8, iw, ih)"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      local frame = load(_tc.frame)"
+      out[#out + 1] = "      if frame then"
+      out[#out + 1] = "        self.frame = { img = frame, quads = {} }"
+      out[#out + 1] = "        for i = 0, 8 do"
+      out[#out + 1] = "          self.frame.quads[i] = love.graphics.newQuad((i % 3) * 8, math.floor(i / 3) * 8, 8, 8, frame:getDimensions())"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "      local circle = load(_tc.circle)"
+      out[#out + 1] = "      if circle then self.circle = circle end"
+      out[#out + 1] = "      return self"
+      out[#out + 1] = "    end"
+      out[#out + 1] = "  end"
+      out[#out + 1] = ""
     end
   end
 

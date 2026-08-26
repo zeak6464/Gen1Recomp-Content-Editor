@@ -7,7 +7,7 @@ local State = require("State")
 local RegList = require("RegList")
 local FormPane = require("FormPane")
 local Preview = require("Preview")
-local Autocomplete = require("Autocomplete")
+local ChoicePicker = require("ChoicePicker")
 local Generation = require("Generation")
 local PAL = Theme.PAL
 
@@ -18,11 +18,6 @@ local MODES = {
   { id = "cries", label = "Cries", tip = "Species cry overrides" },
   { id = "sfx", label = "SFX", tip = "Sound effect registry" },
   { id = "map_songs", label = "Map songs", tip = "Which song plays on each map" },
-}
-
-local GEN1_FALLBACK_SONGS = { "Music_PalletTown", "Music_Cities1", "Music_Gym" }
-local GEN2_FALLBACK_SONGS = {
-  "Music_NewBarkTown", "Music_AzaleaTown", "Music_VioletCity", "Music_Gym",
 }
 
 -- ---- Playback (file via love.audio; chip/ROM via Music / Sound) ----
@@ -318,10 +313,6 @@ local function defaultMapSong(S)
   return Generation.isGen2(S) and "Music_NewBarkTown" or "Music_PalletTown"
 end
 
-local function fallbackSongs(S)
-  return Generation.isGen2(S) and GEN2_FALLBACK_SONGS or GEN1_FALLBACK_SONGS
-end
-
 local function shallowCopyRec(rec)
   local copy = {}
   for k, v in pairs(rec) do
@@ -554,33 +545,20 @@ function Audio.draw(S, x, y, w, h, App)
   end
 
   if mode == "map_songs" then
-    row("Song id", function(fx, fy_, fw, fh_)
+    row("Song", function(fx, fy_, fw, fh_)
       local cur = tostring((owned and proj[id]) or rec or "")
-      local songs = RegList.sortedKeys((audioRoot(S) and audioRoot(S).songs) or {})
-      if #songs == 0 then songs = { unpack(fallbackSongs(S)) } end
-      for sid in pairs(projectBucket(S, "music")) do
-        local found = false
-        for _, e in ipairs(songs) do if e == sid then found = true; break end end
-        if not found then songs[#songs + 1] = sid end
-      end
-      table.sort(songs)
-      if Kit.button(fx, fy_, fw, fh_, Kit.ellipsize("small", cur ~= "" and cur or "(none)", fw - 8 * s),
-          { kind = "ghost" }) then
-        local nextId = RegList.cycle(songs, cur)
-        proj[id] = nextId
-        owned = true
-        App.markDirty()
-      end
-    end)
-    row("Or type", function(fx, fy_, fw, fh_)
-      local cur = tostring((owned and proj[id]) or rec or "")
-      local ph = gen2 and "Music_NewBarkTown" or "Music_..."
-      local v = RegList.suggestField(App, S, "au_ms", fx, fy_, fw, fh_, cur,
-        ph, function() return Autocomplete.songIds(S) end)
-      if v ~= cur then
-        proj[id] = v
-        owned = true
-      end
+      ChoicePicker.songField(S, {
+        x = fx, y = fy_, w = fw, h = fh_,
+        current = cur,
+        emptyLabel = gen2 and "Music_NewBarkTown" or "Music_PalletTown",
+        allowClear = true,
+        tooltip = "Song that plays on this map",
+        onPick = function(songId)
+          proj[id] = (type(songId) == "string" and songId ~= "") and songId or nil
+          owned = proj[id] ~= nil
+          App.markDirty()
+        end,
+      })
     end)
   else
     local r = type(rec) == "table" and rec or {}

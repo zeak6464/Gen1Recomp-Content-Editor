@@ -58,6 +58,7 @@ end
 
 function EventScriptEditor.defaultStep(S, kind)
   local gen2 = Generation.isGen2(S)
+  local yellow = Generation.id(S) == "yellow"
   local mapHint = S.eventMapId or S.mapId or "PALLET_TOWN"
   local key = S.eventScriptKey or ""
   local tid = key:match("/(.+)$")
@@ -88,9 +89,9 @@ function EventScriptEditor.defaultStep(S, kind)
   elseif kind == "give_starter" then
     return {
       kind = "give_starter",
-      species = gen2 and "CYNDAQUIL" or "BULBASAUR",
+      species = gen2 and "CYNDAQUIL" or (yellow and "PIKACHU" or "BULBASAUR"),
       level = 5,
-      choseFlag = "EVENT_CHOSE_BULBASAUR", rivalStarter = 1,
+      choseFlag = yellow and "EVENT_CHOSE_PIKACHU" or "EVENT_CHOSE_BULBASAUR", rivalStarter = 1,
     }
   elseif kind == "oneshot_gift" then
     return {

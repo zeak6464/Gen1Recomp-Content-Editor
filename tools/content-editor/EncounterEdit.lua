@@ -26,10 +26,21 @@ EncounterEdit.KINDS_GEN2 = {
 
 local TOD = { "MORN", "DAY", "NITE" }
 
+local function copySlot(slot)
+  if type(slot) ~= "table" then return { level = 5, species = "PIDGEY" } end
+  local out = { level = slot.level, species = slot.species }
+  if type(slot.chance) == "number" then out.chance = slot.chance end
+  if type(slot.form) == "string" and slot.form ~= "" then out.form = slot.form end
+  if type(slot.timeGroup) == "number" then out.timeGroup = slot.timeGroup end
+  if type(slot.day) == "table" then out.day = copySlot(slot.day) end
+  if type(slot.nite) == "table" then out.nite = copySlot(slot.nite) end
+  return out
+end
+
 function EncounterEdit.cloneSlots(slots)
   local out = {}
   for i, slot in ipairs(slots or {}) do
-    out[i] = { level = slot.level, species = slot.species }
+    out[i] = copySlot(slot)
   end
   return out
 end
@@ -204,9 +215,16 @@ local function field(App, id, x, y, w, h, value, ph)
   return v
 end
 
+local function readForm(App, id, x, y, w, h, current)
+  local v = field(App, id, x, y, w, h, current or "", "FORM")
+  v = v:upper():gsub("%s+", "_"):gsub("[^A-Z0-9_]", "")
+  if v == "" or v == "FORM" then return nil end
+  return v
+end
+
 local function drawSlotRows(S, App, px, py, propW, listBottom, fh, s,
     kindKey, slots, onChange, onDelete, maxSlots)
-  Kit.text("micro", "Slots (level, species)", px + 10 * s, py, PAL.caption)
+  Kit.text("micro", "Slots (level, species, form)", px + 10 * s, py, PAL.caption)
   py = py + 16 * s
   for si = 1, #(slots or {}) do
     if py + fh > listBottom - 36 * s then break end
@@ -214,18 +232,23 @@ local function drawSlotRows(S, App, px, py, propW, listBottom, fh, s,
     local lx = px + 10 * s
     local lvl = tonumber(field(App, "enc_lv_" .. kindKey .. si, lx, py, 40 * s, fh,
       tostring(slot.level or 1), "1")) or 1
-    local spW = math.max(80 * s, propW - (lx - px) - 48 * s - 42 * s - 8 * s)
+    local formW = 56 * s
+    local spW = math.max(70 * s, propW - (lx - px) - 48 * s - formW - 42 * s - 12 * s)
     local sp = slot.species or "PIDGEY"
     SpeciesPicker.field(S, {
       x = lx + 48 * s, y = py, w = spW, h = fh,
       current = sp,
       title = "ENCOUNTER SPECIES",
       onPick = function(id)
-        onChange(si, { level = math.max(1, slot.level or 1), species = id })
+        onChange(si, {
+          level = math.max(1, slot.level or 1), species = id, form = slot.form,
+        })
       end,
     })
-    if lvl ~= (slot.level or 1) then
-      onChange(si, { level = math.max(1, lvl), species = sp })
+    local formVal = readForm(App, "enc_fm_" .. kindKey .. si,
+      lx + 48 * s + spW + 4 * s, py, formW, fh, slot.form)
+    if lvl ~= (slot.level or 1) or formVal ~= (slot.form or nil) then
+      onChange(si, { level = math.max(1, lvl), species = sp, form = formVal })
     end
     if Kit.button(px + propW - 42 * s, py, 28 * s, fh, "X", { kind = "danger" }) then
       onDelete(si)
@@ -296,7 +319,7 @@ end
 -- Fishing / headbutt-tree slots carry a chance (0-255) alongside level+species.
 local function drawChanceSlotRows(S, App, px, py, propW, listBottom, fh, s,
     kindKey, slots, onChange, onDelete, maxSlots)
-  Kit.text("micro", "Slots (chance, level, species)", px + 10 * s, py, PAL.caption)
+  Kit.text("micro", "Slots (chance, level, species, form)", px + 10 * s, py, PAL.caption)
   py = py + 16 * s
   for si = 1, #(slots or {}) do
     if py + fh > listBottom - 36 * s then break end
@@ -322,7 +345,8 @@ local function drawChanceSlotRows(S, App, px, py, propW, listBottom, fh, s,
       tostring(slot.chance or 0), "0")) or 0
     local lvl = tonumber(field(App, "enc_cl_" .. kindKey .. si, lx + 48 * s, py, 40 * s, fh,
       tostring(shownLevel), "1")) or 1
-    local spW = math.max(80 * s, propW - (lx - px) - 96 * s - 42 * s - 8 * s)
+    local formW = 56 * s
+    local spW = math.max(64 * s, propW - (lx - px) - 96 * s - formW - 42 * s - 12 * s)
     SpeciesPicker.field(S, {
       x = lx + 92 * s, y = py, w = spW, h = fh,
       current = shownSpecies,
@@ -333,21 +357,25 @@ local function drawChanceSlotRows(S, App, px, py, propW, listBottom, fh, s,
       onPick = function(id)
         onChange(si, {
           chance = math.max(0, math.min(255, slot.chance or 0)),
-          level = math.max(1, shownLevel or 1), species = id,
+          level = math.max(1, shownLevel or 1), species = id, form = slot.form,
         })
       end,
     })
-    if chance ~= (slot.chance or 0) or lvl ~= shownLevel then
+    local formVal = readForm(App, "enc_cfm_" .. kindKey .. si,
+      lx + 92 * s + spW + 4 * s, py, formW, fh, slot.form)
+    if chance ~= (slot.chance or 0) or lvl ~= shownLevel
+        or formVal ~= (slot.form or nil) then
       if timeSlot and lvl == shownLevel then
         onChange(si, {
           chance = math.max(0, math.min(255, chance)),
-          level = slot.level, species = 0,
+          level = slot.level, species = 0, form = formVal,
         })
       else
         onChange(si, {
           chance = math.max(0, math.min(255, chance)),
           level = math.max(1, lvl),
           species = (tg and tg.day) or slot.species or "MAGIKARP",
+          form = formVal,
         })
       end
     end
@@ -381,7 +409,7 @@ local function ensureFishGroup(S, group)
       local rows = base[rod]
       if type(rows) == "table" then
         for i, row in ipairs(rows) do
-          cloned[rod][i] = { chance = row.chance, level = row.level, species = row.species }
+          cloned[rod][i] = copySlot(row)
         end
       end
     end
@@ -403,7 +431,7 @@ local function ensureTreeSet(S, setId)
       local rows = base[listName]
       if type(rows) == "table" then
         for i, row in ipairs(rows) do
-          cloned[listName][i] = { chance = row.chance, level = row.level, species = row.species }
+          cloned[listName][i] = copySlot(row)
         end
       end
     end
@@ -828,20 +856,25 @@ function EncounterEdit.drawWild(S, map, mutate, App, px, py, propW, listBottom, 
     local lvl = tonumber(field(App, "enc_old_lv", px + 10 * s, py, 50 * s, fh,
       tostring(always.level or 5), "5")) or 5
     local sp = always.species or "MAGIKARP"
+    local formW = 56 * s
     SpeciesPicker.field(S, {
-      x = px + 70 * s, y = py, w = math.max(100 * s, propW - 90 * s), h = fh,
+      x = px + 70 * s, y = py, w = math.max(80 * s, propW - 90 * s - formW), h = fh,
       current = sp,
       title = "OLD ROD SPECIES",
       onPick = function(id)
         S.project.fishing.OLD_ROD = {
-          always = { level = math.max(1, always.level or 5), species = id },
+          always = {
+            level = math.max(1, always.level or 5), species = id, form = always.form,
+          },
         }
         App.markDirty()
       end,
     })
-    if lvl ~= (always.level or 5) then
+    local formVal = readForm(App, "enc_old_fm",
+      px + propW - formW - 8 * s, py, formW, fh, always.form)
+    if lvl ~= (always.level or 5) or formVal ~= (always.form or nil) then
       S.project.fishing.OLD_ROD = {
-        always = { level = math.max(1, lvl), species = sp },
+        always = { level = math.max(1, lvl), species = sp, form = formVal },
       }
       App.markDirty()
     end

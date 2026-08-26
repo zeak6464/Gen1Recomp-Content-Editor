@@ -19,15 +19,18 @@ local ok, err = pcall(function()
   local Trainers = require("Trainers")
   local Pokemon = require("Pokemon")
   local Manifest = require("Manifest")
+  local Cart = require("Cart")
   local Code = require("Code")
   local MoveEffects = require("MoveEffects")
   local Audio = require("Audio")
   local Gfx = require("Gfx")
   local AiClasses = require("AiClasses")
+  local Rules = require("Rules")
   local Project = require("Project")
   local Ui = require("Ui")
   local UiPreview = require("UiPreview")
   local SpriteUtil = require("SpriteUtil")
+  local SpriteAnimPreview = require("SpriteAnimPreview")
   local EncounterEdit = require("EncounterEdit")
   local Encounters = require("Encounters")
   local ModWriter = require("ModWriter")
@@ -75,13 +78,62 @@ local ok, err = pcall(function()
   assert(Trainers.draw)
   assert(Pokemon.draw)
   assert(Manifest.draw)
+  assert(Cart.draw)
+  assert(Cart.save)
+  local CartPreview = require("CartPreview")
+  assert(CartPreview.draw)
+  assert(CartPreview.hex({ 139, 26, 26 }) == "#8b1a1a")
+  local parsedShell = CartPreview.parseShell("#8B1A1A")
+  assert(parsedShell and parsedShell[1] == 139 and parsedShell[2] == 26)
+  assert(CartPreview.parseShell("nope") == nil)
+  local Cartkit = require("Cartkit")
+  local encoded = Cartkit.encodeCart({
+    schema = 1, id = "demo", title = "Demo", version = "1.0.0",
+    author = "you", shell = "#8b1a1a", label = "label.png",
+    base = "red", engine = ">=0.1.0 <1.0.0", seal = "sealed",
+    mods = {
+      { id = "mod-a", source = "github", repo = "own/mod-a",
+        version = "1.2.3", sha256 = string.rep("a", 64) },
+      { id = "mod-b", source = "local", version = "0.4.0" },
+    },
+  })
+  assert(encoded:find('"id":"demo"') or encoded:find('"id": "demo"'), encoded)
+  assert(encoded:find("mod%-a"), encoded)
+  assert(encoded:find('"source":"local"') or encoded:find('"source": "local"'), encoded)
+  assert(encoded:find("mod%-b"), encoded)
+  assert(Cartkit.BASES[1] == "red")
+  do
+    local i1 = Cartkit.interpret(
+      "CK003 ERROR label.png: label art is 1157355 bytes; keep it under 1048576\nFAIL x invalid")
+    assert(i1.hardFail == true and i1.labelTooBig == true)
+    local i2 = Cartkit.interpret(
+      "CK004 ERROR cart.json: mods[1] DebugMenu is pinned to one install; a published cart needs a github or gamebanana pin\nFAIL DebugBlue invalid")
+    assert(i2.localPins == true and i2.hardFail == false)
+    local shown = Cartkit.displayLog(
+      "CK004 ERROR cart.json: mods[1] DebugMenu is pinned to one install; a published cart needs a github or gamebanana pin\nFAIL DebugBlue invalid",
+      i2)
+    assert(not shown:find("FAIL", 1, true), shown)
+    assert(not shown:find("ERROR", 1, true), shown)
+    assert(shown:find("this PC", 1, true), shown)
+    assert(Cartkit.hasLocalPins({ mods = { { source = "local" } } }) == true)
+    assert(Cartkit.hasLocalPins({ mods = { { source = "github" } } }) == false)
+    assert(Cartkit.packBundle)
+  end
   assert(Code.draw)
   assert(MoveEffects.draw)
   assert(Audio.draw)
   assert(Gfx.draw)
   assert(AiClasses.draw)
+  assert(Rules.draw)
   assert(Project.draw)
+  local TalkIndex = require("TalkIndex")
+  local UiMenus = require("UiMenus")
+  assert(TalkIndex.catalogLabel("_STD") == "Std scripts")
+  assert(TalkIndex.isCatalogMap("_STD") == true)
+  assert(TalkIndex.isCatalogMap("NEW_BARK_TOWN") == false)
+  assert(TalkIndex.collect)
   assert(Ui.draw)
+  assert(UiMenus.draw)
   assert(UiPreview.draw)
   assert(UiPreview.begin)
   assert(UiPreview.update)
@@ -98,7 +150,14 @@ local ok, err = pcall(function()
       },
     },
     boot = { startMap = "PALLET_TOWN",
-      screens = { splash = "YellowIntro", title = "TitleState", newGame = "OakSpeech" } },
+      screens = { splash = "YellowIntro", title = "TitleState", newGame = "OakSpeech" },
+      namePresets = { player = { "RED", "ASH" }, rival = { "BLUE" } } },
+    statuses = { BRN = { label = "BRN", catchBonus = 12 } },
+    rulesets = { no_crits = { name = "no crits", critRate = 0, _isNew = true } },
+    transitions = { warp_fade = { frames = 48, flash = false } },
+    battle_sprite_scales = {
+      abra_back = { path = "assets/back.png", scale = 1.5, _isNew = true },
+    },
     constants = {
       levelCap = 80,
       badges = { { id = "BOULDERBADGE", name = "Boulder", icon = "assets/badges/boulder.png" } },
@@ -106,10 +165,16 @@ local ok, err = pcall(function()
     title = { logo = "assets/logo.png", music = "Music_TitleScreen",
       copyrightText = "(C) test", cycleSpecies = { "PIKACHU" } },
     intro = { skip = true, studio = { logo = "assets/studio.png", credit = "presents" } },
+    oakSpeech = { oakPic = "assets/oak.png", music = "Music_Routes2" },
+    trainerCard = { badges = "assets/badges_sheet.png" },
     theme = { cursor = 237, textBox = { tx = 0, ty = 12, tw = 20, th = 6, maxCols = 18 } },
     font = { main = { image = "assets/font/main.png", base = 0, glyphsPerRow = 16, _isNew = true } },
     strings = { ["NEW GAME"] = "START" },
     townMap = { gridPixelSize = 8, locations = { PALLET_TOWN = { x = 3, y = 14, name = "Pallet" } } },
+    menuGfx = {
+      overworldFx = { cutTree = { path = "assets/fx/cut_tree.png" } },
+      battleHud = { hud1 = { path = "assets/battle/hud1.png" } },
+    },
     hiddenItems = { PALLET_TOWN = { { x = 1, y = 2, item = "POTION" } } },
     badgeGates = {},
     moveEffects = {
@@ -157,12 +222,23 @@ local ok, err = pcall(function()
   assert(sample:find("mod.content.palettes:register"), sample)
   assert(sample:find("mod.content.music:"), sample)
   assert(sample:find("mod.content.ai_classes:"), sample)
+  assert(sample:find("mod.content.statuses:"), sample)
+  assert(sample:find("mod.content.rulesets:register"), sample)
+  assert(sample:find("mod.content.transitions:"), sample)
+  assert(sample:find("mod.content.battle_sprite_scales:register"), sample)
+  assert(sample:find("namePresets"), sample)
   assert(sample:find('field:patch%("boot"'), sample)
   assert(sample:find("YellowIntro"), sample)
   assert(sample:find('field:patch%("title"'), sample)
   assert(sample:find('field:patch%("intro"'), sample)
+  assert(sample:find('field:patch%("oakSpeech"'), sample)
+  assert(sample:find("OakSpeech.new bypasses") or sample:find("self.oakPic"), sample)
+  assert(sample:find("TrainerCard.new hardcodes") or sample:find("self.faces"), sample)
   assert(sample:find('field:patch%("theme"'), sample)
   assert(sample:find('field:patch%("townMap"'), sample)
+  assert(sample:find('field:patch%("overworldFx"'), sample)
+  assert(sample:find('field:patch%("battleHud"'), sample)
+  assert(sample:find("assets/fx/cut_tree.png") or sample:find("cut_tree"), sample)
   assert(sample:find("mod.content.font:register"), sample)
   assert(sample:find("mod.content.strings:override"), sample)
   assert(sample:find("assets/badges/boulder.png") or sample:find("boulder"), sample)
@@ -246,12 +322,64 @@ local ok, err = pcall(function()
       id = "t",
       shinyRate = 4096,
       breeding = { eggLevel = 5, minStepsToEgg = 100 },
+      menuGfx = { pack = { menu = "assets/pack/menu.png" } },
+      diploma = { image = "assets/diploma/diploma.png" },
+      boot = { namePresets = { player = { "GOLD" }, rival = { "SILVER" } } },
+      apricorns = {
+        RED_APRICORN = { apricorn = "RED_APRICORN", ball = "ULTRA_BALL",
+          event = 600, index = 1 },
+      },
     }, {})
     assert(out:find("shinyRate = 4096"), "missing shinyRate emit")
     assert(out:find("data.breeding"), "missing breeding emit")
+    assert(out:find("Gold menu chrome"), "missing gen2 menuGfx emit")
+    assert(out:find("data.gen2MenuGfx"), "missing gen2MenuGfx merge")
+    assert(out:find("Gold diploma sheet"), "missing diploma emit")
+    assert(out:find("data.gen2Diploma"), "missing gen2Diploma merge")
+    assert(out:find("namePresets"), "missing gold namePresets emit")
+    assert(out:find("mod.content.apricorns:"), "missing apricorns emit")
     package.preload["src.core.GameVersion"] = nil
     package.loaded["src.core.GameVersion"] = nil
     package.loaded["Generation"] = nil
+  end
+  do
+    local out = ModWriter.emitMain({
+      id = "t",
+      pokemon = {
+        PIKACHU = {
+          id = "PIKACHU",
+          forms = {
+            ALOLAN = { spriteFront = "assets/pika_alola_front.png" },
+          },
+        },
+      },
+    }, { pokemon = { PIKACHU = { id = "PIKACHU" } } })
+    assert(out:find("ALOLAN"), "missing form emit")
+    assert(out:find("pokemon.sprite"), "missing form sprite hook")
+    assert(out:find("ctx.mon.form"), "missing mon.form lookup")
+  end
+  do
+    local out = ModWriter.emitMain({
+      id = "t",
+      maps = {
+        ROUTE_1 = {
+          id = "ROUTE_1", width = 1, height = 1, blocks = { 1 },
+          tileset = "OVERWORLD",
+          encounters = {
+            grass = {
+              rate = 25,
+              slots = { { level = 3, species = "PIKACHU", form = "ALOLAN" } },
+            },
+          },
+        },
+      },
+    }, {})
+    assert(out:find("ALOLAN"), "missing wild slot form emit")
+    assert(out:find("pendingForm"), "missing wild form pending")
+    assert(out:find("encounter.roll"), "missing encounter.roll form wrap")
+    assert(out:find("battle.started"), "missing wild form battle stamp")
+    local schema = ModWriter.encounterFormSchemasLua()
+    assert(schema:find("t.fields.form"), "missing encounter form schema")
   end
   print("OK modules load")
 end)

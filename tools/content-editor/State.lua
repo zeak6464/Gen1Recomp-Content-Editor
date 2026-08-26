@@ -115,6 +115,8 @@ function State.blankProject(id, name)
     strings = {},       -- engine Strings() overrides (source -> text)
     townMap = {},       -- field.townMap (Gen1) / landmark overrides (Gold)
     trainerCard = {},   -- Gold: gen2MenuGfx.trainerCard badge/leader sheets
+    menuGfx = {},       -- Gen1 field chrome / Gold gen2MenuGfx sheet overrides
+    diploma = {},       -- Gold: gen2Diploma sheet
     pokedex = {},       -- Gold: gen2Pokedex.entries overrides (kind/text/…)
     -- Lab ball remap (Oak / Elm): vanillaSpecies -> { species, level }
     starterRemap = {},
@@ -167,16 +169,27 @@ function State.ensureProjectFields(project)
   project.gbcWorld.groupColors = project.gbcWorld.groupColors or {}
   project.sprites = project.sprites or {}
   project.aiClasses = project.aiClasses or {}
+  project.statuses = project.statuses or {}
+  project.rulesets = project.rulesets or {}
+  project.transitions = project.transitions or {}
+  project.battle_sprite_scales = project.battle_sprite_scales or {}
+  project.apricorns = project.apricorns or {}
+  project.radio_channels = project.radio_channels or {}
   project.battle_anims = project.battle_anims or {}
   project.playerSprites = project.playerSprites or {}
   project.playerPics = project.playerPics or {}
   project.title = project.title or {}
   project.intro = project.intro or {}
+  project.oakSpeech = project.oakSpeech or {}
+  project.credits = project.credits or {}
   project.theme = project.theme or {}
   project.font = project.font or {}
   project.strings = project.strings or {}
   project.townMap = project.townMap or {}
   project.trainerCard = project.trainerCard or {}
+  project.menuGfx = project.menuGfx or {}
+  project.minigames = project.minigames or {}
+  project.diploma = project.diploma or {}
   project.pokedex = project.pokedex or {}
   project.hiddenItems = project.hiddenItems or {}
   project.badgeGates = project.badgeGates or {}

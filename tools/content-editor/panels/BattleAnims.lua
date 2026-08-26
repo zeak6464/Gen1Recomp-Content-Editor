@@ -8,7 +8,6 @@ local Theme = require("Theme")
 local State = require("State")
 local RegList = require("RegList")
 local FormPane = require("FormPane")
-local Preview = require("Preview")
 local BattleAnimPreview = require("BattleAnimPreview")
 local Generation = require("Generation")
 local PAL = Theme.PAL
@@ -914,10 +913,7 @@ local function drawTilesheetForm(S, App, id, rec, owned, viewX, viewW, fy, fh, l
     if v ~= cur then ensure().tiles = v end
   end)
 
-  if r.path and r.path ~= "" then
-    fy = fy + Preview.draw(S, r.path, viewX, fy,
-      math.min(viewW, 240 * s), math.min(160 * s, 120 * s)) + 8 * s
-  end
+  fy = BattleAnimPreview.drawSheet(S, r, viewX, fy, viewW, s)
 
   return fy, owned
 end
@@ -1284,10 +1280,7 @@ local function drawGen2GfxForm(S, App, id, viewX, viewW, fy, fh, labelW)
   end)
 
   rec = map[id] or rec
-  if rec.image and rec.image ~= "" then
-    fy = fy + Preview.draw(S, rec.image, viewX, fy,
-      math.min(viewW, 240 * s), math.min(160 * s, 120 * s)) + 8 * s
-  end
+  fy = BattleAnimPreview.drawSheet(S, rec, viewX, fy, viewW, s)
 
   return fy, owned
 end

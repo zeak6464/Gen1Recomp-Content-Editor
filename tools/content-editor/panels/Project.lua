@@ -280,7 +280,7 @@ function Project.draw(S, x, y, w, h, App)
     x, row, PAL.muted)
   row = row + 22 * s
   local dataCardY = row
-  local dataCardH = 140 * s
+  local dataCardH = 196 * s
   Kit.card(x, dataCardY, w, dataCardH, 14 * s)
   local dataX = x + pad
   local dataW = w - 2 * pad
@@ -368,6 +368,15 @@ function Project.draw(S, x, y, w, h, App)
           or "No imported ROM cache exists for the selected game version",
       }) then
     App.useImportedData()
+  end
+  row = row + btnH + 8 * s
+  local cacheFolder = DataSource.importedCacheFolder(curVer)
+  if Kit.button(dataX, row, dsW, btnH, "Open cache", {
+      kind = "ghost",
+      tooltip = (cacheFolder and ("Open:\n" .. cacheFolder) or "Open the save-directory ROM cache")
+        .. "\nImported data lives here (red|blue|yellow|gold|silver|crystal/)",
+    }) then
+    if App.openCacheFolder then App.openCacheFolder() end
   end
   row = dataCardY + dataCardH + 18 * s
 
@@ -535,6 +544,43 @@ function Project.draw(S, x, y, w, h, App)
     local cur = tostring(bootField(S, "rivalName") or "")
     local v = RegList.field(App, "pr_boot_rname", fx, fy_, fw, fh_, cur, "BLUE")
     if v ~= cur then setBoot(S, "rivalName", v, App) end
+  end)
+
+  local function namePresetList(who)
+    local presets = bootField(S, "namePresets")
+    if type(presets) == "table" and type(presets[who]) == "table" then
+      return presets[who]
+    end
+    return nil
+  end
+
+  local function setNamePresets(who, list)
+    State.ensureProjectFields(S.project)
+    local cur = S.project.boot.namePresets
+    if type(cur) ~= "table" then
+      local base = dataBoot(S).namePresets or {}
+      cur = {
+        player = parseCsvIds(joinCsvIds(base.player)),
+        rival = parseCsvIds(joinCsvIds(base.rival)),
+      }
+      S.project.boot.namePresets = cur
+    end
+    cur[who] = list
+    App.markDirty()
+  end
+
+  row("Player names", function(fx, fy_, fw, fh_)
+    local cur = joinCsvIds(namePresetList("player"))
+    local v = RegList.field(App, "pr_boot_pnames", fx, fy_, fw, fh_, cur,
+      "RED, ASH, JACK")
+    if v ~= cur then setNamePresets("player", parseCsvIds(v)) end
+  end)
+
+  row("Rival names", function(fx, fy_, fw, fh_)
+    local cur = joinCsvIds(namePresetList("rival"))
+    local v = RegList.field(App, "pr_boot_rnames", fx, fy_, fw, fh_, cur,
+      "BLUE, GARY, JOHN")
+    if v ~= cur then setNamePresets("rival", parseCsvIds(v)) end
   end)
 
   row("Starting money", function(fx, fy_, fw, fh_)

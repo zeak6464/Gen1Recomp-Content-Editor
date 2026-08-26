@@ -290,8 +290,11 @@ local GOLD_EXTRAS = {
   { file = "initial_events", keys = { "initial_events", "gen2InitialEvents" } },
   { file = "title", keys = { "title", "gen2Title" } },
   { file = "intro", keys = { "intro", "gen2Intro" } },
+  { file = "oak_speech", keys = { "oakSpeech", "gen2OakSpeech" } },
+  { file = "credits", keys = { "credits", "gen2Credits" } },
   { file = "landmarks", keys = { "landmarks", "gen2Landmarks" } },
   { file = "menu_gfx", keys = { "menu_gfx", "gen2MenuGfx" } },
+  { file = "diploma", keys = { "diploma", "gen2Diploma" } },
   { file = "pokedex", keys = { "pokedex", "gen2Pokedex" } },
 }
 
@@ -351,7 +354,7 @@ local GEN2_SHELL = {
   "constants", "maps", "tilesets", "sprites", "pokemon", "moves", "items",
   "type_chart", "trainers", "encounters", "font", "audio", "palettes",
   "icons", "text", "scripts", "marts", "roofs", "battle_anims", "pokedex",
-  "landmarks", "menu_gfx", "events", "initial_events", "std_scripts",
+  "landmarks", "menu_gfx", "diploma", "events", "initial_events", "std_scripts",
   "title", "intro", "field", "text_pointers", "trainer_headers",
 }
 
@@ -593,6 +596,26 @@ function DataSource.clearImportedCache()
     end
   end
   return cleared
+end
+
+-- Absolute folder for the imported ROM cache (LÖVE save directory + version prefix).
+function DataSource.importedCacheFolder(version)
+  if not (love and love.filesystem and love.filesystem.getSaveDirectory) then
+    return nil
+  end
+  local saveDir = love.filesystem.getSaveDirectory()
+  if type(saveDir) ~= "string" or saveDir == "" then return nil end
+  version = version or "red"
+  local GameVersion = require("src.core.GameVersion")
+  local prefix = GameVersion.cachePrefix and GameVersion.cachePrefix(version) or ""
+  prefix = prefix:gsub("[/\\]+$", "")
+  if prefix ~= "" then
+    local info = love.filesystem.getInfo(prefix)
+    if info and info.type == "directory" then
+      return join(saveDir, prefix)
+    end
+  end
+  return saveDir
 end
 
 function DataSource.mountedRecompRoot()

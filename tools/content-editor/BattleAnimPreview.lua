@@ -4,6 +4,7 @@
 local Kit = require("Kit")
 local Theme = require("Theme")
 local State = require("State")
+local Preview = require("Preview")
 local Generation = require("Generation")
 local PAL = Theme.PAL
 
@@ -446,6 +447,143 @@ function BattleAnimPreview.draw(S, moveId, x, y, w, s)
   Kit.text("micro", Kit.ellipsize("micro", info, w), x, y + vh + 12 * s, PAL.muted)
 
   return y + vh + 28 * s
+end
+
+-- Scaled atlas with an 8×8 tile grid. Click a cell to inspect it.
+-- rec.path (Gen1) or rec.image (Gold gfx); rec.tiles / rec.wide optional.
+function BattleAnimPreview.drawSheet(S, rec, x, y, w, s)
+  s = s or Kit.scale or 1
+  rec = rec or {}
+  local path = rec.path or rec.image
+  Kit.text("small", "Tilesheet preview", x, y, PAL.caption)
+  y = y + 18 * s
+  if type(path) ~= "string" or path == "" then
+    Kit.text("micro", "No image path on this sheet.", x, y, PAL.faint)
+    return y + 18 * s
+  end
+
+  local img = Preview.image(S, path)
+  if S._battleAnimSheetPath ~= path then
+    S._battleAnimSheetPath = path
+    S.battleAnimTileIdx = 0
+  end
+  if not img then
+    Kit.text("micro", "Could not load " .. tostring(path), x, y, PAL.faint)
+    return y + 18 * s
+  end
+
+  local iw, ih = img:getWidth(), img:getHeight()
+  if iw < 1 or ih < 1 then
+    Kit.text("micro", "Empty image.", x, y, PAL.faint)
+    return y + 18 * s
+  end
+
+  local TILE = 8
+  local cols = tonumber(rec.wide)
+  if not cols or cols < 1 then
+    cols = math.max(1, math.floor(iw / TILE))
+  end
+  local tileW = math.max(1, math.floor(iw / cols))
+  local tileH = tileW
+  local nTiles = tonumber(rec.tiles) or 0
+  if nTiles < 1 then
+    nTiles = cols * math.max(1, math.floor(ih / tileH))
+  end
+  local rows = math.max(1, math.ceil(nTiles / cols))
+
+  local scale = math.max(2, math.min(6, math.floor(w / iw)))
+  local dw, dh = iw * scale, ih * scale
+  local cell = tileW * scale
+
+  Kit.text("micro",
+    string.format("%dx%d px  ·  %d tiles  ·  %d per row  ·  click a cell",
+      iw, ih, nTiles, cols),
+    x, y, PAL.muted)
+  y = y + 16 * s
+
+  Theme.col(PAL.bgBot or { 10, 10, 20 }, 1)
+  local G = love and love.graphics
+  if G and G.rectangle then
+    G.rectangle("fill", x, y, dw + 4 * s, dh + 4 * s, 6 * s, 6 * s)
+  end
+  local dx, dy = x + 2 * s, y + 2 * s
+  if G then
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(img, dx, dy, 0, scale, scale)
+  end
+
+  local mark = S.battleAnimTileIdx
+  if type(mark) ~= "number" or mark < 0 or mark >= nTiles then
+    mark = 0
+    S.battleAnimTileIdx = 0
+  end
+
+  if Kit.press(dx, dy, dw, dh) then
+    local col = math.floor((Kit.mouseX - dx) / cell)
+    local row = math.floor((Kit.mouseY - dy) / cell)
+    if col >= 0 and col < cols and row >= 0 and row < rows then
+      local idx = row * cols + col
+      if idx < nTiles then S.battleAnimTileIdx = idx end
+    end
+  end
+
+  if G and G.rectangle then
+    if G.setLineWidth then G.setLineWidth(1) end
+    for i = 0, nTiles - 1 do
+      local col = i % cols
+      local row = math.floor(i / cols)
+      local cx = dx + col * cell
+      local cy = dy + row * cell
+      if i == mark then
+        Theme.stroke(cx, cy, cell, cell, 0, PAL.green, 0.95, 2 * s)
+      elseif scale >= 3 then
+        Theme.col(PAL.caption, 0.22)
+        G.rectangle("line", cx, cy, cell, cell)
+      end
+    end
+    -- Grey out slots past the live tile count (tileset 2 uses 64 of 80).
+    local slots = cols * math.ceil(ih / tileH)
+    for i = nTiles, slots - 1 do
+      local col = i % cols
+      local row = math.floor(i / cols)
+      Theme.col({ 7, 11, 29 }, 0.55)
+      G.rectangle("fill", dx + col * cell, dy + row * cell, cell, cell)
+    end
+  end
+
+  local hoverCol = math.floor((Kit.mouseX - dx) / cell)
+  local hoverRow = math.floor((Kit.mouseY - dy) / cell)
+  if hoverCol >= 0 and hoverCol < cols and hoverRow >= 0 and hoverRow < rows
+      and Kit.hit(dx, dy, dw, dh) then
+    local hover = hoverRow * cols + hoverCol
+    if hover < nTiles then
+      Kit.offerTooltip(dx + hoverCol * cell, dy + hoverRow * cell,
+        cell, cell, "Tile " .. tostring(hover))
+    end
+  end
+
+  y = y + dh + 10 * s
+
+  local mag = math.max(32 * s, tileW * 8)
+  local col = mark % cols
+  local row = math.floor(mark / cols)
+  Theme.col(PAL.bgBot or { 10, 10, 20 }, 1)
+  if G and G.rectangle then
+    G.rectangle("fill", x, y, mag, mag, 6 * s, 6 * s)
+  end
+  if G and G.newQuad then
+    local qx, qy = col * tileW, row * tileH
+    local ok, quad = pcall(G.newQuad, qx, qy, tileW, tileH, iw, ih)
+    if ok and quad then
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(img, quad, x, y, 0, mag / tileW, mag / tileH)
+    end
+  end
+  Kit.text("micro",
+    string.format("Tile %d  ·  %d,%d", mark, col * tileW, row * tileH),
+    x + mag + 10 * s, y + mag / 2 - 6 * s, PAL.muted)
+  y = y + mag + 10 * s
+  return y
 end
 
 return BattleAnimPreview

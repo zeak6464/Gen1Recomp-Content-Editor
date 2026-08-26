@@ -142,7 +142,233 @@ local function sourceBadge(S, mapId, textId)
   return "empty"
 end
 
+-- Virtual "maps" in Events → SCRIPTS so std / phone / leftover scripts
+-- are editable without being attached to an NPC.
+local CATALOG = {
+  { id = "_STD", label = "Std scripts", pins = "STD SCRIPTS" },
+  { id = "_PHONE", label = "Phone scripts", pins = "PHONE SCRIPTS" },
+  { id = "_DECO", label = "Decor scripts", pins = "DECOR SCRIPTS" },
+  { id = "_SPECIAL", label = "Special calls", pins = "SPECIAL CALLS" },
+  { id = "_OTHER", label = "Other scripts", pins = "OTHER SCRIPTS" },
+}
+
+local SKIP_SCRIPT_META = {
+  movements = true, generation = true, source = true, order = true,
+  byId = true, labels = true,
+}
+
+function TalkIndex.isCatalogMap(id)
+  if type(id) ~= "string" then return false end
+  return id:sub(1, 1) == "_"
+end
+
+function TalkIndex.catalogLabel(id)
+  for i = 1, #CATALOG do
+    if CATALOG[i].id == id then return CATALOG[i].label end
+  end
+  return nil
+end
+
+function TalkIndex.catalogPinCaption(id)
+  for i = 1, #CATALOG do
+    if CATALOG[i].id == id then return CATALOG[i].pins end
+  end
+  return "OBJECT EVENTS"
+end
+
+local function isScriptBody(v)
+  if type(v) ~= "table" then return false end
+  local first = v[1]
+  return type(first) == "table" and type(first.op) == "string"
+end
+
+local function scriptTable(S)
+  return S.data and (S.data.scripts or S.data.gen2Scripts) or {}
+end
+
+local function stdTable(S)
+  return S.data and (S.data.gen2StdScripts or S.data.std_scripts) or {}
+end
+
+local function eventTables(S)
+  return S.data and (S.data.gen2EventTables or S.data.events) or {}
+end
+
+local function markUsed(used, key)
+  if type(key) == "string" and key ~= "" then used[key] = true end
+end
+
+local function collectCatalog(S, mapId)
+  local entries, seen = {}, {}
+  local function add(scriptKey, kind, label, index)
+    if type(scriptKey) ~= "string" or scriptKey == "" then return end
+    local pinKey = tostring(kind) .. ":" .. tostring(index) .. ":" .. scriptKey
+    if seen[pinKey] then return end
+    seen[pinKey] = true
+    local src = sourceBadgeGen2(S, mapId, scriptKey)
+    entries[#entries + 1] = {
+      key = mapId .. "/" .. scriptKey,
+      mapId = mapId,
+      textId = scriptKey,
+      scriptKey = scriptKey,
+      kind = kind,
+      index = index,
+      label = label or scriptKey,
+      source = src,
+      attached = src ~= "empty",
+    }
+  end
+
+  if mapId == "_STD" then
+    local std = stdTable(S)
+    local order = std.order or {}
+    local scripts = std.scripts or {}
+    local listed = {}
+    for i, name in ipairs(order) do
+      local row = scripts[name]
+      local key = row and row.key
+      if type(key) == "string" then
+        listed[name] = true
+        add(key, "std", name, i)
+      end
+    end
+    local extra = {}
+    for name, row in pairs(scripts) do
+      if type(name) == "string" and not listed[name]
+          and type(row) == "table" and type(row.key) == "string" then
+        extra[#extra + 1] = name
+      end
+    end
+    table.sort(extra)
+    for i, name in ipairs(extra) do
+      add(scripts[name].key, "std", name, 1000 + i)
+    end
+  elseif mapId == "_PHONE" then
+    local ev = eventTables(S)
+    local phone = ev.phone or {}
+    local ids = {}
+    for k in pairs(phone) do ids[#ids + 1] = k end
+    table.sort(ids, function(a, b) return tostring(a) < tostring(b) end)
+    for _, k in ipairs(ids) do
+      local row = phone[k]
+      if type(row) == "table" then
+        local name = row.contact or ("PHONE_" .. tostring(k))
+        add(row.callee, "phone", name .. " callee", k)
+        add(row.caller, "phone", name .. " caller", k)
+      end
+    end
+    local named = ev.phoneScripts or {}
+    local labels = {}
+    for lab in pairs(named) do labels[#labels + 1] = lab end
+    table.sort(labels)
+    for _, lab in ipairs(labels) do
+      local row = named[lab]
+      add(row and row.script, "phone", lab, lab)
+    end
+  elseif mapId == "_DECO" then
+    local deco = eventTables(S).decorations or {}
+    local names = {}
+    for k in pairs(deco) do
+      if type(k) == "string" then names[#names + 1] = k end
+    end
+    table.sort(names)
+    for i, name in ipairs(names) do
+      local row = deco[name]
+      if type(row) == "table" then
+        add(row.script, "deco", name, i)
+        for pi, poster in ipairs(row.posters or {}) do
+          if type(poster) == "table" then
+            add(poster.script, "deco", name .. " poster " .. pi, pi)
+          end
+        end
+      end
+    end
+  elseif mapId == "_SPECIAL" then
+    local calls = eventTables(S).specialCalls or {}
+    for i, row in ipairs(calls) do
+      if type(row) == "table" then
+        add(row.script, "special", row.call or ("SPECIAL_" .. i), i)
+      end
+    end
+  elseif mapId == "_OTHER" then
+    local used = {}
+    local maps = Generation.dataMaps(S)
+    for _, def in pairs(maps) do
+      if type(def) == "table" then
+        for _, obj in ipairs(def.objects or {}) do
+          markUsed(used, obj.scriptKey)
+        end
+        for _, ev in ipairs(def.bgEvents or {}) do
+          markUsed(used, ev.scriptKey)
+        end
+        for _, ev in ipairs(def.coordEvents or {}) do
+          markUsed(used, ev.scriptKey)
+        end
+        for _, sc in pairs(def.sceneScripts or {}) do
+          if type(sc) == "table" then markUsed(used, sc.scriptKey) end
+        end
+        for _, cb in ipairs(def.callbacks or {}) do
+          markUsed(used, cb.scriptKey)
+        end
+      end
+    end
+    local std = stdTable(S).scripts or {}
+    for _, row in pairs(std) do
+      if type(row) == "table" then markUsed(used, row.key) end
+    end
+    local ev = eventTables(S)
+    for _, row in pairs(ev.phone or {}) do
+      if type(row) == "table" then
+        markUsed(used, row.callee)
+        markUsed(used, row.caller)
+      end
+    end
+    for _, row in pairs(ev.phoneScripts or {}) do
+      if type(row) == "table" then markUsed(used, row.script) end
+    end
+    for _, row in ipairs(ev.specialCalls or {}) do
+      if type(row) == "table" then markUsed(used, row.script) end
+    end
+    for _, row in pairs(ev.decorations or {}) do
+      if type(row) == "table" then
+        markUsed(used, row.script)
+        for _, poster in ipairs(row.posters or {}) do
+          if type(poster) == "table" then markUsed(used, poster.script) end
+        end
+      end
+    end
+    local keys, seenKeys = {}, {}
+    local function consider(k, v)
+      if type(k) == "string" and not SKIP_SCRIPT_META[k]
+          and not used[k] and not seenKeys[k] and isScriptBody(v) then
+        seenKeys[k] = true
+        keys[#keys + 1] = k
+      end
+    end
+    local scripts = scriptTable(S)
+    for k, v in pairs(scripts) do consider(k, v) end
+    if S.project and type(S.project.scripts) == "table" then
+      for k, v in pairs(S.project.scripts) do consider(k, v) end
+    end
+    table.sort(keys)
+    for i, k in ipairs(keys) do
+      add(k, "other", k, i)
+    end
+  end
+
+  table.sort(entries, function(a, b)
+    if (a.label or "") ~= (b.label or "") then
+      return tostring(a.label) < tostring(b.label)
+    end
+    return tostring(a.textId) < tostring(b.textId)
+  end)
+  return entries
+end
+
 local function collectGen2(S, mapId)
+  if TalkIndex.isCatalogMap(mapId) then
+    return collectCatalog(S, mapId)
+  end
   local entries, seen = {}, {}
   -- Dedupe by kind+index+scriptKey so two objects never share one pin slot.
   local function add(scriptKey, kind, label, index)
@@ -183,6 +409,30 @@ local function collectGen2(S, mapId)
           string.format("Coord #%d", i), i)
       end
     end
+    local scenes = map.sceneScripts or map.scenes
+    if type(scenes) == "table" then
+      local ids = {}
+      for k in pairs(scenes) do ids[#ids + 1] = k end
+      table.sort(ids, function(a, b)
+        local na, nb = tonumber(a), tonumber(b)
+        if na and nb then return na < nb end
+        return tostring(a) < tostring(b)
+      end)
+      for _, k in ipairs(ids) do
+        local sc = scenes[k]
+        local key = type(sc) == "table" and (sc.scriptKey or sc.script) or sc
+        if type(key) == "string" then
+          add(key, "scene", "Scene " .. tostring(k), k)
+        end
+      end
+    end
+    for i, cb in ipairs(map.callbacks or {}) do
+      local key = cb.scriptKey or cb.script
+      if type(key) == "string" then
+        add(key, "callback",
+          tostring(cb.callback or ("Callback #" .. i)), i)
+      end
+    end
   end
   -- Orphan mod talk scripts for this map (Events "+ Talk script" without attach).
   local prefix = "mod:" .. tostring(mapId) .. "_"
@@ -204,10 +454,11 @@ local function collectGen2(S, mapId)
     end
   end
   table.sort(entries, function(a, b)
-    local ao = a.kind == "object" and 0 or a.kind == "bg" and 1
-      or a.kind == "coord" and 2 or 3
-    local bo = b.kind == "object" and 0 or b.kind == "bg" and 1
-      or b.kind == "coord" and 2 or 3
+    local rank = {
+      object = 0, bg = 1, coord = 2, scene = 3, callback = 4, mod = 5,
+    }
+    local ao = rank[a.kind] or 6
+    local bo = rank[b.kind] or 6
     if ao ~= bo then return ao < bo end
     if (a.index or 0) ~= (b.index or 0) then
       return (a.index or 0) < (b.index or 0)
@@ -307,10 +558,34 @@ function TalkIndex.collect(S, mapId)
   return entries
 end
 
+local function catalogHasPins(S, mapId)
+  if mapId == "_STD" then
+    local scripts = stdTable(S).scripts
+    return type(scripts) == "table" and next(scripts) ~= nil
+  elseif mapId == "_PHONE" then
+    local ev = eventTables(S)
+    return (type(ev.phone) == "table" and next(ev.phone) ~= nil)
+      or (type(ev.phoneScripts) == "table" and next(ev.phoneScripts) ~= nil)
+  elseif mapId == "_DECO" then
+    local deco = eventTables(S).decorations
+    return type(deco) == "table" and next(deco) ~= nil
+  elseif mapId == "_SPECIAL" then
+    local calls = eventTables(S).specialCalls
+    return type(calls) == "table" and calls[1] ~= nil
+  elseif mapId == "_OTHER" then
+    local scripts = scriptTable(S)
+    return type(scripts) == "table" and next(scripts) ~= nil
+  end
+  return false
+end
+
 function TalkIndex.allMapIds(S)
   local seen, ids = {}, {}
   local function add(id)
-    if id and not seen[id] then seen[id] = true; ids[#ids + 1] = id end
+    if id and not seen[id] and not TalkIndex.isCatalogMap(id) then
+      seen[id] = true
+      ids[#ids + 1] = id
+    end
   end
   if S.project then
     for id in pairs(S.project.maps or {}) do add(id) end
@@ -326,6 +601,15 @@ function TalkIndex.allMapIds(S)
     -- data maps so empty indoor maps stay browsable.
   end
   table.sort(ids)
+  if Generation.isGen2(S) then
+    local head = {}
+    for i = 1, #CATALOG do
+      local cid = CATALOG[i].id
+      if catalogHasPins(S, cid) then head[#head + 1] = cid end
+    end
+    for i = 1, #ids do head[#head + 1] = ids[i] end
+    return head
+  end
   return ids
 end
 
@@ -633,6 +917,13 @@ function TalkIndex.sourceLabel(src)
     nurse = "NURSE",
     pc = "PC",
     cable = "CABLE",
+    std = "STD",
+    phone = "PHONE",
+    deco = "DECO",
+    special = "CALL",
+    scene = "SCENE",
+    callback = "CB",
+    other = "OTHER",
     empty = "-",
   }
   return labels[src] or tostring(src or "?")

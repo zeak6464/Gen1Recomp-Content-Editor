@@ -713,6 +713,31 @@ function ModIO.listMods()
   return out
 end
 
+function ModIO.listSubdirs(root)
+  local out = {}
+  if type(root) ~= "string" or root == "" then return out end
+  local sep = package.config:sub(1, 1)
+  local names
+  if sep == "\\" then
+    names = windowsNames(root, true) or {}
+  else
+    names = {}
+    local pipe = io.popen(string.format('ls -1 "%s" 2>/dev/null', root), "r")
+    if pipe then
+      for line in pipe:lines() do names[#names + 1] = line end
+      pipe:close()
+    end
+  end
+  for _, line in ipairs(names) do
+    line = trim(line)
+    if line ~= "" and line ~= "." and line ~= ".." then
+      out[#out + 1] = line
+    end
+  end
+  table.sort(out)
+  return out
+end
+
 function ModIO.modDir(id)
   if not id or id == "" then return nil end
   return join(ModIO.modsRoot(), id)

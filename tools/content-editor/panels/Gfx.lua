@@ -7,9 +7,11 @@ local RegList = require("RegList")
 local FormPane = require("FormPane")
 local Preview = require("Preview")
 local ColorWheel = require("ColorWheel")
-local Autocomplete = require("Autocomplete")
+local PalettePicker = require("PalettePicker")
+local ChoicePicker = require("ChoicePicker")
 local ModIO = require("ModIO")
 local SpriteUtil = require("SpriteUtil")
+local SpriteAnimPreview = require("SpriteAnimPreview")
 local MapLoader = require("src.world.MapLoader")
 local Generation = require("Generation")
 local PAL = Theme.PAL
@@ -1274,7 +1276,7 @@ function Gfx.draw(S, x, y, w, h, App)
         end
       end
     end
-    Preview.draw(S, rec.image, viewX + viewW - prev, fy, prev, prev, sprPal)
+    SpriteAnimPreview.drawStand(S, rec, viewX + viewW - prev, fy, prev)
     if sprPalColors then
       Preview.drawSwatches(sprPalColors,
         viewX + viewW - prev, fy + prev + 4 * s, prev, 12 * s)
@@ -1350,19 +1352,26 @@ function Gfx.draw(S, x, y, w, h, App)
           return
         end
         local cur = rec.palette or "PAL_OW_RED"
-        if Kit.button(fx, fy_, math.min(fw, 160 * s), fh_,
-            Kit.ellipsize("small", cur, math.min(fw, 160 * s) - 8 * s),
-            { kind = "ghost", tooltip = "Cycle PAL_OW_*" }) then
-          local e = ensure()
-          e.palette = RegList.cycle(SpriteUtil.OW_PALETTES, cur)
-          local idx
-          for i, name in ipairs(SpriteUtil.OW_PALETTES) do
-            if name == e.palette then idx = i - 1; break end
-          end
-          if idx then e.paletteId = idx end
-          Preview.invalidate()
-          App.markDirty()
-        end
+        ChoicePicker.field(S, {
+          x = fx, y = fy_, w = math.min(fw, 160 * s), h = fh_,
+          current = cur,
+          ids = SpriteUtil.OW_PALETTES,
+          emptyLabel = "PAL_OW_RED",
+          title = "OW PALETTE",
+          tooltip = "Pick PAL_OW_*",
+          onPick = function(id)
+            if type(id) ~= "string" or id == "" then return end
+            local e = ensure()
+            e.palette = id
+            local idx
+            for i, name in ipairs(SpriteUtil.OW_PALETTES) do
+              if name == id then idx = i - 1; break end
+            end
+            if idx then e.paletteId = idx end
+            Preview.invalidate()
+            App.markDirty()
+          end,
+        })
         if sprPalColors then
           Preview.drawSwatches(sprPalColors, fx + fw - 80 * s,
             fy_ + (fh_ - 14 * s) / 2, 80 * s, 14 * s)
@@ -1382,12 +1391,19 @@ function Gfx.draw(S, x, y, w, h, App)
       end)
       row("Sprite type", function(fx, fy_, fw, fh_)
         local cur = rec.spriteType or "WALKING_SPRITE"
-        if Kit.button(fx, fy_, math.min(fw, 180 * s), fh_,
-            Kit.ellipsize("small", cur:gsub("_SPRITE$", ""), math.min(fw, 180 * s) - 8 * s),
-            { kind = "ghost" }) then
-          ensure().spriteType = RegList.cycle(SpriteUtil.SPRITE_TYPES, cur)
-          App.markDirty()
-        end
+        ChoicePicker.field(S, {
+          x = fx, y = fy_, w = math.min(fw, 180 * s), h = fh_,
+          current = cur,
+          ids = SpriteUtil.SPRITE_TYPES,
+          emptyLabel = "WALKING_SPRITE",
+          title = "SPRITE TYPE",
+          tooltip = "Walk / stand / still / Pokémon sheet",
+          onPick = function(id)
+            if type(id) ~= "string" or id == "" then return end
+            ensure().spriteType = id
+            App.markDirty()
+          end,
+        })
       end)
     else
       row("Palette src", function(fx, fy_, fw, fh_)
@@ -1395,20 +1411,41 @@ function Gfx.draw(S, x, y, w, h, App)
           Kit.text("small", "(ignored — TrueColor)", fx, fy_ + 6 * s, PAL.faint)
           return
         end
-        local cur = rec.paletteSource or ""
-        local v = RegList.suggestField(App, S, "spr_ps", fx, fy_,
-          math.max(40 * s, fw - 88 * s), fh_, cur, "optional",
-          function() return Autocomplete.paletteIds(S) end)
-        if v ~= cur then
-          local e = ensure()
-          e.paletteSource = (v ~= "" and v) or nil
-        end
-        if type(sprPal) == "string" then
-          Preview.drawNamedSwatches(S, sprPal, fx + fw - 80 * s,
-            fy_ + (fh_ - 14 * s) / 2, 80 * s, 14 * s)
-        end
+        PalettePicker.row(S, {
+          x = fx, y = fy_, w = fw, h = fh_,
+          current = rec.paletteSource or "",
+          effective = type(sprPal) == "string" and sprPal or nil,
+          emptyLabel = "(MEWMON)",
+          clearLabel = "(MEWMON default)",
+          allowClear = true,
+          title = "SPRITE PALETTE",
+          tooltip = "SGB palette for this overworld sheet",
+          onPick = function(id)
+            local e = ensure()
+            e.paletteSource = id
+            Preview.invalidate()
+            App.markDirty()
+          end,
+          owner = {
+            kind = "sprite",
+            entityId = id,
+            entityLabel = id,
+            assign = function(palId)
+              local e = ensure()
+              e.paletteSource = palId
+              Preview.invalidate()
+              App.markDirty()
+            end,
+          },
+        })
       end)
     end
+    fy = fy + 4 * s
+    fy = SpriteAnimPreview.draw(S, rec, viewX, fy, viewW, {
+      prefix = "gfxSpriteAnim", s = s, title = "Sprite animation",
+    })
+    fy = fy + 8 * s
+    fy = SpriteAnimPreview.drawStrip(S, rec, viewX, fy, 40 * s, s)
     FormPane.finish(S, "gfxFormScroll", contentTop, fy, view)
     if owned and Kit.button(formX + 12 * s, listY + listH - 40 * s, 120 * s, 32 * s,
         "Revert", { kind = "danger" }) then
