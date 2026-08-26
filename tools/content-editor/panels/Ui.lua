@@ -970,12 +970,10 @@ local function drawOak(S, x, y, w, h, App)
         local sid = (type(id) == "string" and id ~= "") and id or nil
         local b = ensureBucket(S, "oakSpeech")
         b.demoSpecies = sid
-        local picKey = gen2 and "marillPic" or "demoPic"
-        if sid then
-          b[picKey] = speciesFrontPath(S, sid)
-        else
-          b[picKey] = nil
-        end
+        -- Don't pin a ROM-cache front pic. Save strips those, and Crystal's
+        -- oak_speech.lua keeps marillPic = wooper.png unless we reload from
+        -- demoSpecies at runtime.
+        b[gen2 and "marillPic" or "demoPic"] = nil
         if App then App.markDirty() end
       end,
     })

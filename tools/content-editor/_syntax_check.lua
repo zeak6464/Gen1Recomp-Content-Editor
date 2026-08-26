@@ -343,6 +343,15 @@ local ok, err = pcall(function()
     package.loaded["Generation"] = nil
   end
   do
+    local oakOut = ModWriter.emitMain({
+      id = "t", game = "crystal",
+      oakSpeech = { demoSpecies = "AZUMARILL" },
+    }, { trainers = { classes = {} } })
+    assert(oakOut:find("demoSpecies"), "missing gen2 oak demoSpecies emit")
+    assert(oakOut:find("src.ui.gen2.OakSpeech"), "missing gen2 OakSpeech wrap")
+    assert(oakOut:find("loadMon"), "missing gen2 oak demo pic reload")
+  end
+  do
     local out = ModWriter.emitMain({
       id = "t",
       pokemon = {
