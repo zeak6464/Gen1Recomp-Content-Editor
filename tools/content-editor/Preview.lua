@@ -77,6 +77,39 @@ function Preview.resolve(S, path)
       and love.filesystem.getInfo(path) then
     return path, "love"
   end
+  -- Writable save dir. getInfo can miss files that exist on disk (playtest
+  -- identity, encode vs PhysFS, OneDrive). Map Builder atlases live here.
+  if love and love.filesystem and love.filesystem.getSaveDirectory then
+    local saveDir = love.filesystem.getSaveDirectory()
+    if type(saveDir) == "string" and saveDir ~= "" then
+      local full = join(saveDir, path)
+      if existsFs(full) then return full, "disk" end
+    end
+  end
+  -- Playtest / linked Recomp write save/mod-derived next to the engine, not
+  -- under the editor's LÖVE identity.
+  do
+    local root
+    if S and S.dataPrefs and type(S.dataPrefs.recompRoot) == "string" then
+      root = S.dataPrefs.recompRoot
+    end
+    if not root or root == "" then
+      local ok, DataSource = pcall(require, "DataSource")
+      if ok and DataSource then
+        if DataSource.mountedRecompRoot then
+          root = DataSource.mountedRecompRoot()
+        end
+        if (not root or root == "") and DataSource.loadPrefs then
+          local prefs = DataSource.loadPrefs()
+          root = prefs and prefs.recompRoot
+        end
+      end
+    end
+    if type(root) == "string" and root ~= "" then
+      local full = join(root, path)
+      if existsFs(full) then return full, "disk" end
+    end
+  end
   -- Versioned ROM cache (gold/assets/generated/…) when PhysFS has no overlay.
   do
     local ok, CacheFs = pcall(require, "src.import.CacheFs")
