@@ -1,7 +1,4 @@
--- Player tab: overworld wearable sprites (walk/bike/surf/fly) + battle /
--- intro pics.  Gen1 remaps write field.playerSprites / field.playerPics;
--- Gold remaps write data.gen2PlayerSprites + gen2MenuGfx paths.  Sheet
--- edits go through project.sprites (same as GFX).
+-- Player tab: new-game start, advanced limits/Fly, overworld sprites, pics.
 
 local Kit = require("Kit")
 local Theme = require("Theme")
@@ -13,13 +10,30 @@ local PalettePicker = require("PalettePicker")
 local SpriteUtil = require("SpriteUtil")
 local SpriteAnimPreview = require("SpriteAnimPreview")
 local Generation = require("Generation")
+local ItemPicker = require("ItemPicker")
 local PAL = Theme.PAL
 
 local Player = {}
 
+local FACINGS = { "up", "down", "left", "right" }
+
+local GEN2_PLAYER_NAME = {
+  gold = "GOLD", silver = "SILVER", crystal = "CHRIS",
+}
+local GEN2_PLAYER_PRESETS = {
+  gold = { "GOLD", "HIRO", "TAYLOR", "KARL" },
+  silver = { "SILVER", "KAMON", "OSCAR", "MAX" },
+  crystal = { "CHRIS", "MAT", "ALLAN", "JON" },
+}
+
 local function modesFor(S)
+  local start = { id = "start", label = "New game",
+    tip = "Spawn, money, bag, and PC items" }
+  local advanced = { id = "advanced", label = "Advanced",
+    tip = "Limits, badges, and Fly" }
   if Generation.isGen2(S) then
     return {
+      start, advanced,
       { id = "overworld", label = "Overworld",
         tip = "Walk / bike / surf sprite sheets and Chris slot remaps" },
       { id = "pics", label = "Pics",
@@ -27,6 +41,7 @@ local function modesFor(S)
     }
   end
   return {
+    start, advanced,
     { id = "overworld", label = "Overworld",
       tip = "Walk / bike / surf / fly sprite sheets and slot remaps" },
     { id = "pics", label = "Pics",
@@ -650,6 +665,684 @@ local function drawPics(S, x, y, w, h, App)
   FormPane.finish(S, "playerPicScroll", contentTop, fy, view)
 end
 
+local function copyItemRows(src)
+  local out = {}
+  for i, row in ipairs(src or {}) do
+    if type(row) == "table" then
+      out[i] = { id = row.id, count = tonumber(row.count) or 1 }
+    end
+  end
+  return out
+end
+
+local function parseCsvIds(s)
+  local out = {}
+  for part in tostring(s or ""):gmatch("[^,]+") do
+    part = part:match("^%s*(.-)%s*$")
+    if part ~= "" then out[#out + 1] = part end
+  end
+  return out
+end
+
+local function joinCsvIds(t)
+  if type(t) ~= "table" then return "" end
+  return table.concat(t, ", ")
+end
+
+local function copyStrList(src)
+  local out = {}
+  if type(src) ~= "table" then return out end
+  for i, v in ipairs(src) do out[i] = v end
+  return out
+end
+
+-- Crystal/Gold ignore Data.field.boot (still Red's house). New game uses
+-- landmarks.spawns.SPAWN_HOME, 3000 money, empty bag/PC.
+function Player.vanillaBoot(S)
+  if Generation.isGen2(S) then
+    local lm = S.data and (S.data.gen2Landmarks or S.data.landmarks)
+    local spot = lm and lm.spawns and lm.spawns.SPAWN_HOME
+    local map = (type(spot) == "table" and spot.map) or "PLAYERS_HOUSE_2F"
+    local x = (type(spot) == "table" and tonumber(spot.x)) or 3
+    local y = (type(spot) == "table" and tonumber(spot.y)) or 3
+    local ver = Generation.id(S)
+    local presets = GEN2_PLAYER_PRESETS[ver] or GEN2_PLAYER_PRESETS.gold
+    return {
+      startMap = map, startX = x, startY = y, startFacing = "down",
+      startMoney = 3000,
+      playerName = GEN2_PLAYER_NAME[ver] or "GOLD",
+      rivalName = "???",
+      lastHeal = { map = map, x = x, y = y },
+      namePresets = {
+        player = copyStrList(presets),
+        rival = { "SILVER" },
+      },
+      startItems = {},
+      startPcItems = {},
+    }
+  end
+  local b = (S.data and S.data.field and S.data.field.boot) or {}
+  local map = b.startMap or "REDS_HOUSE_2F"
+  local x = b.startX or 3
+  local y = b.startY or 6
+  local facing = b.startFacing or "down"
+  if map == "REDS_HOUSE_2F" and Generation.id(S) ~= "yellow" then
+    facing = "up"
+  end
+  local heal = b.lastHeal
+  if type(heal) ~= "table" or not heal.map then
+    if map == "REDS_HOUSE_2F" then
+      heal = { map = "PALLET_TOWN", x = 5, y = 6 }
+    else
+      heal = { map = map, x = x, y = y }
+    end
+  end
+  local presets = b.namePresets
+  if type(presets) ~= "table" then
+    presets = { player = { "RED", "ASH", "JACK" }, rival = { "BLUE", "GARY", "JOHN" } }
+  end
+  return {
+    startMap = map, startX = x, startY = y, startFacing = facing,
+    startMoney = b.startMoney or 3000,
+    playerName = b.playerName or "RED",
+    rivalName = b.rivalName or "BLUE",
+    lastHeal = heal,
+    namePresets = {
+      player = copyStrList(presets.player),
+      rival = copyStrList(presets.rival),
+    },
+    startItems = {},
+    startPcItems = { { id = "POTION", count = 1 } },
+  }
+end
+
+local function bootField(S, key)
+  local b = S.project and S.project.boot
+  if b and b[key] ~= nil then
+    if not (type(b[key]) == "string" and b[key] == "") then
+      return b[key]
+    end
+  end
+  return Player.vanillaBoot(S)[key]
+end
+
+local function lastHealField(S, key)
+  local lh = S.project and S.project.boot and S.project.boot.lastHeal
+  if lh and lh[key] ~= nil then
+    if not (type(lh[key]) == "string" and lh[key] == "") then
+      return lh[key]
+    end
+  end
+  local heal = Player.vanillaBoot(S).lastHeal
+  return heal and heal[key]
+end
+
+local function setBoot(S, key, val, App)
+  State.ensureProjectFields(S.project)
+  S.project.boot[key] = val
+  App.markDirty()
+end
+
+local function setLastHeal(S, key, val, App)
+  State.ensureProjectFields(S.project)
+  S.project.boot.lastHeal = S.project.boot.lastHeal or {}
+  S.project.boot.lastHeal[key] = val
+  App.markDirty()
+end
+
+local function ensureBootItemList(S, key, App)
+  State.ensureProjectFields(S.project)
+  if type(S.project.boot[key]) ~= "table" then
+    S.project.boot[key] = copyItemRows(Player.vanillaBoot(S)[key])
+    App.markDirty()
+  end
+  return S.project.boot[key]
+end
+
+local function drawBootItemList(S, App, key, title, x, y, w, fh, s)
+  Kit.text("small", title, x, y + 6 * s, PAL.caption)
+  y = y + 24 * s
+  local owned = type(S.project.boot and S.project.boot[key]) == "table"
+  local list = owned and S.project.boot[key]
+    or copyItemRows(Player.vanillaBoot(S)[key])
+  if not owned then
+    Kit.text("micro", "Vanilla for this ROM. Edit to override.",
+      x, y, PAL.muted)
+  elseif #list == 0 then
+    Kit.text("micro", "Starts with no items. Vanilla restores the original bag or PC.",
+      x, y, PAL.muted)
+  else
+    Kit.text("micro", "Qty is how many of that item. X removes the row.",
+      x, y, PAL.muted)
+  end
+  y = y + 20 * s
+  for i, row in ipairs(list) do
+    local slot = i
+    ItemPicker.field(S, {
+      x = x, y = y, w = w - 160 * s, h = fh,
+      current = (row and row.id) or "",
+      title = title,
+      onPick = function(id)
+        local e = ensureBootItemList(S, key, App)
+        e[slot] = e[slot] or {}
+        e[slot].id = id
+        e[slot].count = tonumber(e[slot].count) or 1
+        App.markDirty()
+      end,
+    })
+    local count = tonumber(row and row.count) or 1
+    local shown = RegList.num(App, "pl_" .. key .. "_" .. slot,
+      x + w - 152 * s, y, 72 * s, fh, count)
+    if shown ~= count then
+      local e = ensureBootItemList(S, key, App)
+      e[slot] = e[slot] or {}
+      e[slot].count = math.max(1, math.floor(tonumber(shown) or 1))
+      App.markDirty()
+    end
+    if Kit.button(x + w - 36 * s, y, 32 * s, fh, "X", { kind = "danger" }) then
+      table.remove(ensureBootItemList(S, key, App), slot)
+      App.markDirty()
+      break
+    end
+    y = y + fh + 6 * s
+  end
+  if Kit.button(x, y, 140 * s, fh, "+ Add item", { kind = "good" }) then
+    local e = ensureBootItemList(S, key, App)
+    e[#e + 1] = { id = "POTION", count = 1 }
+    App.markDirty()
+  end
+  if owned and Kit.button(x + 148 * s, y, 150 * s, fh, "Vanilla", { kind = "ghost" }) then
+    S.project.boot[key] = nil
+    App.markDirty()
+  end
+  return y + fh + 8 * s
+end
+
+local function drawStart(S, x, y, w, h, App)
+  local s = Kit.scale
+  local pad = 16 * s
+  local fh = 28 * s
+  FormPane.track(S, "playerStartScroll", S.project and S.project.id or "")
+  local row, pageView = FormPane.begin(S, "playerStartScroll", x, y, w, h)
+  local pageTop = row
+  w = pageView.contentW or w
+
+  Kit.caption(x, row, "NEW-GAME START")
+  row = row + 24 * s
+  Kit.text("micro",
+    "Values shown are this ROM's vanilla new game. Change a field to override it.",
+    x, row, PAL.muted)
+  row = row + 22 * s
+
+  local innerY = row
+  local cardH = S._playerStartH or (760 * s)
+  Kit.card(x, innerY, w, cardH, 14 * s)
+  local scrollPad = 12 * s
+  local viewX = x + scrollPad
+  local viewW = w - 2 * scrollPad
+  local fy = innerY + scrollPad
+  local labelW = 120 * s
+
+  local function bootRow(label, body)
+    Kit.text("small", label, viewX, fy + 6 * s, PAL.caption)
+    body(viewX + labelW, fy, viewW - labelW - 8 * s, fh)
+    fy = fy + fh + 8 * s
+  end
+
+  local vanilla = Player.vanillaBoot(S)
+  local mapHint = tostring(vanilla.startMap or "")
+  bootRow("Start map", function(fx, fy_, fw, fh_)
+    local cur = tostring(bootField(S, "startMap") or "")
+    local v = RegList.field(App, "pl_boot_map", fx, fy_, fw, fh_, cur, mapHint)
+    if v ~= cur then setBoot(S, "startMap", v, App) end
+  end)
+  bootRow("Start X", function(fx, fy_, fw, fh_)
+    local cur = bootField(S, "startX") or 0
+    local v = RegList.num(App, "pl_boot_x", fx, fy_, 80 * s, fh_, cur)
+    if v ~= cur then setBoot(S, "startX", v, App) end
+  end)
+  bootRow("Start Y", function(fx, fy_, fw, fh_)
+    local cur = bootField(S, "startY") or 0
+    local v = RegList.num(App, "pl_boot_y", fx, fy_, 80 * s, fh_, cur)
+    if v ~= cur then setBoot(S, "startY", v, App) end
+  end)
+  bootRow("Facing", function(fx, fy_, fw, fh_)
+    local cur = tostring(bootField(S, "startFacing") or "down")
+    if Kit.button(fx, fy_, fw, fh_, Kit.ellipsize("small", cur, fw - 8 * s),
+        { kind = "ghost" }) then
+      setBoot(S, "startFacing", RegList.cycle(FACINGS, cur), App)
+    end
+  end)
+  bootRow("Starting money", function(fx, fy_, fw, fh_)
+    local cur = bootField(S, "startMoney") or 0
+    local v = RegList.num(App, "pl_boot_money", fx, fy_, 100 * s, fh_, cur)
+    if v ~= cur then setBoot(S, "startMoney", v, App) end
+  end)
+  bootRow("Last heal map", function(fx, fy_, fw, fh_)
+    local cur = tostring(lastHealField(S, "map") or "")
+    local v = RegList.field(App, "pl_boot_lhm", fx, fy_, fw, fh_, cur, mapHint)
+    if v ~= cur then setLastHeal(S, "map", v, App) end
+  end)
+  bootRow("Last heal X", function(fx, fy_, fw, fh_)
+    local cur = lastHealField(S, "x") or 0
+    local v = RegList.num(App, "pl_boot_lhx", fx, fy_, 80 * s, fh_, cur)
+    if v ~= cur then setLastHeal(S, "x", v, App) end
+  end)
+  bootRow("Last heal Y", function(fx, fy_, fw, fh_)
+    local cur = lastHealField(S, "y") or 0
+    local v = RegList.num(App, "pl_boot_lhy", fx, fy_, 80 * s, fh_, cur)
+    if v ~= cur then setLastHeal(S, "y", v, App) end
+  end)
+
+  bootRow("Player", function(fx, fy_, fw, fh_)
+    local cur = tostring(bootField(S, "playerName") or "")
+    local v = RegList.field(App, "pl_boot_pname", fx, fy_, fw, fh_, cur,
+      vanilla.playerName or "")
+    if v ~= cur then setBoot(S, "playerName", v, App) end
+  end)
+  bootRow("Rival", function(fx, fy_, fw, fh_)
+    local cur = tostring(bootField(S, "rivalName") or "")
+    local v = RegList.field(App, "pl_boot_rname", fx, fy_, fw, fh_, cur,
+      vanilla.rivalName or "")
+    if v ~= cur then setBoot(S, "rivalName", v, App) end
+  end)
+
+  local function namePresetList(who)
+    local presets = bootField(S, "namePresets")
+    if type(presets) == "table" and type(presets[who]) == "table" then
+      return presets[who]
+    end
+    local base = vanilla.namePresets
+    return base and base[who]
+  end
+
+  local function setNamePresets(who, list)
+    State.ensureProjectFields(S.project)
+    local cur = S.project.boot.namePresets
+    if type(cur) ~= "table" then
+      local base = vanilla.namePresets or {}
+      cur = {
+        player = copyStrList(base.player),
+        rival = copyStrList(base.rival),
+      }
+      S.project.boot.namePresets = cur
+    end
+    cur[who] = list
+    App.markDirty()
+  end
+
+  bootRow("Player names", function(fx, fy_, fw, fh_)
+    local cur = joinCsvIds(namePresetList("player"))
+    local v = RegList.field(App, "pl_boot_pnames", fx, fy_, fw, fh_, cur,
+      joinCsvIds(vanilla.namePresets and vanilla.namePresets.player))
+    if v ~= cur then setNamePresets("player", parseCsvIds(v)) end
+  end)
+  bootRow("Rival names", function(fx, fy_, fw, fh_)
+    local cur = joinCsvIds(namePresetList("rival"))
+    local v = RegList.field(App, "pl_boot_rnames", fx, fy_, fw, fh_, cur,
+      joinCsvIds(vanilla.namePresets and vanilla.namePresets.rival))
+    if v ~= cur then setNamePresets("rival", parseCsvIds(v)) end
+  end)
+
+  fy = fy + 8 * s
+  fy = drawBootItemList(S, App, "startItems", "Bag items",
+    viewX, fy, viewW, fh, s)
+  fy = drawBootItemList(S, App, "startPcItems", "PC items",
+    viewX, fy, viewW, fh, s)
+
+  S._playerStartH = math.max(120 * s, fy - innerY + scrollPad)
+  row = innerY + S._playerStartH + pad
+  FormPane.finish(S, "playerStartScroll", pageTop, row, pageView)
+end
+
+function Player.dataConstants(S)
+  return (S.data and S.data.constants) or {}
+end
+
+function Player.constField(S, key)
+  local c = S.project and S.project.constants
+  if c and c[key] ~= nil then return c[key] end
+  return Player.dataConstants(S)[key]
+end
+
+function Player.setConst(S, key, val, App)
+  State.ensureProjectFields(S.project)
+  S.project.constants[key] = val
+  App.markDirty()
+end
+
+function Player.badgeRows(S)
+  local c = S.project and S.project.constants
+  if c and c.badges and #c.badges > 0 then return c.badges end
+  local dc = Player.dataConstants(S).badges
+  if type(dc) == "table" and #dc > 0 then return dc end
+  return {}
+end
+
+function Player.ensureBadges(S, App)
+  State.ensureProjectFields(S.project)
+  if not S.project.constants.badges or #S.project.constants.badges == 0 then
+    local src = Player.dataConstants(S).badges
+    S.project.constants.badges = {}
+    if type(src) == "table" then
+      for i, row in ipairs(src) do
+        S.project.constants.badges[i] = {
+          id = row.id or "",
+          name = row.name or "",
+        }
+      end
+    end
+    App.markDirty()
+  end
+  return S.project.constants.badges
+end
+
+function Player.drawAdvanced(S, x, y, w, h, App)
+  local s = Kit.scale
+  local pad = 16 * s
+  local fh = 28 * s
+  FormPane.track(S, "playerAdvScroll", S.project and S.project.id or "")
+  local row, pageView = FormPane.begin(S, "playerAdvScroll", x, y, w, h)
+  local pageTop = row
+  w = pageView.contentW or w
+
+  Kit.caption(x, row, "ADVANCED")
+  row = row + 24 * s
+  Kit.text("micro",
+    "Optional rules, capacity, and Fly. Unchanged fields keep this ROM's defaults.",
+    x, row, PAL.muted)
+  row = row + 22 * s
+
+  local innerY = row
+  local cardH = S._playerAdvancedH or (520 * s)
+  Kit.card(x, innerY, w, cardH, 14 * s)
+  local scrollPad = 12 * s
+  local viewX = x + scrollPad
+  local viewW = w - 2 * scrollPad
+  local fy = innerY + scrollPad
+  local labelW = 120 * s
+  local secGap = 20 * s
+
+  local function advRow(label, body)
+    Kit.text("small", label, viewX, fy + 6 * s, PAL.caption)
+    body(viewX + labelW, fy, viewW - labelW - 8 * s, fh)
+    fy = fy + fh + 8 * s
+  end
+
+  Kit.caption(viewX, fy, "CONSTANTS")
+  fy = fy + 24 * s
+  Kit.text("micro",
+    "Optional rules and capacity limits.",
+    viewX, fy, PAL.muted)
+  fy = fy + 22 * s
+
+  if Generation.isGen2(S) then
+    advRow("Shiny rate", function(fx, fy_, fw, fh_)
+      local cur = tonumber(S.project.shinyRate) or 8192
+      local v = RegList.num(App, "pl_shiny_rate", fx, fy_, 80 * s, fh_, cur)
+      v = math.max(1, math.floor(v))
+      if v ~= cur then
+        State.ensureProjectFields(S.project)
+        S.project.shinyRate = v
+        App.markDirty()
+      end
+    end)
+    Kit.text("micro",
+      "1 / N chance a wild/gift mon rolls forced shiny DVs (vanilla 8192).",
+      viewX, fy, PAL.faint)
+    fy = fy + 18 * s
+  end
+
+  advRow("Level cap", function(fx, fy_, fw, fh_)
+    local cur = Player.constField(S, "levelCap") or 100
+    local v = RegList.num(App, "pl_const_lvl", fx, fy_, 80 * s, fh_, cur)
+    if v ~= cur then Player.setConst(S, "levelCap", v, App) end
+  end)
+  advRow("Dex size", function(fx, fy_, fw, fh_)
+    local cur = Player.constField(S, "dexSize") or 151
+    local v = RegList.num(App, "pl_const_dex", fx, fy_, 80 * s, fh_, cur)
+    if v ~= cur then Player.setConst(S, "dexSize", v, App) end
+  end)
+  advRow("Dex digits", function(fx, fy_, fw, fh_)
+    local cur = Player.constField(S, "dexDigits") or 3
+    local v = RegList.num(App, "pl_const_ddig", fx, fy_, 80 * s, fh_, cur)
+    if v ~= cur then Player.setConst(S, "dexDigits", v, App) end
+  end)
+  advRow("Party max", function(fx, fy_, fw, fh_)
+    local cur = Player.constField(S, "partyMax") or 6
+    local v = RegList.num(App, "pl_const_party", fx, fy_, 80 * s, fh_, cur)
+    if v ~= cur then Player.setConst(S, "partyMax", v, App) end
+  end)
+  advRow("Bag size", function(fx, fy_, fw, fh_)
+    local cur = Player.constField(S, "bagSize") or 20
+    local v = RegList.num(App, "pl_const_bag", fx, fy_, 80 * s, fh_, cur)
+    if v ~= cur then Player.setConst(S, "bagSize", v, App) end
+  end)
+  advRow("Money cap", function(fx, fy_, fw, fh_)
+    local cur = Player.constField(S, "moneyCap") or 999999
+    local v = RegList.num(App, "pl_const_money", fx, fy_, 100 * s, fh_, cur)
+    if v ~= cur then Player.setConst(S, "moneyCap", v, App) end
+  end)
+  advRow("Coin cap", function(fx, fy_, fw, fh_)
+    local cur = Player.constField(S, "coinCap") or 9999
+    local v = RegList.num(App, "pl_const_coin", fx, fy_, 80 * s, fh_, cur)
+    if v ~= cur then Player.setConst(S, "coinCap", v, App) end
+  end)
+  advRow("HM moves", function(fx, fy_, fw, fh_)
+    local cur = joinCsvIds(Player.constField(S, "hmMoves"))
+    local v = RegList.field(App, "pl_const_hm", fx, fy_, fw, fh_, cur, "CUT, FLY, SURF")
+    if v ~= cur then Player.setConst(S, "hmMoves", parseCsvIds(v), App) end
+  end)
+
+  Kit.text("small", "Badges", viewX, fy + 6 * s, PAL.caption)
+  fy = fy + 28 * s
+  local badges = Player.badgeRows(S)
+  if #badges == 0 then
+    Kit.text("micro", "(no badges — add one below)", viewX, fy, PAL.faint)
+    fy = fy + 20 * s
+  end
+  for i = 1, math.max(#badges, 0) do
+    local badge = badges[i] or { id = "", name = "" }
+    local idCur = tostring(badge.id or "")
+    local nameCur = tostring(badge.name or "")
+    Kit.text("micro", "#" .. i, viewX, fy + 8 * s, PAL.muted)
+    local idV = RegList.field(App, "pl_bdg_id_" .. i, viewX + 28 * s, fy, 140 * s, fh,
+      idCur, "BOULDERBADGE")
+    local nameV = RegList.field(App, "pl_bdg_nm_" .. i, viewX + 176 * s, fy,
+      viewW - 176 * s - 44 * s, fh, nameCur, "Boulder")
+    if idV ~= idCur or nameV ~= nameCur then
+      local rows = Player.ensureBadges(S, App)
+      rows[i] = rows[i] or {}
+      rows[i].id = idV
+      rows[i].name = nameV
+    end
+    if Kit.button(viewX + viewW - 36 * s, fy, 32 * s, fh, "X", { kind = "danger" }) then
+      local rows = Player.ensureBadges(S, App)
+      table.remove(rows, i)
+      App.markDirty()
+      break
+    end
+    fy = fy + fh + 6 * s
+  end
+  if Kit.button(viewX, fy, 100 * s, fh, "+ Badge", { kind = "good" }) then
+    local rows = Player.ensureBadges(S, App)
+    rows[#rows + 1] = { id = "NEW_BADGE", name = "Badge" }
+    App.markDirty()
+  end
+  fy = fy + fh + secGap
+
+  Kit.caption(viewX, fy, "TRADES / SHOPS")
+  fy = fy + 24 * s
+  Kit.text("micro",
+    "Open the dedicated editors for in-game trades and shop inventories.",
+    viewX, fy, PAL.muted)
+  fy = fy + 22 * s
+  if Kit.button(viewX, fy, 100 * s, fh, "Trades", { kind = "accent" }) then
+    S.tab = "trades"
+  end
+  if Kit.button(viewX + 110 * s, fy, 100 * s, fh, "Shops", { kind = "accent" }) then
+    S.tab = "shops"
+  end
+  fy = fy + fh + secGap
+
+  if not Generation.isGen2(S) then
+    Kit.caption(viewX, fy, "FLY ORDER")
+    fy = fy + 24 * s
+    Kit.text("micro",
+      "Controls the order and availability of destinations shown by the Fly menu.",
+      viewX, fy, PAL.muted)
+    fy = fy + 22 * s
+
+    local function ensureFlyOrder()
+      if type(S.project.flyOrder) == "table" then return S.project.flyOrder end
+      local base = (S.data and S.data.field and S.data.field.flyOrder) or {}
+      local copy = {}
+      for i, mid in ipairs(base) do copy[i] = mid end
+      S.project.flyOrder = copy
+      if next(S.project.flyWarps or {}) == nil then
+        local fw = (S.data and S.data.field and S.data.field.flyWarps) or {}
+        S.project.flyWarps = {}
+        for mid, spot in pairs(fw) do
+          if type(spot) == "table" then
+            S.project.flyWarps[mid] = { x = spot.x or 0, y = spot.y or 0 }
+          end
+        end
+      end
+      App.markDirty()
+      return copy
+    end
+
+    if type(S.project.flyOrder) ~= "table" then
+      if Kit.button(viewX, fy, 160 * s, fh, "Edit fly order…", { kind = "accent" }) then
+        ensureFlyOrder()
+      end
+      fy = fy + fh + 8 * s
+    else
+      local order = S.project.flyOrder
+      S.project.flyWarps = S.project.flyWarps or {}
+      for i, mid in ipairs(order) do
+        local midV = RegList.field(App, "pl_fly_" .. i, viewX, fy,
+          160 * s, fh, tostring(mid or ""), "PALLET_TOWN"):upper():gsub("%s+", "_")
+        if midV ~= mid then
+          order[i] = midV
+          if S.project.flyWarps[mid] and not S.project.flyWarps[midV] then
+            S.project.flyWarps[midV] = S.project.flyWarps[mid]
+            S.project.flyWarps[mid] = nil
+          end
+          App.markDirty()
+          mid = midV
+        end
+        local spot = S.project.flyWarps[mid]
+        if not spot then
+          local base = S.data and S.data.field and S.data.field.flyWarps
+            and S.data.field.flyWarps[mid]
+          spot = { x = (base and base.x) or 0, y = (base and base.y) or 0 }
+          S.project.flyWarps[mid] = spot
+        end
+        local xV = tonumber(RegList.num(App, "pl_flyx_" .. i,
+          viewX + 170 * s, fy, 50 * s, fh, tonumber(spot.x) or 0)) or 0
+        local yV = tonumber(RegList.num(App, "pl_flyy_" .. i,
+          viewX + 228 * s, fy, 50 * s, fh, tonumber(spot.y) or 0)) or 0
+        if xV ~= (spot.x or 0) or yV ~= (spot.y or 0) then
+          spot.x, spot.y = xV, yV
+          App.markDirty()
+        end
+        Kit.text("micro", "land x,y", viewX + 286 * s, fy + 8 * s, PAL.faint)
+        if Kit.button(viewX + viewW - 36 * s, fy, 32 * s, fh, "X",
+            { kind = "danger" }) then
+          S.project.flyWarps[mid] = nil
+          table.remove(order, i)
+          App.markDirty()
+          break
+        end
+        fy = fy + fh + 6 * s
+      end
+      if Kit.button(viewX, fy, 120 * s, fh, "+ Fly spot", { kind = "good" }) then
+        order[#order + 1] = "NEW_TOWN"
+        S.project.flyWarps["NEW_TOWN"] = { x = 0, y = 0 }
+        App.markDirty()
+      end
+      fy = fy + fh + 8 * s
+    end
+  else
+    Kit.caption(viewX, fy, "FLY POINTS")
+    fy = fy + 24 * s
+    Kit.text("micro",
+      "Maps each Fly landmark to the spawn and landing position used on arrival.",
+      viewX, fy, PAL.muted)
+    fy = fy + 22 * s
+
+    local function ensureFlyPoints()
+      if type(S.project.flyPoints) == "table" and #S.project.flyPoints > 0 then
+        return S.project.flyPoints
+      end
+      local ok, FieldMoves = pcall(require, "src.world.gen2.FieldMoves")
+      local base = (ok and FieldMoves and FieldMoves.FLYPOINTS) or {}
+      local spawns = S.data and S.data.gen2Landmarks and S.data.gen2Landmarks.spawns
+      local copy = {}
+      for i, row in ipairs(base) do
+        local spot = spawns and spawns[row.spawn]
+        copy[i] = {
+          landmark = row.landmark, spawn = row.spawn, flag = row.flag,
+          map = spot and spot.map, x = spot and spot.x, y = spot and spot.y,
+        }
+      end
+      S.project.flyPoints = copy
+      App.markDirty()
+      return copy
+    end
+
+    if type(S.project.flyPoints) ~= "table" or #S.project.flyPoints == 0 then
+      if Kit.button(viewX, fy, 160 * s, fh, "Edit fly points…", { kind = "accent" }) then
+        ensureFlyPoints()
+      end
+      fy = fy + fh + 8 * s
+    else
+      local rows = S.project.flyPoints
+      for i, row in ipairs(rows) do
+        local landmarkV = RegList.field(App, "pl_flylm_" .. i, viewX, fy,
+          150 * s, fh, tostring(row.landmark or ""), "LANDMARK_...")
+          :upper():gsub("%s+", "_")
+        if landmarkV ~= row.landmark then row.landmark = landmarkV end
+        local spawnV = RegList.field(App, "pl_flysp_" .. i, viewX + 158 * s, fy,
+          130 * s, fh, tostring(row.spawn or ""), "SPAWN_...")
+          :upper():gsub("%s+", "_")
+        if spawnV ~= row.spawn then row.spawn = spawnV end
+        local flagV = tonumber(RegList.num(App, "pl_flyfl_" .. i,
+          viewX + 294 * s, fy, 44 * s, fh, tonumber(row.flag) or 0)) or 0
+        if flagV ~= (row.flag or 0) then row.flag = flagV end
+        local mapV = RegList.field(App, "pl_flymap_" .. i, viewX + 344 * s, fy,
+          130 * s, fh, tostring(row.map or ""), "map")
+          :upper():gsub("%s+", "_")
+        if mapV ~= (row.map or "") then row.map = (mapV ~= "" and mapV) or nil end
+        local xV = tonumber(RegList.num(App, "pl_flyx_" .. i,
+          viewX + 480 * s, fy, 44 * s, fh, tonumber(row.x) or 0)) or 0
+        local yV = tonumber(RegList.num(App, "pl_flyy_" .. i,
+          viewX + 528 * s, fy, 44 * s, fh, tonumber(row.y) or 0)) or 0
+        if xV ~= (row.x or 0) then row.x = xV end
+        if yV ~= (row.y or 0) then row.y = yV end
+        Kit.text("micro", "land map/x,y", viewX + 576 * s, fy + 8 * s, PAL.faint)
+        if Kit.button(viewX + viewW - 36 * s, fy, 32 * s, fh, "X",
+            { kind = "danger" }) then
+          table.remove(rows, i)
+          App.markDirty()
+          break
+        end
+        fy = fy + fh + 6 * s
+      end
+      if Kit.button(viewX, fy, 120 * s, fh, "+ Fly point", { kind = "good" }) then
+        rows[#rows + 1] = { landmark = "LANDMARK_NEW", spawn = "SPAWN_NEW", flag = 0 }
+        App.markDirty()
+      end
+      fy = fy + fh + 8 * s
+    end
+  end
+
+  S._playerAdvancedH = math.max(120 * s, fy - innerY + scrollPad)
+  row = innerY + S._playerAdvancedH + pad
+  FormPane.finish(S, "playerAdvScroll", pageTop, row, pageView)
+end
+
 function Player.draw(S, x, y, w, h, App)
   local s = Kit.scale
   if not S.project then
@@ -659,11 +1352,16 @@ function Player.draw(S, x, y, w, h, App)
   State.ensureProjectFields(S.project)
 
   local modeY = RegList.modeChips(S, "playerMode", modesFor(S), x, y, s)
-  local mode = S.playerMode or "overworld"
+  local mode = S.playerMode or "start"
+  local bodyH = h - (modeY - y)
   if mode == "pics" then
-    drawPics(S, x, modeY, w, h - (modeY - y), App)
+    drawPics(S, x, modeY, w, bodyH, App)
+  elseif mode == "overworld" then
+    drawOverworld(S, x, modeY, w, bodyH, App)
+  elseif mode == "advanced" then
+    Player.drawAdvanced(S, x, modeY, w, bodyH, App)
   else
-    drawOverworld(S, x, modeY, w, h - (modeY - y), App)
+    drawStart(S, x, modeY, w, bodyH, App)
   end
 end
 

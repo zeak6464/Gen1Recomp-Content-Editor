@@ -152,7 +152,9 @@ local ok, err = pcall(function()
     },
     boot = { startMap = "PALLET_TOWN",
       screens = { splash = "YellowIntro", title = "TitleState", newGame = "OakSpeech" },
-      namePresets = { player = { "RED", "ASH" }, rival = { "BLUE" } } },
+      namePresets = { player = { "RED", "ASH" }, rival = { "BLUE" } },
+      startItems = { { id = "POTION", count = 5 } },
+      startPcItems = { { id = "RARE_CANDY", count = 1 } } },
     statuses = { BRN = { label = "BRN", catchBonus = 12 } },
     rulesets = { no_crits = { name = "no crits", critRate = 0, _isNew = true } },
     transitions = { warp_fade = { frames = 48, flash = false } },
@@ -229,6 +231,11 @@ local ok, err = pcall(function()
   assert(sample:find("mod.content.battle_sprite_scales:register"), sample)
   assert(sample:find("namePresets"), sample)
   assert(sample:find('field:patch%("boot"'), sample)
+  assert(sample:find('hooks:wrap%("save.new_game"'), sample)
+  assert(sample:find("save.inventory"), sample)
+  assert(sample:find("save.pcItems"), sample)
+  assert(not sample:find("startItems"), sample)
+  assert(sample:find("RARE_CANDY"), sample)
   assert(sample:find("YellowIntro"), sample)
   assert(sample:find('field:patch%("title"'), sample)
   assert(sample:find('field:patch%("intro"'), sample)
@@ -376,7 +383,13 @@ local ok, err = pcall(function()
       breeding = { eggLevel = 5, minStepsToEgg = 100 },
       menuGfx = { pack = { menu = "assets/pack/menu.png" } },
       diploma = { image = "assets/diploma/diploma.png" },
-      boot = { namePresets = { player = { "GOLD" }, rival = { "SILVER" } } },
+      boot = {
+        namePresets = { player = { "GOLD" }, rival = { "SILVER" } },
+        startMap = "NEW_BARK_TOWN", startX = 5, startY = 6, startFacing = "down",
+        startMoney = 5000,
+        startItems = { { id = "POKE_BALL", count = 10 } },
+        startPcItems = { { id = "POTION", count = 2 } },
+      },
       apricorns = {
         RED_APRICORN = { apricorn = "RED_APRICORN", ball = "ULTRA_BALL",
           event = 600, index = 1 },
@@ -389,6 +402,11 @@ local ok, err = pcall(function()
     assert(out:find("Gold diploma sheet"), "missing diploma emit")
     assert(out:find("data.gen2Diploma"), "missing gen2Diploma merge")
     assert(out:find("namePresets"), "missing gold namePresets emit")
+    assert(out:find("save.new_game"), "missing gold save.new_game emit")
+    assert(out:find("NEW_BARK_TOWN"), "missing gold start map emit")
+    assert(out:find("SPAWN_HOME"), "missing gold SPAWN_HOME emit")
+    assert(out:find("save.player.money"), "missing gold start money emit")
+    assert(out:find("POKE_BALL"), "missing gold start bag emit")
     assert(out:find("mod.content.apricorns:"), "missing apricorns emit")
     package.preload["src.core.GameVersion"] = nil
     package.loaded["src.core.GameVersion"] = nil

@@ -1433,6 +1433,155 @@ function ModWriter.encounterFormSchemasLua()
   }, "\n")
 end
 
+function ModWriter.bootItemMap(list)
+  if type(list) ~= "table" then return nil end
+  local map = {}
+  for _, row in ipairs(list) do
+    local id, n
+    if type(row) == "table" then
+      id = row.id or row.item
+      n = tonumber(row.count or row.qty) or 1
+    elseif type(row) == "string" then
+      id, n = row, 1
+    end
+    if type(id) == "string" and id ~= "" then
+      n = math.max(0, math.floor(n or 1))
+      if n > 0 then
+        map[id] = (map[id] or 0) + n
+      end
+    end
+  end
+  return map
+end
+
+function ModWriter.fieldBootWithoutItems(boot)
+  local out = {}
+  if type(boot) ~= "table" then return out end
+  for k, v in pairs(boot) do
+    if k ~= "startItems" and k ~= "startPcItems" then
+      out[k] = v
+    end
+  end
+  return out
+end
+
+-- Field.boot has no item-list schema keys; bag/PC go through save.new_game.
+-- Gold also ignores field.boot spawn/money, so those ride the same hook.
+function ModWriter.emitNewGameStart(out, project, gen2)
+  local boot = project and project.boot
+  if type(boot) ~= "table" then return end
+
+  local inv = ModWriter.bootItemMap(boot.startItems)
+  local pc = ModWriter.bootItemMap(boot.startPcItems)
+  local startMap = type(boot.startMap) == "string" and boot.startMap ~= ""
+    and boot.startMap or nil
+  local startX = tonumber(boot.startX) or 0
+  local startY = tonumber(boot.startY) or 0
+  local facing = type(boot.startFacing) == "string" and boot.startFacing ~= ""
+    and boot.startFacing or "down"
+  local money = tonumber(boot.startMoney)
+  local heal = boot.lastHeal
+  local healMap = type(heal) == "table" and type(heal.map) == "string"
+    and heal.map ~= "" and heal.map or nil
+  local healX = healMap and (tonumber(heal.x) or 0)
+  local healY = healMap and (tonumber(heal.y) or 0)
+
+  local spawnMap = healMap or startMap
+  local spawnX = healMap and healX or startX
+  local spawnY = healMap and healY or startY
+
+  if gen2 and spawnMap then
+    out[#out + 1] = "  -- Gold new-game / whiteout spawn (landmarks.spawns.SPAWN_HOME)"
+    out[#out + 1] = "  do"
+    out[#out + 1] = string.format(
+      "    local _spawn = { map = %q, x = %d, y = %d }",
+      spawnMap, spawnX, spawnY)
+    out[#out + 1] = "    mod.events:on(\"mods.loaded\", function(ev)"
+    out[#out + 1] = "      local data = ev and ev.data"
+    out[#out + 1] = "      if type(data) ~= \"table\" then return end"
+    out[#out + 1] = "      local lm = data.gen2Landmarks or data.landmarks"
+    out[#out + 1] = "      if type(lm) ~= \"table\" then return end"
+    out[#out + 1] = "      lm.spawns = lm.spawns or {}"
+    out[#out + 1] = "      lm.spawns.SPAWN_HOME = _spawn"
+    out[#out + 1] = "      if not lm.spawns.SPAWN_NEW_BARK then"
+    out[#out + 1] = "        lm.spawns.SPAWN_NEW_BARK = _spawn"
+    out[#out + 1] = "      end"
+    out[#out + 1] = "    end)"
+    out[#out + 1] = "  end"
+    out[#out + 1] = ""
+  end
+
+  local playerName = type(boot.playerName) == "string" and boot.playerName ~= ""
+    and boot.playerName or nil
+  local rivalName = type(boot.rivalName) == "string" and boot.rivalName ~= ""
+    and boot.rivalName or nil
+  local needPos = gen2 and startMap
+  local needMoney = gen2 and money ~= nil
+  local needItems = inv ~= nil or pc ~= nil
+  local needNames = gen2 and (playerName or rivalName)
+  if not needPos and not needMoney and not needItems and not needNames then return end
+
+  out[#out + 1] = "  -- New-game bag / PC / spawn / money"
+  out[#out + 1] = "  do"
+  if needPos then
+    out[#out + 1] = string.format(
+      "    local _pos = { map = %q, x = %d, y = %d, facing = %q }",
+      startMap, startX, startY, facing)
+  end
+  if needMoney then
+    out[#out + 1] = string.format("    local _money = %d", math.floor(money))
+  end
+  if playerName then
+    out[#out + 1] = string.format("    local _pname = %q", playerName)
+  end
+  if rivalName then
+    out[#out + 1] = string.format("    local _rname = %q", rivalName)
+  end
+  if inv ~= nil then
+    out[#out + 1] = "    local _inv = " .. emitTableLiteral(inv, 2)
+  end
+  if pc ~= nil then
+    out[#out + 1] = "    local _pc = " .. emitTableLiteral(pc, 2)
+  end
+  out[#out + 1] = "    mod.hooks:wrap(\"save.new_game\", function(next, save)"
+  out[#out + 1] = "      save = next(save)"
+  out[#out + 1] = "      if type(save) ~= \"table\" then return save end"
+  if needPos then
+    out[#out + 1] = "      save.position = {"
+    out[#out + 1] = "        map = _pos.map, x = _pos.x, y = _pos.y, facing = _pos.facing,"
+    out[#out + 1] = "      }"
+    out[#out + 1] = "      if type(save.player) == \"table\" then"
+    out[#out + 1] = "        save.player.map, save.player.x = _pos.map, _pos.x"
+    out[#out + 1] = "        save.player.y, save.player.facing = _pos.y, _pos.facing"
+    out[#out + 1] = "      end"
+  end
+  if needMoney then
+    out[#out + 1] = "      save.money = _money"
+    out[#out + 1] = "      if type(save.player) == \"table\" then save.player.money = _money end"
+  end
+  if playerName then
+    out[#out + 1] = "      if type(save.player) == \"table\" then save.player.name = _pname end"
+  end
+  if rivalName then
+    out[#out + 1] = "      if type(save.rival) == \"table\" then save.rival.name = _rname"
+    out[#out + 1] = "      elseif type(save.player) == \"table\" then save.player.rival = _rname end"
+  end
+  if inv ~= nil then
+    out[#out + 1] = "      local inv = {}"
+    out[#out + 1] = "      for k, n in pairs(_inv) do inv[k] = n end"
+    out[#out + 1] = "      save.inventory = inv"
+  end
+  if pc ~= nil then
+    out[#out + 1] = "      local pc = {}"
+    out[#out + 1] = "      for k, n in pairs(_pc) do pc[k] = n end"
+    out[#out + 1] = "      save.pcItems = pc"
+  end
+  out[#out + 1] = "      return save"
+  out[#out + 1] = "    end)"
+  out[#out + 1] = "  end"
+  out[#out + 1] = ""
+end
+
 function ModWriter.emitMain(project, baseData)
   baseData = baseData or {}
   emitProjectId = tostring((project and project.id) or "")
@@ -3257,6 +3406,10 @@ function ModWriter.emitMain(project, baseData)
   -- Gold: field is gated — title/intro → data.title + data.gen2Intro,
   -- landmarks → mod.content.landmarks, boot → data.gen2BootScreens,
   -- trainer card sheets → gen2MenuGfx.trainerCard.
+  -- startItems / startPcItems are not field.boot keys; Gold also ignores
+  -- field.boot spawn/money. Those go through save.new_game.
+  ModWriter.emitNewGameStart(out, project, gen2)
+
   if gen2 then
     if type(project.boot) == "table" then
       local presets = project.boot.namePresets
@@ -3748,10 +3901,11 @@ function ModWriter.emitMain(project, baseData)
       out[#out + 1] = ""
     end
   else
-    if type(project.boot) == "table" and next(project.boot) then
+    if type(project.boot) == "table"
+        and next(ModWriter.fieldBootWithoutItems(project.boot)) then
       out[#out + 1] = string.format(
         "  mod.content.field:patch(%q, %s)",
-        "boot", emitTableLiteral(project.boot, 1))
+        "boot", emitTableLiteral(ModWriter.fieldBootWithoutItems(project.boot), 1))
       out[#out + 1] = ""
     end
 
