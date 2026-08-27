@@ -2996,8 +2996,15 @@ function Maps.loadEditorMap(S, mapId)
     end
     -- Gold trueColor atlases go through MapPreview.bake so ToD palettes swap.
     -- Gen 1 true-color / huge imports stay windowed (full-map canvas blew RAM).
-    if (def.trueColor or (tileset and tileset.trueColor))
-        and not Generation.isGen2(S) then
+    -- Older Recomp trees ship gen2.Map but not MapPreview; a hard require
+    -- blue-screens the Maps tab, so fall back to TileRenderer.
+    local okPrev, MapPreview = pcall(require, "src.world.gen2.MapPreview")
+    if not (okPrev and type(MapPreview) == "table" and MapPreview.bake) then
+      MapPreview = nil
+    end
+    if ((def.trueColor or (tileset and tileset.trueColor))
+          and not Generation.isGen2(S))
+        or not MapPreview then
       local TileRenderer = require("src.render.TileRenderer")
       local okR, renderer = pcall(TileRenderer.new, map, S.data)
       if not okR or not renderer then return false, renderer end
@@ -3026,7 +3033,6 @@ function Maps.loadEditorMap(S, mapId)
       end
       return true, map
     end
-    local MapPreview = require("src.world.gen2.MapPreview")
     local tilesets = {}
     for id, ts in pairs(Generation.dataTilesets(S)) do
       tilesets[id] = ts
