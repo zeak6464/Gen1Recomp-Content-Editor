@@ -1127,6 +1127,7 @@ function TmxPokemonium.importPath(S, path, App)
         S.project, tilesetId .. "_CELLS", cellRel,
         cellAtlas:getWidth(), cellAtlas:getHeight())
       if src then
+        src.colorMode = "true_color"
         cellSourceId = src.id
         pcall(function() require("Preview").invalidatePath(cellRel) end)
       end

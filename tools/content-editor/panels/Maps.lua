@@ -1940,9 +1940,11 @@ local function mapPaletteName(S, mapDef)
 end
 
 -- TrueColor: map flag or the tileset's own trueColor (GFX / stock engine).
+-- map.trueColor == false is an explicit off that Save must not revive.
 local function mapUsesTrueColor(S, mapDef)
   mapDef = mapDef or resolveMapDef(S, S.mapId)
   if not mapDef then return false end
+  if mapDef.trueColor == false then return false end
   if mapDef.trueColor then return true end
   local ts = tilesetDef(S, mapDef.tileset)
   return ts and ts.trueColor and true or false
@@ -5450,7 +5452,7 @@ function Maps._section.drawBasics(S, map, mutate, App, px, py, propW, listBottom
       map = mutate()
       local newOn = not on
       -- Per-map flag (stock TileRenderer). Keeps OVERWORLD / CAVERN linked.
-      map.trueColor = newOn and true or nil
+      map.trueColor = newOn and true or false
       syncTilesetTrueColor(S, map, newOn)
       invalidateMapPreview(S)
       App.markDirty()

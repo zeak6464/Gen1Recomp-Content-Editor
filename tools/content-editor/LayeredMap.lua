@@ -2,8 +2,10 @@
 --
 -- The editor works in 16x16 walk cells. Saving folds the exported layers into
 -- the runtime's 32x32 block format. Maps painted from one game tileset keep
--- that tileset (and its ledge collision). Mixed or custom graphics still bake
--- one generated tileset per map. The source stays in editor_project.lua.
+-- that tileset when every 32x32 is a stock metatile. Other one-tileset layouts
+-- reuse the game PNG (custom blocks, no extra atlas) so Advanced Colors still
+-- work. Mixed or custom graphics still bake one generated tileset per map.
+-- The source stays in editor_project.lua.
 
 local ModIO = require("ModIO")
 local Preview = require("Preview")
@@ -671,7 +673,7 @@ function LayeredMap.installTileSource(project, wantedId, image, width, height)
   source.tileHeight = 16
   source.columns = width / 16
   source.count = (width / 16) * (height / 16)
-  if not source.colorMode then source.colorMode = "true_color" end
+  if not source.colorMode then source.colorMode = "palette" end
   project.mapTileSources[id] = source
   return source
 end
@@ -695,6 +697,7 @@ function LayeredMap.applyPngAsMap(S, mapId, imagePath, pixelWidth, pixelHeight)
   local tileSource, err = LayeredMap.installTileSource(
     project, stem, imagePath, cols * 16, rows * 16)
   if not tileSource then return nil, err end
+  tileSource.colorMode = "true_color"
   local ok, resizeErr = LayeredMap.resizeMap(project, mapId, cellWidth, cellHeight)
   if not ok then return nil, resizeErr end
   local ground = source.layers and source.layers[1]
@@ -1382,6 +1385,17 @@ local CUT_GROUND_BLOCK = {
   TILESET_FOREST = 0x17,
 }
 
+-- Gold COLL_* bytes for one 16x16 cell of a 32x32 block.
+local CELL_COLL = {
+  solid = 0x07, walk = 0x00, grass = 0x18, water = 0x21, shore = 0x23,
+  cut = 0x12,
+  door = 0x71, stairs = 0x7a, cave = 0x7b, panel = 0x7c,
+  ledge_right = 0xa0, ledge_left = 0xa1, ledge_up = 0xa2, ledge_down = 0xa3,
+  ledge = 0xa3,
+  face_right = 0xb0, face_left = 0xb1, face_up = 0xb2, face_down = 0xb3,
+  face = 0xb2,
+}
+
 -- CUT replacement: drop the top painted layer so an overlay tree leaves the
 -- ground. A tree on the only layer uses nearby walk/grass, then the base
 -- tileset leftover, so the stump is not the same graphic.
@@ -1507,6 +1521,17 @@ local function generatedTilesetId(project, mapId)
     .. "_LAYERED"
 end
 
+local function generatedTilesetName(tilesetId)
+  return type(tilesetId) == "string"
+    and tilesetId:find("_LAYERED", 1, true) ~= nil
+end
+
+local function atlasPath(path)
+  path = tostring(path or "")
+  return path:find("mapbuilder/", 1, true) ~= nil
+    or path:find("save/mod-derived/", 1, true) ~= nil
+end
+
 local function paletteNameForMap(S, map, mapSource)
   -- Compiling replaces the authored/base tileset id with a generated id. Gen1
   -- palette defaults are keyed by the original tileset id, so resolve through
@@ -1530,7 +1555,13 @@ end
 local function usesTrueColor(context, mapSource)
   for index = 1, mapSource.cellWidth * mapSource.cellHeight do
     for _, ref in ipairs(cellRefs(context, mapSource, index)) do
-      if ref.source.colorMode == "true_color" then return true end
+      local source = ref.source
+      -- Game tilesets stay GBC/palette. A leftover trueColor flag on a
+      -- generated copy of those tiles must not force True Color on Save.
+      if source and not source.runtimeTileset
+          and source.colorMode == "true_color" then
+        return true
+      end
     end
   end
   return false
@@ -1747,8 +1778,8 @@ local function exportedCellsAt(mapSource, index)
 end
 
 -- If every 32x32 is one game-tileset metatile, keep that tileset. Mixed 16x16
--- cells in a 2x2 (or a custom PNG) return nil so Save bakes an atlas that
--- matches the editor instead of flattening the map.
+-- cells in a 2x2 (or a custom PNG) return nil so Save can reuse the game PNG
+-- with custom blocks, or bake an atlas when graphics are mixed.
 local function runtimeBlockGrid(mapSource)
   local width, height = mapSource.cellWidth, mapSource.cellHeight
   local tilesetId, blocks = nil, {}
@@ -1880,6 +1911,219 @@ local function compilePassthrough(context, mapId, mapSource, warpRecords,
   return map
 end
 
+-- Painted from one game tileset, but 16x16 cells are not stock 32x32
+-- metatiles. Keep that tileset's PNG and palettes; only the block list is new.
+local function runtimeSharedTileset(mapSource)
+  local tilesetId
+  local n = (mapSource.cellWidth or 0) * (mapSource.cellHeight or 0)
+  for index = 1, n do
+    local refs = exportedCellsAt(mapSource, index)
+    if #refs > 1 then return nil end
+    local ref = refs[1]
+    if ref then
+      local ts = LayeredMap.runtimeTilesetId(ref.source)
+      if not ts or generatedTilesetName(ts) then return nil end
+      if tilesetId and tilesetId ~= ts then return nil end
+      tilesetId = ts
+    end
+  end
+  return tilesetId or mapSource.baseTileset
+end
+
+local function compileRuntimeShared(context, mapId, mapSource, warpRecords,
+    activeWarpCells, sharedId)
+  local project, S = context.project, context.S
+  local map = project.maps[mapId]
+  local src = resolveTileset(S, sharedId)
+  if not (src and type(src.image) == "string" and src.image ~= ""
+      and not atlasPath(src.image) and type(src.blocks) == "table") then
+    return nil
+  end
+  local width, height = mapSource.cellWidth, mapSource.cellHeight
+  local gen2 = require("Generation").isGen2(S)
+  local tilesetId = generatedTilesetId(project, mapId)
+
+  local function packRef(ref)
+    local micros = { 0, 0, 0, 0 }
+    local tileset = ref and ref.source and ref.source.tileset
+    if not tileset then return micros end
+    for micro = 0, 3 do
+      micros[micro + 1] = runtimeMicroTile(tileset, ref.tile, micro) or 0
+    end
+    return micros
+  end
+
+  local cells, cellsCut = {}, {}
+  local walkable, water, shore, warp = {}, {}, {}, {}
+  for y = 0, height - 1 do
+    for x = 0, width - 1 do
+      local index = y * width + x + 1
+      local refs = cellRefs(context, mapSource, index)
+      local class = mapSource.collision[index] or "solid"
+      if activeWarpCells and activeWarpCells[index] then
+        class = class .. "+warp"
+      end
+      local microIds = packRef(refs[#refs])
+      cells[index] = microIds
+      local id = microIds[3]
+      local baseClass = class:gsub("%+warp$", "")
+      if baseClass == "walk" then walkable[id] = true
+      elseif baseClass == "grass" then walkable[id] = true
+      elseif baseClass == "water" then water[id] = true
+      elseif baseClass == "shore" then shore[id] = true end
+      if class:find("+warp", 1, true) then warp[id] = true end
+      if class == "cut" or class:sub(1, 4) == "cut+" then
+        local away = cutGroundRefs(context, mapSource, index)
+        cellsCut[index] = packRef(away[#away])
+      end
+    end
+  end
+
+  local borderGraphic = nil
+  do
+    local srcId = (map._borderExplicit and map._borderSource)
+      or LayeredMap.runtimeSourceId(mapSource.baseTileset or sharedId)
+    local source = srcId and LayeredMap.sourceDescriptor(S, srcId)
+    if source and source.tileset then
+      local metatile = map.borderBlock or 0
+      local graphic = {}
+      for q = 0, 3 do
+        local cellTile = metatile * 4 + q
+        if map._borderExplicit and type(map._borderTile) == "number" then
+          cellTile = map._borderTile
+        end
+        local cellY, cellX = math.floor(q / 2), q % 2
+        for micro = 0, 3 do
+          local microY, microX = math.floor(micro / 2), micro % 2
+          graphic[(cellY * 2 + microY) * 4 + cellX * 2 + microX + 1]
+            = runtimeMicroTile(source.tileset, cellTile, micro) or 0
+        end
+      end
+      borderGraphic = graphic
+    end
+  end
+
+  local blocks, blockIds, collisionQuads = {}, {}, {}
+  blocks[1] = borderGraphic
+    or { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+  collisionQuads[1] = { 0xff, 0xff, 0xff, 0xff }
+  local function addBlock(block, quad)
+    local key = table.concat(block, ",") .. ":" .. table.concat(quad, ",")
+    local id = blockIds[key]
+    if id ~= nil then return id end
+    id = #blocks
+    blockIds[key] = id
+    blocks[#blocks + 1] = block
+    collisionQuads[#collisionQuads + 1] = quad
+    return id
+  end
+  local mapBlocks, cutBlocks = {}, {}
+  for blockY = 0, height / 2 - 1 do
+    for blockX = 0, width / 2 - 1 do
+      local block, quad = {}, {}
+      local cutBlock, cutQuad = {}, {}
+      local hasCut = false
+      for cellY = 0, 1 do
+        for cellX = 0, 1 do
+          local index = (blockY * 2 + cellY) * width
+            + blockX * 2 + cellX + 1
+          local microIds = cells[index]
+          local mode = (mapSource.collision and mapSource.collision[index])
+            or "solid"
+          local collByte = CELL_COLL[mode] or 0x07
+          if activeWarpCells and activeWarpCells[index]
+              and not LayeredMap.WARP_COLLISION[mode] then
+            collByte = CELL_COLL.door
+          end
+          local slot = cellY * 2 + cellX + 1
+          quad[slot] = collByte
+          local cutMicros = cellsCut[index]
+          if cutMicros then
+            hasCut = true
+            cutQuad[slot] = (activeWarpCells and activeWarpCells[index])
+              and collByte or 0x00
+          else
+            cutMicros = microIds
+            cutQuad[slot] = collByte
+          end
+          for microY = 0, 1 do
+            for microX = 0, 1 do
+              local bi = (cellY * 2 + microY) * 4
+                + cellX * 2 + microX + 1
+              local mi = microY * 2 + microX + 1
+              block[bi] = microIds[mi]
+              cutBlock[bi] = cutMicros[mi]
+            end
+          end
+        end
+      end
+      local beforeId = addBlock(block, quad)
+      mapBlocks[#mapBlocks + 1] = beforeId
+      if hasCut then
+        cutBlocks[beforeId] = { addBlock(cutBlock, cutQuad), 0 }
+      end
+    end
+  end
+
+  local function values(set)
+    local out = {}
+    for value in pairs(set) do out[#out + 1] = value end
+    table.sort(out)
+    return out
+  end
+
+  local tileset = {
+    id = tilesetId,
+    image = src.image,
+    imageWidth = src.imageWidth,
+    imageHeight = src.imageHeight,
+    tilesPerRow = src.tilesPerRow or 16,
+    blocks = blocks,
+    walkable = values(walkable),
+    waterTiles = values(water),
+    shoreTiles = values(shore),
+    doorTiles = {},
+    warpTiles = values(warp),
+    counterTiles = src.counterTiles and deepCopy(src.counterTiles) or {},
+    animation = src.animation or "TILEANIM_NONE",
+    trueColor = nil,
+    tilePalettes = src.tilePalettes and deepCopy(src.tilePalettes) or nil,
+    animatedTiles = src.animatedTiles and deepCopy(src.animatedTiles) or nil,
+    collision = gen2 and collisionQuads or nil,
+    _isNew = true,
+    _layeredGenerated = true,
+    cutBlocks = next(cutBlocks) and cutBlocks or nil,
+  }
+  project.tilesets[tilesetId] = tileset
+
+  map.tileset = tilesetId
+  if type(map.palette) ~= "string" or map.palette == "" then
+    local paletteName = paletteNameForMap(S, map, mapSource)
+    local generatedDefault = Preview.mapPaletteName(S, map)
+    if paletteName ~= generatedDefault then map.palette = paletteName end
+  end
+  map.width, map.height = width / 2, height / 2
+  map.blocks = mapBlocks
+  map.borderBlock = 0
+  if type(map.callbacks) == "table" then
+    local kept = {}
+    for i = 1, #map.callbacks do
+      local cb = map.callbacks[i]
+      if not (type(cb) == "table" and cb.callback == "MAPCALLBACK_TILES") then
+        kept[#kept + 1] = cb
+      end
+    end
+    map.callbacks = kept
+  end
+  applyCompiledWarps(map, warpRecords)
+  if not gen2 then
+    emitGen1Ledges(project, S, tilesetId, mapSource, cells)
+  end
+  map.trueColor = nil
+  map._layeredSource = mapId
+  return map, tileset
+end
+
 -- Each 16x16 editor cell becomes four 8x8 graphics tiles. Groups of four
 -- editor cells are then deduplicated into the runtime's 32x32 map blocks.
 local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCells)
@@ -1908,6 +2152,12 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
         keepTileset, passthroughBlocks)
     end
   end
+  local sharedId = runtimeSharedTileset(mapSource)
+  if sharedId and sharedId ~= genId then
+    local sharedMap, sharedTs = compileRuntimeShared(context, mapId, mapSource,
+      warpRecords, activeWarpCells, sharedId)
+    if sharedMap then return sharedMap, sharedTs end
+  end
 
   local tilesetId = generatedTilesetId(project, mapId)
   local previousTileset = project.tilesets[tilesetId]
@@ -1916,8 +2166,11 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   -- current ToD bgSet (0.2.19 has no trueColor swap table). Only bake RGB
   -- when a layer is actually true_color art.
   local gen2 = require("Generation").isGen2(S)
+  local userOff = map.trueColor == false
   local trueColor = usesTrueColor(context, mapSource)
-  if not gen2 then
+  if userOff then
+    trueColor = false
+  elseif not gen2 then
     trueColor = trueColor
       or (previousTileset and previousTileset.trueColor)
       or false
@@ -2118,15 +2371,7 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   blocks[1] = borderGraphic
     or { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
   collisionQuads[1] = { 0xff, 0xff, 0xff, 0xff }
-  local COLL = {
-    solid = 0x07, walk = 0x00, grass = 0x18, water = 0x21, shore = 0x23,
-    cut = 0x12,
-    door = 0x71, stairs = 0x7a, cave = 0x7b, panel = 0x7c,
-    ledge_right = 0xa0, ledge_left = 0xa1, ledge_up = 0xa2, ledge_down = 0xa3,
-    ledge = 0xa3,
-    face_right = 0xb0, face_left = 0xb1, face_up = 0xb2, face_down = 0xb3,
-    face = 0xb2,
-  }
+  local COLL = CELL_COLL
   -- Gold only takes a warp if the cell's COLL_* is a warp kind. Keep the
   -- painted door / stairs / cave / pad; only default a bare warp to door.
   local function addBlock(block, quad)
@@ -2257,7 +2502,7 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   -- editor/world previews can temporarily retain an older tileset object
   -- while a generated map is being rebuilt.  The map-level override makes
   -- the color contract immediate and is also what TileRenderer checks first.
-  map.trueColor = trueColor and true or nil
+  map.trueColor = trueColor and true or (userOff and false or nil)
   map._layeredSource = mapId
   return map, tileset
 end
@@ -2267,11 +2512,6 @@ end
 local function tilesetResolves(S, tilesetId)
   return type(tilesetId) == "string" and tilesetId ~= ""
     and resolveTileset(S, tilesetId) ~= nil
-end
-
-local function generatedTilesetName(tilesetId)
-  return type(tilesetId) == "string"
-    and tilesetId:find("_LAYERED", 1, true) ~= nil
 end
 
 -- ROM map / tileset when live Data still holds another mod's generated atlas.

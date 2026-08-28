@@ -2594,7 +2594,7 @@ local function drawTilesetPane(S, x, y, w, h, App)
   }) do
     local bw = Kit.textWidth("micro", option.label) + 16 * Kit.scale
     if Kit.chip(cx, y, bw, 24 * Kit.scale, option.label,
-        (source.colorMode or "true_color") == option.id,
+        (source.colorMode or "palette") == option.id,
         PAL.blue, PAL.steel, option.tip) then
       source.colorMode = option.id
       App.markDirty()
@@ -2602,7 +2602,7 @@ local function drawTilesetPane(S, x, y, w, h, App)
     cx = cx + bw + 4 * Kit.scale
   end
   y = y + 28 * Kit.scale
-  Kit.text("micro", (source.colorMode or "true_color") == "palette"
+  Kit.text("micro", (source.colorMode or "palette") == "palette"
       and "Uses this map's palette — day, night, and morning follow the game."
       or "PNG colors stay put. Switch to Day/night if this tileset should follow time of day.",
     x, y, PAL.muted)

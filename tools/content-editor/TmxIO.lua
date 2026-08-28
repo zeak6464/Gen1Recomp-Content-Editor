@@ -802,6 +802,7 @@ function TmxIO.importFile(S, path, App)
           local src, srcErr = LayeredMap.installTileSource(
             S.project, tsId, copied, img:getWidth(), img:getHeight())
           if src then
+            src.colorMode = "true_color"
             paintSource = src.id
             tilesetId = map.tileset
             if not tilesetId or Generation.dataTilesets(S)[tilesetId]
