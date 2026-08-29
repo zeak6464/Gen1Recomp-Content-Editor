@@ -1299,6 +1299,22 @@ local function sampleTransformLayer(layer, baseImages, pixelsById, x, y)
   return r, g, b, a * (layer.opacity or 1)
 end
 
+-- Game AssetTransform writes save/mod-derived/<manifest.id>/.
+local function derivedModId(S, project)
+  if S and type(S.manifestDraft) == "table" then
+    local id = S.manifestDraft.id
+    if type(id) == "string" and id ~= "" then return id end
+  end
+  if S and type(S.browseModId) == "string" and S.browseModId ~= "" then
+    return S.browseModId
+  end
+  if S and type(S.path) == "string" then
+    local folder = S.path:match("[/\\]([^/\\]+)$")
+    if folder and folder ~= "" then return folder end
+  end
+  return tostring(project and project.id or "")
+end
+
 -- Write compiled mapbuilder atlases into the editor save directory so
 -- MapLoader / TileRenderer can preview them before the game transform runs.
 local function writeEditorDerivedImages(context)
@@ -1344,7 +1360,8 @@ local function writeEditorDerivedImages(context)
         end
       end
     end
-    local dest = "save/mod-derived/" .. tostring(project.id) .. "/" .. output.path
+    local dest = "save/mod-derived/" .. derivedModId(context.S, project)
+      .. "/" .. output.path
     local dir = dest:match("^(.*)/[^/]+$")
     if dir then love.filesystem.createDirectory(dir) end
     pcall(function() image:encode("png", dest) end)
@@ -1512,8 +1529,8 @@ local function safeFilename(value)
   return name ~= "" and name or "map"
 end
 
-local function derivedAssetPath(project, relative)
-  return "save/mod-derived/" .. tostring(project.id) .. "/" .. relative
+local function derivedAssetPath(project, relative, S)
+  return "save/mod-derived/" .. derivedModId(S, project) .. "/" .. relative
 end
 
 local function generatedTilesetId(project, mapId)
@@ -2271,7 +2288,7 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
           addTransformOutput(context, rel, 8, 8, {
             { x = 0, y = 0, layers = frameSpec },
           })
-          animationImages[#animationImages + 1] = derivedAssetPath(project, rel)
+          animationImages[#animationImages + 1] = derivedAssetPath(project, rel, S)
         end
       end
       microIds[micro + 1] = addTile(spec, tileClass, animationImages, frames, palSlot)
@@ -2363,7 +2380,7 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
     .. safeFilename(mapId) .. "_tiles.png"
   addTransformOutput(context, atlasTransformRel,
     atlasWidth, atlasHeight, atlasPlacements)
-  local atlasRel = derivedAssetPath(project, atlasTransformRel)
+  local atlasRel = derivedAssetPath(project, atlasTransformRel, S)
 
   local blocks, blockIds, collisionQuads = {}, {}, {}
   -- Gold treats block id 0 as "use the map border" (Map:cellCollision /
@@ -2597,7 +2614,7 @@ function LayeredMap.compileProject(S)
       local removed, removeErr = ModIO.removeMapBuilderTransform(S.path)
       if not removed then return false, removeErr end
       project.layeredTransform = nil
-      if S.manifestDraft and S.browseModId == project.id then
+      if S.manifestDraft then
         S.manifestDraft.assets_transforms = nil
       end
     end
@@ -2650,7 +2667,7 @@ function LayeredMap.compileProject(S)
     local transformed, transformErr = emitTransform(context)
     if not transformed then return false, transformErr end
     project.layeredTransform = "mapbuilder_transforms.lua"
-    if S.manifestDraft and S.browseModId == project.id then
+    if S.manifestDraft then
       S.manifestDraft.assets_transforms = project.layeredTransform
     end
     writeEditorDerivedImages(context)
@@ -2658,7 +2675,7 @@ function LayeredMap.compileProject(S)
     local removed, removeErr = ModIO.removeMapBuilderTransform(S.path)
     if not removed then return false, removeErr end
     project.layeredTransform = nil
-    if S.manifestDraft and S.browseModId == project.id then
+    if S.manifestDraft then
       S.manifestDraft.assets_transforms = nil
     end
   end
@@ -2693,7 +2710,8 @@ function LayeredMap.ensureEditorAtlas(S, mapId)
   local image = ts.image
   if love.filesystem.getInfo(image) then return end
   if image:sub(1, 11) == "mapbuilder/" then
-    local derived = "save/mod-derived/" .. tostring(S.project.id) .. "/" .. image
+    local derived = "save/mod-derived/" .. derivedModId(S, S.project)
+      .. "/" .. image
     if love.filesystem.getInfo(derived) then
       ts.image = derived
       return

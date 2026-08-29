@@ -435,7 +435,22 @@ function ModIO.save(modDir, project, version)
 
   -- Generated runtime payload. Hand-written main.lua stays untouched; it should
   -- load editor_apply.lua so editor edits still reach playtest.
-  local generated = ModWriter.emitMain(project, ModIO._emitBaseData)
+  -- Game AssetTransform writes save/mod-derived/<manifest.id>/.  project.id
+  -- can differ (this folder is Nihon-Extension, project.id is my_content).
+  local derivedModId = project and project.id
+  do
+    local folder = tostring(modDir or ""):match("[/\\]([^/\\]+)$")
+    local mfBody = ModIO.readText(join(modDir, "manifest.json"))
+    local decodedOk, mf = false, nil
+    if mfBody then decodedOk, mf = pcall(Json.decode, mfBody) end
+    if decodedOk and type(mf) == "table" and type(mf.id) == "string"
+        and mf.id ~= "" then
+      derivedModId = mf.id
+    elseif folder and folder ~= "" then
+      derivedModId = folder
+    end
+  end
+  local generated = ModWriter.emitMain(project, ModIO._emitBaseData, derivedModId)
   if keepMain then
     local applyPath = join(modDir, "editor_apply.lua")
     local af, aerr = io.open(applyPath, "wb")

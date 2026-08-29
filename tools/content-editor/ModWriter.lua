@@ -1582,9 +1582,9 @@ function ModWriter.emitNewGameStart(out, project, gen2)
   out[#out + 1] = ""
 end
 
-function ModWriter.emitMain(project, baseData)
+function ModWriter.emitMain(project, baseData, derivedModId)
   baseData = baseData or {}
-  emitProjectId = tostring((project and project.id) or "")
+  emitProjectId = tostring(derivedModId or (project and project.id) or "")
   local gen2 = Generation.isGen2({
     version = project.game or project.version,
     data = baseData,
@@ -1790,6 +1790,11 @@ function ModWriter.emitMain(project, baseData)
     local raw = project.tilesets[tid]
     local rec = shapeTilesetForEmit(stripEditorFields(raw))
     rec.id = rec.id or tid
+    -- Layered maps may reuse a ROM tileset sheet. Strip drops that path
+    -- (MK301); the schema still requires image on a registered tileset.
+    if (not rec.image or rec.image == "") and isRomCachePath(raw.image) then
+      rec.image = raw.image
+    end
     local vanillaTs = type(baseData._vanillaTilesetIds) == "table"
       and baseData._vanillaTilesetIds
     local verb = catalogVerb(raw, tid, vanillaTs)
