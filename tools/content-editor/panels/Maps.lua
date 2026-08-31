@@ -3046,6 +3046,7 @@ function Maps.loadEditorMap(S, mapId)
     if not (type(pals) == "table" and pals.bg and pals.environments) then
       pals = S.data and S.data.gen2Palettes
     end
+    pals = Preview.gen2EffectivePals(S, pals) or pals
     local baker = S._g2MapBaker
     if not baker then
       baker = MapPreview.baker({
@@ -5432,10 +5433,30 @@ function Maps._section.drawBasics(S, map, mutate, App, px, py, propW, listBottom
           love.graphics.rectangle("line", sx, py + 2 * s, sw, rowH - 4 * s,
             3 * s, 3 * s)
           love.graphics.setColor(1, 1, 1, 1)
+          if Kit.press(sx, py + 2 * s, sw, rowH - 4 * s) then
+            local groupI, colorI = gi, ci
+            ColorWheel.open(S, {
+              title = label .. " C" .. colorI .. " · " .. tostring(tod or "?"),
+              color = c,
+              onChange = function(nextRgb)
+                if Preview.setGen2MapSwatch(S, map, groupI, colorI, nextRgb) then
+                  App.markDirty()
+                  invalidateMapPreview(S)
+                end
+              end,
+              onApply = function(nextRgb)
+                if Preview.setGen2MapSwatch(S, map, groupI, colorI, nextRgb) then
+                  App.markDirty()
+                  invalidateMapPreview(S)
+                  S.status = "BG " .. label .. " C" .. colorI .. " updated"
+                end
+              end,
+            })
+          end
         end
         py = py + rowH + 2 * s
       end
-      Kit.text("micro", "from EnvironmentColors + roofs (group "
+      Kit.text("micro", "click a swatch to edit · EnvironmentColors + roofs (group "
         .. tostring(map.group or "?") .. ")",
         px + 10 * s, py, PAL.faint)
       py = py + 14 * s
