@@ -663,8 +663,6 @@ local function cloneRgbRow(row, n)
   return out
 end
 
-local GEN2_ROOF_ENV = { TOWN = true, ROUTE = true }
-
 -- Project BG / roof patches over the ROM cache tables Palettes.bgSet reads.
 function Preview.gen2EffectivePals(S, pals)
   if type(pals) ~= "table" then return pals end
@@ -705,7 +703,43 @@ function Preview.ensureGen2BgPool(S)
   return list
 end
 
--- Edit the BG pool (or outdoor roof pair) behind one map swatch.
+local function cloneBgSet(set)
+  if type(set) ~= "table" then return nil end
+  local out = {}
+  for i = 1, 8 do
+    out[i] = cloneRgbRow(set[i], 4)
+  end
+  return out
+end
+
+function Preview.mapBgOverride(S, mapId, daytime)
+  local bag = S and S.project and S.project.mapBgSets
+  local rec = bag and mapId and bag[mapId]
+  if type(rec) ~= "table" then return nil end
+  local set = rec[daytime]
+  if type(set) == "table" and type(set[1]) == "table" then return set end
+  return nil
+end
+
+function Preview.ensureMapBgSet(S, mapDef)
+  local mapId = mapDef and mapDef.id
+  if not (S and S.project and type(mapId) == "string") then return nil end
+  S.project.mapBgSets = S.project.mapBgSets or {}
+  local daytime = Preview.gen2PreviewDaytime(S, mapDef)
+  local rec = S.project.mapBgSets[mapId]
+  if type(rec) ~= "table" then
+    rec = {}
+    S.project.mapBgSets[mapId] = rec
+  end
+  if type(rec[daytime]) == "table" then return rec[daytime], daytime end
+  local set = select(1, Preview.gen2MapBgSet(S, mapDef, daytime, true))
+  set = cloneBgSet(set)
+  if not set then return nil, daytime end
+  rec[daytime] = set
+  return set, daytime
+end
+
+-- Edit one swatch on this map's ToD set (does not change other maps).
 function Preview.setGen2MapSwatch(S, mapDef, groupIndex, colorIndex, rgb)
   if not (S and type(mapDef) == "table") then return false end
   groupIndex = tonumber(groupIndex) or 0
@@ -718,57 +752,54 @@ function Preview.setGen2MapSwatch(S, mapDef, groupIndex, colorIndex, rgb)
     math.max(0, math.min(255, tonumber(rgb and rgb[2]) or 0)),
     math.max(0, math.min(255, tonumber(rgb and rgb[3]) or 0)),
   }
-  local pals = S.data and (S.data.palettes or S.data.gen2Palettes)
-  if type(pals) ~= "table" then return false end
-  local daytime = Preview.gen2PreviewDaytime(S, mapDef)
-  local env = mapDef.environment
-  if groupIndex == 7 and GEN2_ROOF_ENV[env] and (colorIndex == 2 or colorIndex == 3)
-      and mapDef.group and type(pals.roofs) == "table" then
-    local group = mapDef.group
-    local vanilla = pals.roofs[group]
-    S.project.palettes = S.project.palettes or {}
-    S.project.palettes.roofs = S.project.palettes.roofs or {}
-    local owned = S.project.palettes.roofs[group]
-    if type(owned) ~= "table" then
-      owned = {
-        mornDay = cloneRgbRow(vanilla and vanilla.mornDay, 2),
-        nite = cloneRgbRow(vanilla and vanilla.nite, 2),
-      }
-      S.project.palettes.roofs[group] = owned
-    end
-    local pairKey = (daytime == "MORN" or daytime == "DAY") and "mornDay" or "nite"
-    owned[pairKey] = owned[pairKey] or { { 0, 0, 0 }, { 0, 0, 0 } }
-    owned[pairKey][colorIndex - 1] = rgb
-    if type(pals.roofs[group]) == "table" then
-      local live = pals.roofs[group]
-      if live == vanilla then
-        live = {
-          mornDay = cloneRgbRow(vanilla.mornDay, 2),
-          nite = cloneRgbRow(vanilla.nite, 2),
-        }
-        pals.roofs[group] = live
-      end
-      live[pairKey] = live[pairKey] or { { 0, 0, 0 }, { 0, 0, 0 } }
-      live[pairKey][colorIndex - 1] = { rgb[1], rgb[2], rgb[3] }
-    end
-    return true
-  end
-  local envRow = pals.environments and (pals.environments[env] or pals.environments.TOWN)
-  local indices = envRow and (envRow[daytime] or envRow.DAY)
-  local bgIndex = indices and indices[groupIndex]
-  if not bgIndex then return false end
-  local list = Preview.ensureGen2BgPool(S)
-  if not list then return false end
-  list[bgIndex] = list[bgIndex] or cloneRgbRow(nil, 4)
-  list[bgIndex][colorIndex] = rgb
-  if type(pals.bg) == "table" then
-    pals.bg[bgIndex] = cloneRgbRow(list[bgIndex], 4)
-  end
+  local set = Preview.ensureMapBgSet(S, mapDef)
+  if not set then return false end
+  set[groupIndex] = set[groupIndex] or cloneRgbRow(nil, 4)
+  set[groupIndex][colorIndex] = rgb
   return true
 end
 
+-- baker.palettes copy so MapPreview.bake can see a per-map ToD override.
+function Preview.palsForMapPreview(S, pals, mapDef)
+  pals = Preview.gen2EffectivePals(S, pals) or pals
+  if type(pals) ~= "table" or type(mapDef) ~= "table" then return pals end
+  local daytime = Preview.gen2PreviewDaytime(S, mapDef)
+  local over = Preview.mapBgOverride(S, mapDef.id, daytime)
+  if not over then return pals end
+  local bg = {}
+  if type(pals.bg) == "table" then
+    for i, row in ipairs(pals.bg) do bg[i] = row end
+  end
+  local indices = {}
+  for i = 1, 8 do
+    bg[#bg + 1] = cloneRgbRow(over[i], 4)
+    indices[i] = #bg
+  end
+  local envName = mapDef.environment or "TOWN"
+  local environments = {}
+  if type(pals.environments) == "table" then
+    for k, v in pairs(pals.environments) do environments[k] = v end
+  end
+  local row = {}
+  local prev = pals.environments
+    and (pals.environments[envName] or pals.environments.TOWN)
+  if type(prev) == "table" then
+    for k, v in pairs(prev) do row[k] = v end
+  end
+  row[daytime] = indices
+  environments[envName] = row
+  return {
+    bg = bg,
+    environments = environments,
+    roofs = pals.roofs,
+    roofSlot = pals.roofSlot,
+    objects = pals.objects,
+  }
+end
+
 -- Eight BG palettes for a Gold map at the preview daytime (roof folded in).
-function Preview.gen2MapBgSet(S, mapDef, daytime)
+-- skipOverride: resolve the shared environment set (used when forking a map).
+function Preview.gen2MapBgSet(S, mapDef, daytime, skipOverride)
   if type(mapDef) ~= "table" then
     local mapId = S and (S.builderMapId or S.mapId)
     if mapId then
@@ -782,13 +813,17 @@ function Preview.gen2MapBgSet(S, mapDef, daytime)
     end
   end
   if type(mapDef) ~= "table" then return nil, daytime end
+  daytime = daytime or Preview.gen2PreviewDaytime(S, mapDef)
+  if not skipOverride then
+    local over = Preview.mapBgOverride(S, mapDef.id, daytime)
+    if over then return over, daytime end
+  end
   local data = S and S.data
   local pals = data and (data.palettes or data.gen2Palettes)
   pals = Preview.gen2EffectivePals(S, pals)
   if type(pals) ~= "table" then return nil, daytime end
   local okP, Palettes = pcall(require, "src.world.gen2.Palettes")
   if not (okP and Palettes and Palettes.bgSet) then return nil, daytime end
-  daytime = daytime or Preview.gen2PreviewDaytime(S, mapDef)
   local set = Palettes.bgSet(pals, mapDef, daytime)
   if set and daytime == "DARK" and Palettes.withCaveFlicker then
     set = Palettes.withCaveFlicker(set, 1)

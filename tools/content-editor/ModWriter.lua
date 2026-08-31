@@ -1891,6 +1891,56 @@ function ModWriter.emitMain(project, baseData, derivedModId)
     end
   end
 
+  if gen2 then
+    local bag = project.mapBgSets
+    local payload, ids = {}, {}
+    if type(bag) == "table" then
+      for mid, rec in pairs(bag) do
+        if type(mid) == "string" and type(rec) == "table" then
+          local tods = {}
+          for _, tod in ipairs({ "MORN", "DAY", "NITE", "DARK" }) do
+            local set = rec[tod]
+            if type(set) == "table" then
+              local rows = {}
+              for i = 1, 8 do
+                local row = {}
+                for c = 1, 4 do
+                  local col = set[i] and set[i][c] or { 0, 0, 0 }
+                  row[c] = { col[1] or 0, col[2] or 0, col[3] or 0 }
+                end
+                rows[i] = row
+              end
+              tods[tod] = rows
+            end
+          end
+          if next(tods) then
+            ids[#ids + 1] = mid
+            payload[mid] = tods
+          end
+        end
+      end
+    end
+    table.sort(ids)
+    if #ids > 0 then
+      out[#out + 1] = "  -- Per-map BG palettes"
+      out[#out + 1] = "  do"
+      out[#out + 1] = "    local _mapBg = " .. emitTableLiteral(payload, 2)
+      out[#out + 1] = "    local okP, Palettes = pcall(require, \"src.world.gen2.Palettes\")"
+      out[#out + 1] = "    if okP and Palettes and Palettes.bgSet then"
+      out[#out + 1] = "      local _prev = Palettes.bgSet"
+      out[#out + 1] = "      function Palettes.bgSet(data, mapDef, daytime)"
+      out[#out + 1] = "        local id = mapDef and mapDef.id"
+      out[#out + 1] = "        local rec = id and _mapBg[id]"
+      out[#out + 1] = "        local set = rec and (rec[daytime] or rec.DAY)"
+      out[#out + 1] = "        if type(set) == \"table\" then return set end"
+      out[#out + 1] = "        return _prev(data, mapDef, daytime)"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "    end"
+      out[#out + 1] = "  end"
+      out[#out + 1] = ""
+    end
+  end
+
   -- GBC ADVANCED tileset BG groups (8×4). Gen1 only (Gold uses palettes.bg).
   if not gen2 then
     local gw = project.gbcWorld and project.gbcWorld.groupColors

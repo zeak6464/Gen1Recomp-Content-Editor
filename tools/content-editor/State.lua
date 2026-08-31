@@ -100,6 +100,7 @@ function State.blankProject(id, name)
     constants = {},   -- constants patches (levelCap, badges, …)
     audio = {},       -- songs/cries/sfx/mapSongs
     palettes = {},    -- id -> colors
+    mapBgSets = {},   -- mapId -> { MORN/DAY/NITE/DARK = 8x4 RGB } Gold per-map BG
     -- GBC ADVANCED tileset BG groups: groupColors[tileset] = 8×4×{r,g,b}
     gbcWorld = { groupColors = {} },
     sprites = {},     -- overworld sprite defs
@@ -165,6 +166,7 @@ function State.ensureProjectFields(project)
   project.phoneContacts = project.phoneContacts or {}
   project.scripts = project.scripts or {} -- Gold mod talk scripts (scriptKey → ops)
   project.palettes = project.palettes or {}
+  project.mapBgSets = project.mapBgSets or {}
   project.gbcWorld = project.gbcWorld or { groupColors = {} }
   project.gbcWorld.groupColors = project.gbcWorld.groupColors or {}
   project.sprites = project.sprites or {}

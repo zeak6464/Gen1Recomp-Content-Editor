@@ -3046,7 +3046,7 @@ function Maps.loadEditorMap(S, mapId)
     if not (type(pals) == "table" and pals.bg and pals.environments) then
       pals = S.data and S.data.gen2Palettes
     end
-    pals = Preview.gen2EffectivePals(S, pals) or pals
+    pals = Preview.palsForMapPreview(S, pals, def) or pals
     local baker = S._g2MapBaker
     if not baker then
       baker = MapPreview.baker({
@@ -3858,7 +3858,7 @@ local function drawCollisionOverlay(S, mapDef)
     for cy = y0, y1 do
       for cx = x0, x1 do
         local coll = Api.defCellTile(mapDef, ts, cx, cy)
-        if coll ~= nil then
+        if type(coll) == "number" then
           if Permissions.isWater(coll) then
             love.graphics.setColor(0.15, 0.45, 1, 0.32)
             love.graphics.rectangle("fill",
@@ -5456,7 +5456,7 @@ function Maps._section.drawBasics(S, map, mutate, App, px, py, propW, listBottom
         end
         py = py + rowH + 2 * s
       end
-      Kit.text("micro", "click a swatch to edit · EnvironmentColors + roofs (group "
+      Kit.text("micro", "this map only · click a swatch · roofs (group "
         .. tostring(map.group or "?") .. ")",
         px + 10 * s, py, PAL.faint)
       py = py + 14 * s

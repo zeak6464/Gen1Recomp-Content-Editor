@@ -278,8 +278,9 @@ local SIDE_FACE = {
 local function collisionModeFromByte(coll)
   -- Permissions.isGrass does `coll % 256` and cannot take a boolean.
   -- Lua `cond and value` is false when there is no quad; 0 is valid COLL walk.
+  if type(coll) == "boolean" then return nil end
   coll = tonumber(coll)
-  if coll == nil then return nil end
+  if type(coll) ~= "number" then return nil end
   local okP, Permissions = pcall(require, "src.world.gen2.Permissions")
   if not (okP and Permissions) then return nil end
   if Permissions.isGrass and Permissions.isGrass(coll) then return "grass" end
@@ -345,6 +346,7 @@ function LayeredMap.collisionForRef(S, ref)
     local quad = bucket[math.floor(tile / 4) + 1]
     if type(quad) == "table" then
       coll = quad[(tile % 4) + 1]
+      if type(coll) == "boolean" then coll = nil end
     elseif type(quad) == "number" then
       coll = quad
     end
