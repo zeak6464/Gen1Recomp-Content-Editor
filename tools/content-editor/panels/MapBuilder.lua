@@ -443,12 +443,14 @@ local EXIT_TYPES = {
   { id = "stairs", label = "Stairs", tip = "Indoor stairs (COLL_STAIRCASE)" },
   { id = "cave", label = "Cave", tip = "Cave mouth (COLL_CAVE)" },
   { id = "panel", label = "Pad", tip = "Warp panel / floor pad (COLL_WARP_PANEL)" },
+  { id = "carpet", label = "Carpet", tip = "Walk in the chosen direction to warp (indoor exit mat)" },
 }
 
 local COLLISION_LABEL = {
   solid = "Wall", walk = "Land", grass = "Grass", water = "Water",
   shore = "Shore", ledge = "Ledge", face = "Cliff", cut = "Cut",
   door = "Door", stairs = "Stairs", cave = "Cave", panel = "Pad",
+  carpet = "Carpet",
 }
 
 local COLLISION_TIP = {
@@ -464,6 +466,7 @@ local COLLISION_TIP = {
   stairs = "Indoor stairs (COLL_STAIRCASE)",
   cave = "Cave mouth (COLL_CAVE)",
   panel = "Warp panel / floor pad (COLL_WARP_PANEL)",
+  carpet = "Carpet — walk in the chosen direction to take the warp",
 }
 
 local FACE_DIR_TIP = {
@@ -480,11 +483,28 @@ local LEDGE_DIR_TIP = {
   up = "Hop north over this ledge",
 }
 
+local CARPET_DIR_TIP = {
+  down = "Walk south to take this warp (indoor exit mat)",
+  left = "Walk west to take this warp",
+  right = "Walk east to take this warp",
+  up = "Walk north to take this warp",
+}
+
+local WARP_DIRS = {
+  { id = "down", label = "v" },
+  { id = "left", label = "<" },
+  { id = "right", label = ">" },
+  { id = "up", label = "^" },
+}
+
 local function paintCollisionCell(S, source, x, y)
   local index = y * source.cellWidth + x + 1
   local mode
   if (S.builderTool or "") == "exits" then
     mode = S.builderExitType or "door"
+    if mode == "carpet" then
+      mode = "carpet_" .. (S.builderCarpetDir or "down")
+    end
   else
     mode = S.builderCollision or "solid"
     if mode == "ledge" then
@@ -1078,6 +1098,9 @@ local function drawCanvas(S, source, x, y, w, h, App)
           shore = { 0.95, 0.75, 0.25 }, cut = { 0.45, 0.7, 0.15 },
           door = { 1, 0.85, 0.15 }, stairs = { 0.7, 0.55, 1 },
           cave = { 0.55, 0.35, 0.15 }, panel = { 1, 0.45, 0.15 },
+          carpet_down = { 0.2, 0.85, 0.75 }, carpet_up = { 0.2, 0.85, 0.75 },
+          carpet_left = { 0.2, 0.85, 0.75 }, carpet_right = { 0.2, 0.85, 0.75 },
+          carpet = { 0.2, 0.85, 0.75 },
           ledge_down = { 1, 0.55, 0.15 }, ledge_up = { 1, 0.55, 0.15 },
           ledge_left = { 1, 0.55, 0.15 }, ledge_right = { 1, 0.55, 0.15 },
           ledge = { 1, 0.55, 0.15 },
@@ -2295,17 +2318,40 @@ local function drawToolbar(S, source, x, y, w, App)
       "Paint the exit kind so a Gold warp uses the right animation")
     local bx = x + 42 * s
     S.builderExitType = S.builderExitType or "door"
+    local modeY = barY
     for _, mode in ipairs(EXIT_TYPES) do
       local bw = Kit.textWidth("micro", mode.label) + 16 * s
-      if Kit.chip(bx, barY, bw, 24 * s, mode.label,
+      if bx + bw > x + w and bx > x + 42 * s then
+        modeY, bx = modeY + 27 * s, x + 42 * s
+        barBottom = modeY + 24 * s
+      end
+      if Kit.chip(bx, modeY, bw, 24 * s, mode.label,
           S.builderExitType == mode.id, PAL.yellow, PAL.steel, mode.tip) then
         S.builderExitType = mode.id
+        if mode.id == "carpet" then
+          S.builderCarpetDir = S.builderCarpetDir or "down"
+        end
       end
       bx = bx + bw + 3 * s
     end
+    if S.builderExitType == "carpet" then
+      if bx + 120 * s > x + w and bx > x + 42 * s then
+        modeY, bx = modeY + 27 * s, x + 42 * s
+        barBottom = modeY + 24 * s
+      end
+      for _, d in ipairs(WARP_DIRS) do
+        if Kit.chip(bx, modeY, 24 * s, 24 * s, d.label,
+            (S.builderCarpetDir or "down") == d.id,
+            { 50, 200, 180 }, PAL.steel, CARPET_DIR_TIP[d.id]) then
+          S.builderCarpetDir = d.id
+          S.builderExitType = "carpet"
+        end
+        bx = bx + 27 * s
+      end
+    end
     Kit.text("micro", "Paint the cell, then place a Warp. Gold uses this kind.",
-      x, barY + 28 * s, PAL.muted)
-    barBottom = barY + 42 * s
+      x, modeY + 28 * s, PAL.muted)
+    barBottom = modeY + 42 * s
   elseif (S.builderTool or "pencil") == "select" then
     local count = #(S.builderSelections or {})
     Kit.text("micro", string.format("%d selected range(s)", count),
@@ -2776,7 +2822,7 @@ local function drawWarpsPane(S, source, x, y, w, h, App)
   Kit.text("micro", string.format("Endpoints on this map (%d)", #nodes), x, y, PAL.caption)
   y = y + 18 * Kit.scale
   local rowH = 30 * Kit.scale
-  local listH = math.max(rowH, bottom - y - 38 * Kit.scale)
+  local listH = math.max(rowH, bottom - y - 68 * Kit.scale)
   local perPage = math.max(1, math.floor(listH / rowH))
   local offset = clamp(S.builderWarpOffset or 0, 0,
     math.max(0, #nodes - perPage))
@@ -2810,6 +2856,37 @@ local function drawWarpsPane(S, source, x, y, w, h, App)
   y = y + listH
   local selected = S.builderWarpNodeId
     and S.project.mapWarpNodes[S.builderWarpNodeId]
+  if selected and selected.map ~= source.id then
+    selected = nil
+  end
+  if selected then
+    local index = selected.y * source.cellWidth + selected.x + 1
+    local mode = source.collision and source.collision[index]
+    local base, dir = LayeredMap.collisionBase(mode)
+    local cur = base == "carpet" and dir or nil
+    Kit.text("micro", "Walk to enter", x, y + 2 * Kit.scale, PAL.caption)
+    local dx = x + Kit.textWidth("micro", "Walk to enter") + 10 * Kit.scale
+    local dy = y
+    if Kit.chip(dx, dy, 36 * Kit.scale, 22 * Kit.scale, "Any",
+        cur == nil, PAL.yellow, PAL.steel,
+        "Warp as soon as the player steps on this cell") then
+      if base == "carpet" then
+        LayeredMap.setCollision(source, selected.x, selected.y, "door")
+        App.markDirty()
+      end
+    end
+    dx = dx + 40 * Kit.scale
+    for _, d in ipairs(WARP_DIRS) do
+      if Kit.chip(dx, dy, 22 * Kit.scale, 22 * Kit.scale, d.label,
+          cur == d.id, { 50, 200, 180 }, PAL.steel, CARPET_DIR_TIP[d.id]) then
+        LayeredMap.setCollision(source, selected.x, selected.y,
+          "carpet_" .. d.id)
+        App.markDirty()
+      end
+      dx = dx + 25 * Kit.scale
+    end
+    y = y + 26 * Kit.scale
+  end
   if Kit.button(x, y + 4 * Kit.scale, w, 26 * Kit.scale,
       "Delete selected endpoint", { kind = "danger", enabled = selected ~= nil,
         tooltip = "Targets pointing here become inactive arrival records" }) then

@@ -16,11 +16,11 @@ LayeredMap.CELL_SIZE = 16
 LayeredMap.COLOR_MODES = { "palette", "true_color" }
 LayeredMap.COLLISION_MODES = {
   "solid", "walk", "grass", "water", "shore", "ledge", "face", "cut",
-  "door", "stairs", "cave", "panel",
+  "door", "stairs", "cave", "panel", "carpet",
 }
 
 LayeredMap.WARP_COLLISION = {
-  door = true, stairs = true, cave = true, panel = true,
+  door = true, stairs = true, cave = true, panel = true, carpet = true,
 }
 
 function LayeredMap.collisionBase(mode)
@@ -29,6 +29,8 @@ function LayeredMap.collisionBase(mode)
     if dir then return "ledge", dir end
     dir = mode:match("^face_(%w+)$")
     if dir then return "face", dir end
+    dir = mode:match("^carpet_(%w+)$")
+    if dir then return "carpet", dir end
   end
   return mode
 end
@@ -295,6 +297,17 @@ local function collisionModeFromByte(coll)
   if Permissions.isSideWall and Permissions.isSideWall(coll) then
     return SIDE_FACE[coll % 8] or "face_up"
   end
+  if Permissions.carpetDirection then
+    local dir = Permissions.carpetDirection(coll)
+    if dir then return "carpet_" .. dir end
+  end
+  local warpKind = ({
+    [0x71] = "door", [0x79] = "door",
+    [0x7a] = "stairs", [0x73] = "stairs",
+    [0x7b] = "cave", [0x74] = "cave",
+    [0x7c] = "panel",
+  })[coll]
+  if warpKind then return warpKind end
   if Permissions.isWalkable and Permissions.isWalkable(coll) then
     return "walk"
   end
@@ -1407,6 +1420,8 @@ local CELL_COLL = {
   solid = 0x07, walk = 0x00, grass = 0x18, water = 0x21, shore = 0x23,
   cut = 0x12,
   door = 0x71, stairs = 0x7a, cave = 0x7b, panel = 0x7c,
+  carpet_down = 0x70, carpet_left = 0x76, carpet_up = 0x78, carpet_right = 0x7e,
+  carpet = 0x70,
   ledge_right = 0xa0, ledge_left = 0xa1, ledge_up = 0xa2, ledge_down = 0xa3,
   ledge = 0xa3,
   face_right = 0xb0, face_left = 0xb1, face_up = 0xb2, face_down = 0xb3,
@@ -2049,7 +2064,7 @@ local function compileRuntimeShared(context, mapId, mapSource, warpRecords,
             or "solid"
           local collByte = CELL_COLL[mode] or 0x07
           if activeWarpCells and activeWarpCells[index]
-              and not LayeredMap.WARP_COLLISION[mode] then
+              and not LayeredMap.WARP_COLLISION[LayeredMap.collisionBase(mode)] then
             collByte = CELL_COLL.door
           end
           local slot = cellY * 2 + cellX + 1
@@ -2417,7 +2432,7 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
             or "solid"
           local collByte = COLL[mode] or 0x07
           if activeWarpCells and activeWarpCells[index]
-              and not LayeredMap.WARP_COLLISION[mode] then
+              and not LayeredMap.WARP_COLLISION[LayeredMap.collisionBase(mode)] then
             collByte = COLL.door
           end
           local slot = cellY * 2 + cellX + 1
