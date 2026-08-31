@@ -5406,11 +5406,58 @@ function Maps._section.drawBasics(S, map, mutate, App, px, py, propW, listBottom
     end
 
     local bgSet, tod = Preview.gen2MapBgSet(S, map)
-    Kit.text("micro",
-      string.format("BG set · %s · env %s",
-        tostring(tod or "?"), tostring(map.environment or "?")),
-      px + 10 * s, py, PAL.caption)
+    tod = tod or Preview.gen2PreviewDaytime(S, map) or "DAY"
+    Kit.text("micro", "Colors for " .. tod, px + 10 * s, py, PAL.caption)
     py = py + 14 * s
+    do
+      local key = Preview.mapBgAssignKey(S, map.id, tod)
+      local legacy = S.project.mapBgSets and S.project.mapBgSets[map.id]
+      local isDefault = key == nil
+        and not (legacy and type(legacy[tod]) == "table")
+      local dw = Kit.textWidth("micro", "Default") + 14 * s
+      if Kit.chip(px + 10 * s, py, dw, fh, "Default", isDefault,
+          PAL.blue, PAL.steel,
+          "Use this map's environment colors at " .. tod) then
+        Preview.setMapBgAssign(S, map.id, tod, nil)
+        invalidateMapPreview(S)
+        App.markDirty()
+        S.status = tod .. " colors → default"
+      end
+      if Kit.button(px + 14 * s + dw, py, 88 * s, fh, "New palette", {
+          kind = "good",
+          tooltip = "Create a palette that only this map uses at " .. tod,
+        }) then
+        local id = Preview.createMapBgPalette(S, map)
+        invalidateMapPreview(S)
+        App.markDirty()
+        S.status = id and (tod .. " palette → " .. id)
+          or "Could not create palette"
+      end
+      local pickX = px + 106 * s + dw
+      local pickW = math.max(90 * s, propW - (pickX - px) - 10 * s)
+      local ids, labels = Preview.gen2BgPaletteChoices(S, map.id)
+      ChoicePicker.field(S, {
+        x = pickX, y = py, w = pickW, h = fh,
+        current = key or "",
+        ids = ids,
+        labels = labels,
+        title = "PALETTE · " .. tod,
+        emptyLabel = "Choose existing…",
+        tooltip = "Use an environment palette or another map's custom set",
+        onPick = function(id)
+          Preview.applyExistingBgPalette(S, map, id)
+          invalidateMapPreview(S)
+          App.markDirty()
+          S.status = tod .. " colors → "
+            .. Preview.mapBgAssignLabel(S, map.id, tod)
+        end,
+      })
+      py = py + fh + 4 * s
+      Kit.text("micro", "Using " .. Preview.mapBgAssignLabel(S, map.id, tod)
+        .. " · env " .. tostring(map.environment or "?"),
+        px + 10 * s, py, PAL.muted)
+      py = py + 16 * s
+    end
     if bgSet then
       local names = Preview.GBC_GROUP_NAMES
       local sw = 22 * s
@@ -5456,7 +5503,7 @@ function Maps._section.drawBasics(S, map, mutate, App, px, py, propW, listBottom
         end
         py = py + rowH + 2 * s
       end
-      Kit.text("micro", "this map only · click a swatch · roofs (group "
+      Kit.text("micro", "click a swatch to edit this assignment · roofs (group "
         .. tostring(map.group or "?") .. ")",
         px + 10 * s, py, PAL.faint)
       py = py + 14 * s

@@ -712,34 +712,214 @@ local function cloneBgSet(set)
   return out
 end
 
-function Preview.mapBgOverride(S, mapId, daytime)
-  local bag = S and S.project and S.project.mapBgSets
+Preview.GEN2_DAYTIMES = { "MORN", "DAY", "NITE", "DARK" }
+
+local function envRefKey(env, daytime)
+  return "@" .. tostring(env) .. "/" .. tostring(daytime)
+end
+
+local function parseEnvRef(key)
+  if type(key) ~= "string" then return nil end
+  return key:match("^@([^/]+)/([A-Z]+)$")
+end
+
+function Preview.envBgSet(S, env, daytime)
+  local pals = S and S.data and (S.data.palettes or S.data.gen2Palettes)
+  pals = Preview.gen2EffectivePals(S, pals)
+  if type(pals) ~= "table" then return nil end
+  local okP, Palettes = pcall(require, "src.world.gen2.Palettes")
+  if not (okP and Palettes and Palettes.bgSet) then return nil end
+  return Palettes.bgSet(pals, { environment = env, group = 0 }, daytime)
+end
+
+function Preview.mapBgAssignKey(S, mapId, daytime)
+  local bag = S and S.project and S.project.mapBgAssign
   local rec = bag and mapId and bag[mapId]
-  if type(rec) ~= "table" then return nil end
-  local set = rec[daytime]
+  local key = rec and rec[daytime]
+  if type(key) == "string" and key ~= "" then return key end
+  return nil
+end
+
+function Preview.mapBgAssignLabel(S, mapId, daytime)
+  local key = Preview.mapBgAssignKey(S, mapId, daytime)
+  if not key then
+    local legacy = S and S.project and S.project.mapBgSets
+    if legacy and legacy[mapId] and type(legacy[mapId][daytime]) == "table" then
+      return "Custom (this map)"
+    end
+    return "Default"
+  end
+  local env, srcTod = parseEnvRef(key)
+  if env then return env .. " · " .. srcTod end
+  return key
+end
+
+function Preview.setMapBgAssign(S, mapId, daytime, key)
+  if not (S and S.project and type(mapId) == "string") then return false end
+  S.project.mapBgAssign = S.project.mapBgAssign or {}
+  S.project.mapBgAssign[mapId] = S.project.mapBgAssign[mapId] or {}
+  if not key or key == "" or key == "default" then
+    S.project.mapBgAssign[mapId][daytime] = nil
+    if S.project.mapBgSets and S.project.mapBgSets[mapId] then
+      S.project.mapBgSets[mapId][daytime] = nil
+    end
+    return true
+  end
+  S.project.mapBgAssign[mapId][daytime] = key
+  return true
+end
+
+function Preview.mapBgOverride(S, mapId, daytime)
+  local project = S and S.project
+  if not project or not mapId then return nil end
+  local key = Preview.mapBgAssignKey(S, mapId, daytime)
+  if key then
+    local env, srcTod = parseEnvRef(key)
+    if env then return Preview.envBgSet(S, env, srcTod) end
+    local named = project.namedBgSets and project.namedBgSets[key]
+    if type(named) == "table" and type(named[1]) == "table" then return named end
+  end
+  local rec = project.mapBgSets and project.mapBgSets[mapId]
+  local set = rec and rec[daytime]
   if type(set) == "table" and type(set[1]) == "table" then return set end
   return nil
+end
+
+local function uniqueNamedId(project, want)
+  project.namedBgSets = project.namedBgSets or {}
+  if project.namedBgSets[want] == nil then return want end
+  local n = 2
+  while project.namedBgSets[want .. "_" .. n] ~= nil do
+    n = n + 1
+  end
+  return want .. "_" .. n
+end
+
+function Preview.createMapBgPalette(S, mapDef)
+  local mapId = mapDef and mapDef.id
+  if not (S and S.project and type(mapId) == "string") then return nil end
+  local daytime = Preview.gen2PreviewDaytime(S, mapDef)
+  local set = cloneBgSet(select(1, Preview.gen2MapBgSet(S, mapDef, daytime)))
+  if not set then
+    set = cloneBgSet(select(1, Preview.gen2MapBgSet(S, mapDef, daytime, true)))
+  end
+  if not set then return nil end
+  local id = uniqueNamedId(S.project, mapId .. "_" .. daytime)
+  S.project.namedBgSets[id] = set
+  Preview.setMapBgAssign(S, mapId, daytime, id)
+  return id
+end
+
+function Preview.applyExistingBgPalette(S, mapDef, choiceId)
+  local mapId = mapDef and mapDef.id
+  if not (S and S.project and type(mapId) == "string") then return false end
+  local daytime = Preview.gen2PreviewDaytime(S, mapDef)
+  if not choiceId or choiceId == "default" then
+    return Preview.setMapBgAssign(S, mapId, daytime, nil)
+  end
+  local copyMap, copyTod = tostring(choiceId):match("^copy:([^:]+):([A-Z]+)$")
+  if copyMap then
+    local src = Preview.mapBgOverride(S, copyMap, copyTod)
+    src = cloneBgSet(src)
+    if not src then return false end
+    local id = uniqueNamedId(S.project, mapId .. "_" .. daytime)
+    S.project.namedBgSets = S.project.namedBgSets or {}
+    S.project.namedBgSets[id] = src
+    return Preview.setMapBgAssign(S, mapId, daytime, id)
+  end
+  return Preview.setMapBgAssign(S, mapId, daytime, choiceId)
+end
+
+function Preview.gen2BgPaletteChoices(S, mapId)
+  local ids, labels = {}, {}
+  local pals = S and S.data and (S.data.palettes or S.data.gen2Palettes)
+  pals = Preview.gen2EffectivePals(S, pals)
+  local envs, seen = {}, {}
+  if type(pals) == "table" and type(pals.environments) == "table" then
+    for env in pairs(pals.environments) do
+      if type(env) == "string" then
+        envs[#envs + 1] = env
+        seen[env] = true
+      end
+    end
+  end
+  for _, env in ipairs({
+    "TOWN", "ROUTE", "INDOOR", "CAVE", "ENVIRONMENT_5", "GATE", "DUNGEON",
+  }) do
+    if not seen[env] then envs[#envs + 1] = env end
+  end
+  table.sort(envs)
+  for _, env in ipairs(envs) do
+    for _, tod in ipairs(Preview.GEN2_DAYTIMES) do
+      local key = envRefKey(env, tod)
+      ids[#ids + 1] = key
+      labels[key] = env .. " · " .. tod
+    end
+  end
+  local named = S and S.project and S.project.namedBgSets
+  if type(named) == "table" then
+    local nids = {}
+    for id, set in pairs(named) do
+      if type(id) == "string" and type(set) == "table" then
+        nids[#nids + 1] = id
+      end
+    end
+    table.sort(nids)
+    for _, id in ipairs(nids) do
+      ids[#ids + 1] = id
+      labels[id] = id
+    end
+  end
+  local assign = S and S.project and S.project.mapBgAssign
+  local legacy = S and S.project and S.project.mapBgSets
+  local extras = {}
+  local function addCopy(mid, tod)
+    if mid == mapId then return end
+    local key = "copy:" .. mid .. ":" .. tod
+    if extras[key] then return end
+    extras[key] = true
+    ids[#ids + 1] = key
+    labels[key] = mid .. " · " .. tod
+  end
+  if type(assign) == "table" then
+    for mid, rec in pairs(assign) do
+      if type(rec) == "table" then
+        for _, tod in ipairs(Preview.GEN2_DAYTIMES) do
+          if rec[tod] then addCopy(mid, tod) end
+        end
+      end
+    end
+  end
+  if type(legacy) == "table" then
+    for mid, rec in pairs(legacy) do
+      if type(rec) == "table" then
+        for _, tod in ipairs(Preview.GEN2_DAYTIMES) do
+          if type(rec[tod]) == "table" then addCopy(mid, tod) end
+        end
+      end
+    end
+  end
+  return ids, labels
 end
 
 function Preview.ensureMapBgSet(S, mapDef)
   local mapId = mapDef and mapDef.id
   if not (S and S.project and type(mapId) == "string") then return nil end
-  S.project.mapBgSets = S.project.mapBgSets or {}
   local daytime = Preview.gen2PreviewDaytime(S, mapDef)
-  local rec = S.project.mapBgSets[mapId]
-  if type(rec) ~= "table" then
-    rec = {}
-    S.project.mapBgSets[mapId] = rec
+  local key = Preview.mapBgAssignKey(S, mapId, daytime)
+  if key and not parseEnvRef(key) then
+    local named = S.project.namedBgSets and S.project.namedBgSets[key]
+    if type(named) == "table" then return named, daytime end
   end
-  if type(rec[daytime]) == "table" then return rec[daytime], daytime end
-  local set = select(1, Preview.gen2MapBgSet(S, mapDef, daytime, true))
-  set = cloneBgSet(set)
-  if not set then return nil, daytime end
-  rec[daytime] = set
-  return set, daytime
+  local rec = S.project.mapBgSets and S.project.mapBgSets[mapId]
+  if rec and type(rec[daytime]) == "table" and not key then
+    return rec[daytime], daytime
+  end
+  local id = Preview.createMapBgPalette(S, mapDef)
+  return id and S.project.namedBgSets[id] or nil, daytime
 end
 
--- Edit one swatch on this map's ToD set (does not change other maps).
+-- Edit one swatch. Env / default assignments fork a palette for this map first.
 function Preview.setGen2MapSwatch(S, mapDef, groupIndex, colorIndex, rgb)
   if not (S and type(mapDef) == "table") then return false end
   groupIndex = tonumber(groupIndex) or 0

@@ -1892,36 +1892,43 @@ function ModWriter.emitMain(project, baseData, derivedModId)
   end
 
   if gen2 then
-    local bag = project.mapBgSets
-    local payload, ids = {}, {}
-    if type(bag) == "table" then
-      for mid, rec in pairs(bag) do
-        if type(mid) == "string" and type(rec) == "table" then
-          local tods = {}
-          for _, tod in ipairs({ "MORN", "DAY", "NITE", "DARK" }) do
-            local set = rec[tod]
-            if type(set) == "table" then
-              local rows = {}
-              for i = 1, 8 do
-                local row = {}
-                for c = 1, 4 do
-                  local col = set[i] and set[i][c] or { 0, 0, 0 }
-                  row[c] = { col[1] or 0, col[2] or 0, col[3] or 0 }
-                end
-                rows[i] = row
-              end
-              tods[tod] = rows
-            end
-          end
-          if next(tods) then
-            ids[#ids + 1] = mid
-            payload[mid] = tods
-          end
-        end
+    local Preview = require("Preview")
+    local stub = { project = project, data = baseData }
+    local seen, ids = {}, {}
+    local function consider(mid)
+      if type(mid) == "string" and mid ~= "" and not seen[mid] then
+        seen[mid] = true
+        ids[#ids + 1] = mid
       end
     end
+    if type(project.mapBgAssign) == "table" then
+      for mid in pairs(project.mapBgAssign) do consider(mid) end
+    end
+    if type(project.mapBgSets) == "table" then
+      for mid in pairs(project.mapBgSets) do consider(mid) end
+    end
     table.sort(ids)
-    if #ids > 0 then
+    local payload = {}
+    for _, mid in ipairs(ids) do
+      local tods = {}
+      for _, tod in ipairs(Preview.GEN2_DAYTIMES) do
+        local set = Preview.mapBgOverride(stub, mid, tod)
+        if type(set) == "table" then
+          local rows = {}
+          for i = 1, 8 do
+            local row = {}
+            for c = 1, 4 do
+              local col = set[i] and set[i][c] or { 0, 0, 0 }
+              row[c] = { col[1] or 0, col[2] or 0, col[3] or 0 }
+            end
+            rows[i] = row
+          end
+          tods[tod] = rows
+        end
+      end
+      if next(tods) then payload[mid] = tods end
+    end
+    if next(payload) then
       out[#out + 1] = "  -- Per-map BG palettes"
       out[#out + 1] = "  do"
       out[#out + 1] = "    local _mapBg = " .. emitTableLiteral(payload, 2)
