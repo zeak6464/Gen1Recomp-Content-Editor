@@ -1257,6 +1257,24 @@ local function flattenBgSet(bgSet)
   return #colors > 0 and colors or nil
 end
 
+-- Cache key fragment so image-tile remaps refresh when a map assignment or
+-- swatch changes (same 8x4 that gen2MapBgSet returns).
+local function bgSetFingerprint(bgSet)
+  if type(bgSet) ~= "table" then return "" end
+  local parts = {}
+  for slot = 1, 8 do
+    local pal = bgSet[slot]
+    for i = 1, 4 do
+      local c = pal and pal[i]
+      parts[#parts + 1] = string.format("%d,%d,%d",
+        math.floor((c and c[1]) or 0),
+        math.floor((c and c[2]) or 0),
+        math.floor((c and c[3]) or 0))
+    end
+  end
+  return table.concat(parts, ";")
+end
+
 local function snapImageDataToGbc(data, colors)
   if not (data and data.mapPixel and colors and #colors > 0) then return end
   data:mapPixel(function(_, _, r, g, b, a)
@@ -1280,13 +1298,19 @@ local function snapImageDataToGbc(data, colors)
 end
 
 -- TrueColor PNG restamped onto this map's current ToD palettes.
+-- Uses the same per-map assignment as gen2MapBgSet (namedBgSets / mapBgAssign),
+-- not raw ROM pals — image-inserted tiles are true_color and never hit GbcPalette.with.
 function Preview.gen2TrueColorImage(S, path, mapDef)
   if type(path) ~= "string" or path == "" or type(mapDef) ~= "table" then
     return nil
   end
   local daytime = Preview.gen2PreviewDaytime(S, mapDef) or "DAY"
+  local daySet = select(1, Preview.gen2MapBgSet(S, mapDef, "DAY"))
+  local todSet = select(1, Preview.gen2MapBgSet(S, mapDef, daytime))
   local key = "g2tc:" .. cacheKey(S, path) .. "|" .. daytime
     .. "|" .. tostring(mapDef.id or mapDef.environment or "")
+    .. "|" .. (Preview.mapBgAssignKey(S, mapDef.id, daytime) or "")
+    .. "|" .. bgSetFingerprint(daySet) .. "|" .. bgSetFingerprint(todSet)
   if cache[key] ~= nil then return cache[key] or nil end
   local src = loadImageData(S, path)
   if not (src and src.clone) then
@@ -1300,19 +1324,20 @@ function Preview.gen2TrueColorImage(S, path, mapDef)
     return nil
   end
   local pals = S and S.data and (S.data.palettes or S.data.gen2Palettes)
+  pals = Preview.palsForMapPreview(S, pals, mapDef)
   local okP, Palettes = pcall(require, "src.world.gen2.Palettes")
   local okG, GbcPalette = pcall(require, "src.render.GbcPalette")
   local img
-  if pals and okP and Palettes and Palettes.bgSet then
+  if daySet or todSet then
+    snapImageDataToGbc(data, flattenBgSet(daySet or todSet))
     local bakeMap = Preview.gen2BakeMap(mapDef, mapDef.tileset)
-    snapImageDataToGbc(data, flattenBgSet(Palettes.bgSet(pals, bakeMap, "DAY")))
-    local swap = Palettes.trueColorSwapTable
+    local swap = pals and okP and Palettes and Palettes.trueColorSwapTable
       and Palettes.trueColorSwapTable(pals, bakeMap, daytime)
     if swap and okG and GbcPalette and GbcPalette.recolorImage then
       img = GbcPalette.recolorImage(swap, data)
     end
     if not img then
-      snapImageDataToGbc(data, flattenBgSet(Palettes.bgSet(pals, bakeMap, daytime)))
+      snapImageDataToGbc(data, flattenBgSet(todSet or daySet))
     end
   end
   if not img and love and love.graphics and love.graphics.newImage then
