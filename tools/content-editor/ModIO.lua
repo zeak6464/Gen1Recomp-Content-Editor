@@ -350,6 +350,14 @@ function ModIO.load(modDir)
     return project, "no editor_project.lua; started empty project (Save regenerates main.lua)"
   end
   local chunk, err = loadfile(path)
+  if not chunk and type(err) == "string" and err:find("65536 constants", 1, true) then
+    local raw = ModIO.readText(path)
+    local split, splitErr = ModWriter.rewriteOversizeProject(raw)
+    if not split then return nil, splitErr or err end
+    local wrote, writeErr = ModIO.writeText(path, split)
+    if not wrote then return nil, writeErr or err end
+    chunk, err = loadfile(path)
+  end
   if not chunk then return nil, err end
   local ok, project = pcall(chunk)
   if not ok then return nil, project end
