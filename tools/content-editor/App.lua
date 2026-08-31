@@ -1142,21 +1142,18 @@ local function tabHScrollbar(x, y, w, h, offset, contentW, viewW, hitY, hitH)
   if not Kit.mouseDown then
     if S then S._tabBarDrag = nil end
   elseif drag and drag.mode == "thumb" then
-    local rel = Theme.clamp(Kit.mouseX - drag.grab, 0, travel)
+    local rel = Theme.clamp(Kit.mouseX - x - drag.grab, 0, travel)
     offset = Theme.clamp(rel / travel * maxOff, 0, maxOff)
   elseif Kit.mouseClicked and not Kit.blockClicks and Kit.hit(x, y, w, h) then
+    local grab
     if Kit.hit(tx, y, thumbW, h) then
-      if S then
-        S._tabBarDrag = { mode = "thumb", grab = Kit.mouseX - tx }
-      end
+      grab = Kit.mouseX - tx
     else
-      local page = math.max(40 * s, viewW * 0.6)
-      if Kit.mouseX < tx then
-        offset = Theme.clamp(offset - page, 0, maxOff)
-      else
-        offset = Theme.clamp(offset + page, 0, maxOff)
-      end
+      grab = thumbW / 2
+      local rel = Theme.clamp(Kit.mouseX - x - grab, 0, travel)
+      offset = Theme.clamp(rel / travel * maxOff, 0, maxOff)
     end
+    if S then S._tabBarDrag = { mode = "thumb", grab = grab } end
   end
 
   offset = Kit.rememberScroll("tabBarH", x, hitY or y, w, hitH or h,

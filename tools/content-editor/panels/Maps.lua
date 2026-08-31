@@ -2245,12 +2245,12 @@ local function drawMapScrollbars(S, mapDef, vx, vy, vw, vh)
     S._mapSbBlocking = true
     if drag.axis == "x" and needH then
       local travel = math.max(1, drag.trackLen - drag.thumbLen)
-      local t = (Kit.mouseX - drag.origin) / travel
-      S.mapCamX = minX + Theme.clamp(t, 0, 1) * (maxX - minX)
+      local rel = Theme.clamp(Kit.mouseX - drag.trackPos - drag.grab, 0, travel)
+      S.mapCamX = minX + (rel / travel) * (maxX - minX)
     elseif drag.axis == "y" and needV then
       local travel = math.max(1, drag.trackLen - drag.thumbLen)
-      local t = (Kit.mouseY - drag.origin) / travel
-      S.mapCamY = minY + Theme.clamp(t, 0, 1) * (maxY - minY)
+      local rel = Theme.clamp(Kit.mouseY - drag.trackPos - drag.grab, 0, travel)
+      S.mapCamY = minY + (rel / travel) * (maxY - minY)
     end
     clampMapCam(S, mapDef)
   end
@@ -2270,11 +2270,18 @@ local function drawMapScrollbars(S, mapDef, vx, vy, vw, vh)
     Theme.col(PAL.blue, hot and 0.9 or 0.65)
     love.graphics.rectangle("fill", bx, ty, sb, th, sb / 2, sb / 2)
     if Kit.press(bx, vy, sb, trackH) then
-      local clickT = Theme.clamp((Kit.mouseY - vy - th / 2) / travel, 0, 1)
-      S.mapCamY = minY + clickT * range
+      local grab
+      if Kit.hit(bx, ty, sb, th) then
+        grab = Kit.mouseY - ty
+      else
+        grab = th / 2
+        local rel = Theme.clamp(Kit.mouseY - vy - grab, 0, travel)
+        S.mapCamY = minY + (rel / travel) * range
+      end
       S._mapSbDrag = {
         axis = "y",
-        origin = Kit.mouseY - travel * clickT,
+        grab = grab,
+        trackPos = vy,
         trackLen = trackH,
         thumbLen = th,
       }
@@ -2298,11 +2305,18 @@ local function drawMapScrollbars(S, mapDef, vx, vy, vw, vh)
     Theme.col(PAL.blue, hot and 0.9 or 0.65)
     love.graphics.rectangle("fill", tx, by, tw, sb, sb / 2, sb / 2)
     if Kit.press(vx, by, trackW, sb) then
-      local clickT = Theme.clamp((Kit.mouseX - vx - tw / 2) / travel, 0, 1)
-      S.mapCamX = minX + clickT * range
+      local grab
+      if Kit.hit(tx, by, tw, sb) then
+        grab = Kit.mouseX - tx
+      else
+        grab = tw / 2
+        local rel = Theme.clamp(Kit.mouseX - vx - grab, 0, travel)
+        S.mapCamX = minX + (rel / travel) * range
+      end
       S._mapSbDrag = {
         axis = "x",
-        origin = Kit.mouseX - travel * clickT,
+        grab = grab,
+        trackPos = vx,
         trackLen = trackW,
         thumbLen = tw,
       }

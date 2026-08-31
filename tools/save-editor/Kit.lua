@@ -633,13 +633,54 @@ function Kit.checkbox(x, y, w, h, checked, label, labelColor)
   return checked, false
 end
 
+-- Drop bytes that are not a complete UTF-8 codepoint so Font:getWidth / print
+-- cannot throw "UTF-8 decoding error: Not enough space".
+local function utf8Clean(s)
+  local out, i, n = {}, 1, #s
+  while i <= n do
+    local b = s:byte(i)
+    local need = (b >= 0xF0 and 4) or (b >= 0xE0 and 3) or (b >= 0xC0 and 2) or 1
+    if b >= 0x80 and b < 0xC0 then
+      out[#out + 1] = "?"
+      i = i + 1
+    elseif need > 1 then
+      local last = i + need - 1
+      local ok = last <= n
+      if ok then
+        for j = i + 1, last do
+          local c = s:byte(j)
+          if c < 0x80 or c >= 0xC0 then ok = false; break end
+        end
+      end
+      if ok then
+        out[#out + 1] = s:sub(i, last)
+        i = last + 1
+      else
+        out[#out + 1] = "?"
+        i = i + 1
+      end
+    else
+      out[#out + 1] = s:sub(i, i)
+      i = i + 1
+    end
+  end
+  return table.concat(out)
+end
+
 -- Single-line fields must not paint LOVE's multi-line print below the bar
 -- (script dialog often stores "line1\nline2").
 local function flatOneLine(s)
-  s = tostring(s or ""):gsub("\r\n", "\n")
+  s = utf8Clean(tostring(s or ""):gsub("\r\n", "\n"))
   s = s:gsub("[\n\r\f\v]", " / ")
   s = s:gsub(" +/ +", " / ")
   return s
+end
+
+local function safeFontWidth(f, s)
+  if not f or s == nil or s == "" then return 0 end
+  local ok, w = pcall(f.getWidth, f, s)
+  if ok and type(w) == "number" then return w end
+  return 0
 end
 
 -- 1-based byte index after the codepoint that starts at i.
@@ -672,13 +713,25 @@ local function caretRight(s, caret)
   return utf8NextIndex(s, caret + 1) - 1
 end
 
+-- Same-id fields reuse Kit.caret; a leftover byte can sit mid-codepoint.
+local function snapCaret(s, caret)
+  caret = Theme.clamp(tonumber(caret) or 0, 0, #s)
+  if caret <= 0 then return 0 end
+  if caret >= #s then return #s end
+  local nextb = s:byte(caret + 1)
+  if nextb and nextb >= 0x80 and nextb < 0xC0 then
+    return caretLeft(s, caret)
+  end
+  return caret
+end
+
 -- Byte offset (0..#s) of the caret nearest to pixel x within string s.
 local function caretAtX(f, s, x)
   if not f or s == "" or x <= 0 then return 0 end
   local best, bestDist = 0, math.abs(x)
   local caret = 0
   while caret <= #s do
-    local w = f:getWidth(s:sub(1, caret))
+    local w = safeFontWidth(f, s:sub(1, caret))
     local dist = math.abs(w - x)
     if dist < bestDist then best, bestDist = caret, dist end
     if caret >= #s then break end
@@ -729,7 +782,10 @@ function Kit.textfield(id, x, y, w, h, value, placeholder, tooltip)
       Kit.selAnchor = nil
       Kit.fieldScroll = 0
     end
-    Kit.caret = Theme.clamp(Kit.caret or #text, 0, #text)
+    Kit.caret = snapCaret(text, Kit.caret or #text)
+    if Kit.selAnchor ~= nil then
+      Kit.selAnchor = snapCaret(text, Kit.selAnchor)
+    end
     -- Drag to select while the button is held inside the field.
     if Kit.mouseDown and Kit.hit(x, y, w, h) and not Kit.mouseClicked then
       local rel = (Kit.mouseX - textX) + (Kit.fieldScroll or 0)
@@ -854,8 +910,9 @@ function Kit.textfield(id, x, y, w, h, value, placeholder, tooltip)
     if text == "" and not focused then
       Kit.text("mono", placeholder or "", textX, ty, PAL.faint)
     elseif focused and f then
-      local caret = Theme.clamp(Kit.caret or #text, 0, #text)
-      local caretPx = f:getWidth(text:sub(1, caret))
+      local caret = snapCaret(text, Kit.caret or #text)
+      Kit.caret = caret
+      local caretPx = safeFontWidth(f, text:sub(1, caret))
       local scroll = Kit.fieldScroll or 0
       if caretPx - scroll > textW - 2 then
         scroll = caretPx - textW + 2
@@ -868,8 +925,8 @@ function Kit.textfield(id, x, y, w, h, value, placeholder, tooltip)
 
       local a, b = selRange()
       if a ~= b then
-        local x0 = drawX + f:getWidth(text:sub(1, a))
-        local x1 = drawX + f:getWidth(text:sub(1, b))
+        local x0 = drawX + safeFontWidth(f, text:sub(1, a))
+        local x1 = drawX + safeFontWidth(f, text:sub(1, b))
         Theme.col(PAL.blue, 0.35)
         G.rectangle("fill", x0, ty - 1, math.max(1, x1 - x0),
           Kit.textHeight("mono") + 2)
@@ -1137,7 +1194,9 @@ end
 
 -- kind: "rows" (integer offset) or "pixels". visible/content size the thumb.
 -- Returns offset, consumedClick (true when this frame handled bar input).
-local function applyScrollbarDrag(x, y, w, h, offset, maxOffset, visible, content, kind)
+-- `id` (optional) keeps a drag alive if the list rect jitters a pixel.
+local function applyScrollbarDrag(x, y, w, h, offset, maxOffset, visible, content,
+    kind, id)
   if maxOffset <= 0 or h <= 0 or visible <= 0 or content <= 0 then
     return offset, false
   end
@@ -1147,7 +1206,8 @@ local function applyScrollbarDrag(x, y, w, h, offset, maxOffset, visible, conten
   local th = math.max(28 * s, h * visible / content)
   local travel = math.max(1, h - th)
   local ty = y + travel * (offset / math.max(1, maxOffset))
-  local key = sbKey(x, y, w, h)
+  local key = (type(id) == "string" and id ~= "") and ("id:" .. id)
+    or sbKey(x, y, w, h)
   local d = Kit._sbDrag
 
   if not Kit.mouseDown then
@@ -1155,8 +1215,10 @@ local function applyScrollbarDrag(x, y, w, h, offset, maxOffset, visible, conten
     return offset, false
   end
 
+  -- grab is pixels from thumb top; rel is thumb top relative to the track
+  -- (must subtract y — using raw mouseY snaps bars that are not at y=0).
   if d and d.key == key and d.mode == "thumb" then
-    local rel = Theme.clamp(Kit.mouseY - d.grab, 0, travel)
+    local rel = Theme.clamp(Kit.mouseY - y - d.grab, 0, travel)
     offset = Theme.clamp(rel / travel * maxOffset, 0, maxOffset)
     if kind == "rows" then
       offset = Theme.clamp(math.floor(offset + 0.5), 0, maxOffset)
@@ -1168,20 +1230,21 @@ local function applyScrollbarDrag(x, y, w, h, offset, maxOffset, visible, conten
 
   if Kit.blockClicks then return offset, false end
   if Kit.mouseClicked and Kit.hit(hitX, y, hitW, h) then
+    local grab
     if Kit.hit(hitX, ty, hitW, th) then
-      Kit._sbDrag = {
-        key = key, mode = "thumb", grab = Kit.mouseY - ty, kind = kind,
-      }
-      return offset, true
-    end
-    -- Track click: page toward the pointer (nudge up/down), not jump-to.
-    -- Jump-to made it easy to overshoot when trying to scroll back up.
-    local page = kind == "rows" and math.max(1, visible) or math.max(1, h)
-    if Kit.mouseY < ty then
-      offset = Theme.clamp(offset - page, 0, maxOffset)
+      grab = Kit.mouseY - ty
     else
-      offset = Theme.clamp(offset + page, 0, maxOffset)
+      -- Track: put the thumb under the pointer, then drag while held.
+      grab = th / 2
+      local rel = Theme.clamp(Kit.mouseY - y - grab, 0, travel)
+      offset = Theme.clamp(rel / travel * maxOffset, 0, maxOffset)
+      if kind == "rows" then
+        offset = Theme.clamp(math.floor(offset + 0.5), 0, maxOffset)
+      end
     end
+    Kit._sbDrag = {
+      key = key, mode = "thumb", grab = grab, kind = kind, offset = offset,
+    }
     return offset, true
   end
   return offset, false
@@ -1194,7 +1257,7 @@ function Kit.scroll(x, y, w, h, offset, total, perPage, step, id)
   offset = Kit.getScrollOffset(key, offset, maxOffset)
   local onBar
   offset, onBar = applyScrollbarDrag(x, y, w, h, offset, maxOffset,
-    perPage or 0, total or 0, "rows")
+    perPage or 0, total or 0, "rows", key)
   if Kit.blockClicks then
     return Kit.rememberScroll(key, x, y, w, h, offset, maxOffset, {
       axis = "y", kind = "rows", step = math.max(1, step or 1),
@@ -1247,7 +1310,7 @@ function Kit.scrollPixels(x, y, w, h, offset, contentH, id)
   offset = Kit.getScrollOffset(key, offset, maxOffset)
   local onBar
   offset, onBar = applyScrollbarDrag(x, y, w, h, offset, maxOffset,
-    h, contentH or 0, "pixels")
+    h, contentH or 0, "pixels", key)
   if Kit.blockClicks then
     return Kit.rememberScroll(key, x, y, w, h, offset, maxOffset, {
       axis = "y", kind = "pixels",
@@ -1281,9 +1344,8 @@ function Kit.scrollPixels(x, y, w, h, offset, contentH, id)
   })
 end
 
--- Paint a thicker scrollbar for a row-offset list. Interaction is handled in
--- Kit.scroll (same rect); this keeps the thumb visible and easy to grab.
--- Returns offset unchanged (or from an active drag) for optional assignment.
+-- Paint a thicker scrollbar for a row-offset list and keep thumb-drag in
+-- sync (same id as Kit.scroll). Returns the live offset.
 function Kit.scrollbar(x, y, w, h, offset, total, perPage, id)
   total, perPage = total or 0, perPage or 0
   local maxOffset = math.max(0, total - perPage)
@@ -1291,13 +1353,14 @@ function Kit.scrollbar(x, y, w, h, offset, total, perPage, id)
   -- Prefer the offset just produced by Kit.scroll (same frame); fall back
   -- to keyboard state only when scroll() was not called with this id.
   offset = Theme.clamp(offset or 0, 0, maxOffset)
-  local geoKey = sbKey(x, y, w, h)
   if total <= perPage or h <= 0 or perPage <= 0 then
     return offset
   end
+  offset = applyScrollbarDrag(x, y, w, h, offset, maxOffset,
+    perPage, total, "rows", key)
   local sb = Kit._sbDrag
-  -- Drag tracking still uses geometric keys from applyScrollbarDrag.
-  if sb and sb.key == geoKey and type(sb.offset) == "number" then
+  local dragKey = "id:" .. key
+  if sb and (sb.key == dragKey or sb.key == key) and type(sb.offset) == "number" then
     offset = Theme.clamp(sb.offset, 0, maxOffset)
   end
   if Kit._scrollState and Kit._scrollState[key] then
@@ -1317,7 +1380,7 @@ function Kit.scrollbar(x, y, w, h, offset, total, perPage, id)
     Theme.col(PAL.cardBorder, 0.35)
     G.rectangle("fill", bx, y, bw, h, bw / 2, bw / 2)
     local hot = Kit.hover(hitX, ty, hitW, th)
-      or (sb and sb.key == key)
+      or (sb and (sb.key == key or sb.key == dragKey))
     Theme.col(PAL.blue, hot and 0.9 or 0.7)
     G.rectangle("fill", bx, ty, bw, th, bw / 2, bw / 2)
   end
@@ -1329,10 +1392,12 @@ function Kit.scrollbarPixels(x, y, w, h, offset, contentH, id)
   local maxOffset = math.max(0, contentH - math.max(0, h))
   local key = (type(id) == "string" and id ~= "") and id or sbKey(x, y, w, h)
   offset = Theme.clamp(offset or 0, 0, maxOffset)
-  local geoKey = sbKey(x, y, w, h)
   if contentH <= h + 1 or h <= 0 then return offset end
+  offset = applyScrollbarDrag(x, y, w, h, offset, maxOffset,
+    h, contentH, "pixels", key)
   local sb = Kit._sbDrag
-  if sb and sb.key == geoKey and type(sb.offset) == "number" then
+  local dragKey = "id:" .. key
+  if sb and (sb.key == dragKey or sb.key == key) and type(sb.offset) == "number" then
     offset = Theme.clamp(sb.offset, 0, maxOffset)
   end
   if Kit._scrollState and Kit._scrollState[key] then
@@ -1352,7 +1417,7 @@ function Kit.scrollbarPixels(x, y, w, h, offset, contentH, id)
     Theme.col(PAL.cardBorder, 0.35)
     G.rectangle("fill", bx, y, bw, h, bw / 2, bw / 2)
     local hot = Kit.hover(hitX, ty, hitW, th)
-      or (sb and sb.key == key)
+      or (sb and (sb.key == key or sb.key == dragKey))
     Theme.col(PAL.blue, hot and 0.9 or 0.7)
     G.rectangle("fill", bx, ty, bw, th, bw / 2, bw / 2)
   end
