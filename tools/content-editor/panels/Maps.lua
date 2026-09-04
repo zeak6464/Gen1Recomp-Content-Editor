@@ -4780,6 +4780,12 @@ function Maps.drawTilesetPicker(S, x, y, w, h, App)
   drawTilesetPreview(S, focusId, prevX, listY, prevW, prevH)
 end
 
+local function importResultPath(modDir)
+  local sep = package.config:sub(1, 1)
+  local dir = tostring(modDir or ""):gsub("[/\\]+$", "")
+  return dir .. sep .. "tmx_import_result.lua"
+end
+
 local function loadImportResult(path)
   -- Prefer io.open + load: loadfile can fail for absolute paths outside the
   -- LÖVE source tree on some platforms.
@@ -4800,10 +4806,33 @@ local function loadImportResult(path)
   return true, chunk
 end
 
+local function findTmxImportScript()
+  local sep = package.config:sub(1, 1)
+  local roots, seen = {}, {}
+  local function add(p)
+    if type(p) ~= "string" or p == "" then return end
+    p = p:gsub("[/\\]+$", "")
+    if seen[p] then return end
+    seen[p] = true
+    roots[#roots + 1] = p
+  end
+  add(ModIO.repoRoot())
+  if love and love.filesystem then
+    if love.filesystem.getSource then add(love.filesystem.getSource()) end
+    if love.filesystem.getSourceBaseDirectory then
+      add(love.filesystem.getSourceBaseDirectory())
+    end
+  end
+  for _, root in ipairs(roots) do
+    local script = root .. sep .. "tools" .. sep .. "tmx_import.py"
+    if ModIO.exists(script) then return script end
+  end
+  return nil
+end
+
 local function mergeImportResult(S, App)
   State.ensureProjectFields(S.project)
-  local sep = package.config:sub(1, 1)
-  local path = S.path .. sep .. "tmx_import_result.lua"
+  local path = importResultPath(S.path)
   local okLoad, chunkOrErr = loadImportResult(path)
   if not okLoad then
     return false, chunkOrErr
@@ -4940,35 +4969,45 @@ function Maps.importTmx(S, tmxPath, App)
     S.status = "TMX import: " .. tostring(nativeMsg)
     return
   end
-  if nativeMsg and nativeMsg ~= "python" then
-    S.status = "TMX convert: " .. tostring(nativeMsg)
+  local script = findTmxImportScript()
+  if not script then
+    S.status = "TMX import failed: " .. tostring(nativeMsg or "convert failed")
+    return
   end
-  local root = ModIO.repoRoot()
   local sep = package.config:sub(1, 1)
-  local script = root .. sep .. "tools" .. sep .. "tmx_import.py"
   local outMod = S.path
-  local cmd
-  if sep == "\\" then
-    cmd = string.format('python "%s" "%s" --mod "%s" 2>&1', script, tmxPath, outMod)
-  else
-    cmd = string.format('python3 "%s" "%s" --mod "%s" 2>&1', script, tmxPath, outMod)
-  end
+  local bin = (sep == "\\") and "python" or "python3"
+  local cmd = string.format('%s "%s" "%s" --mod "%s" 2>&1',
+    bin, script, tmxPath, outMod)
   S.status = "Importing TMX..."
   local pipe = io.popen(cmd, "r")
   if not pipe then
-    S.status = nativeMsg and ("TMX import: " .. tostring(nativeMsg))
-      or "Could not run tmx_import.py (is Python on PATH?)"
+    S.status = "TMX import failed: " .. tostring(nativeMsg or "convert failed")
+      .. " (could not run tmx_import.py)"
     return
   end
   local report = pipe:read("*a") or ""
   pipe:close()
+  local resultFile = importResultPath(outMod)
+  if not ModIO.exists(resultFile) then
+    local hint = report:gsub("^%s+", ""):gsub("%s+$", "")
+    if hint == "" then
+      hint = "Python did not write tmx_import_result.lua"
+    elseif #hint > 240 then
+      hint = hint:sub(1, 237) .. "..."
+    end
+    S.importReport = (nativeMsg and nativeMsg ~= "python")
+      and (tostring(nativeMsg) .. "\n" .. report) or report
+    S.status = "TMX import failed: " .. hint
+    return
+  end
   local ok, msg = mergeImportResult(S, App)
   S.importReport = (S.importReport or "") .. "\n" .. report
   if ok then
     S.status = "TMX import: " .. tostring(msg)
       .. " (Save to write main.lua + tileset register)"
   else
-    S.status = "Import finished but merge failed: " .. tostring(msg)
+    S.status = "TMX import failed: " .. tostring(msg)
   end
 end
 
