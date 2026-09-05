@@ -12,6 +12,7 @@ local Gen2Talk = require("Gen2Talk")
 local ModWriter = require("ModWriter")
 local RegList = require("RegList")
 local SpeciesPicker = require("SpeciesPicker")
+local ItemPicker = require("ItemPicker")
 local Autocomplete = require("Autocomplete")
 local ChoicePicker = require("ChoicePicker")
 local Code = require("Code")
@@ -990,6 +991,27 @@ local function drawStepFields(S, App, step, i, kind, fx, fy, fw, fh, s)
             App.markDirty()
           end,
         })
+      elseif spec.kind == "item" or spec.key == "item" then
+        local raw = cmd[spec.key]
+        local shown = raw
+        if type(raw) == "number" then
+          shown = ItemPicker.idForIndex(S, raw) or tostring(raw)
+        end
+        ItemPicker.field(S, {
+          x = fx + capW, y = fy, w = fw - capW, h = fh,
+          current = type(shown) == "string" and shown or "",
+          emptyLabel = (spec.ph and spec.ph ~= "" and spec.ph) or "(item)",
+          title = "ITEM",
+          tooltip = "Pick an item. Gold scripts need the item's index, not the name.",
+          onPick = function(pickId)
+            if Generation.isGen2(S) then
+              cmd[spec.key] = ItemPicker.indexForId(S, pickId) or pickId
+            else
+              cmd[spec.key] = pickId
+            end
+            App.markDirty()
+          end,
+        })
       elseif spec.kind == "song" or spec.key == "music" then
         ChoicePicker.songField(S, {
           x = fx + capW, y = fy, w = fw - capW, h = fh,
@@ -1098,9 +1120,20 @@ local function drawStepFields(S, App, step, i, kind, fx, fy, fw, fh, s)
   elseif kind == "give_item" or kind == "take_item"
       or kind == "check_item_skip" or kind == "check_item_missing" then
     local y = row()
-    step.item = field(App, "ev_i_" .. i, fx, y, 140 * s, fh,
-      step.item or "POTION", "POTION",
-      function() return Autocomplete.itemIds(S) end):upper():gsub("%s+", "_")
+    local shown = step.item or "POTION"
+    if type(shown) == "number" then
+      shown = ItemPicker.idForIndex(S, shown) or tostring(shown)
+    end
+    ItemPicker.field(S, {
+      x = fx, y = y, w = 140 * s, h = fh,
+      current = tostring(shown),
+      title = "ITEM",
+      tooltip = "Pick an item from the list",
+      onPick = function(id)
+        step.item = id or "POTION"
+        App.markDirty()
+      end,
+    })
     if kind == "give_item" or kind == "take_item" then
       step.count = tonumber(field(App, "ev_c_" .. i, fx + 150 * s, y, 50 * s, fh,
         tostring(step.count or 1), "1")) or 1
@@ -1169,9 +1202,21 @@ local function drawStepFields(S, App, step, i, kind, fx, fy, fw, fh, s)
     step.text = field(App, "ev_gt_" .. i, fx, y, fw, fh,
       step.text or "Here, take this!", "intro")
     local y2 = row()
-    step.item = field(App, "ev_gi_" .. i, fx, y2, 120 * s, fh,
-      step.item or "POTION", "POTION",
-      function() return Autocomplete.itemIds(S) end):upper():gsub("%s+", "_")
+    do
+      local shown = step.item or "POTION"
+      if type(shown) == "number" then
+        shown = ItemPicker.idForIndex(S, shown) or tostring(shown)
+      end
+      ItemPicker.field(S, {
+        x = fx, y = y2, w = 120 * s, h = fh,
+        current = tostring(shown),
+        title = "ITEM",
+        onPick = function(id)
+          step.item = id or "POTION"
+          App.markDirty()
+        end,
+      })
+    end
     step.count = tonumber(field(App, "ev_gc_" .. i, fx + 130 * s, y2, 40 * s, fh,
       tostring(step.count or 1), "1")) or 1
     step.flag = field(App, "ev_gf_" .. i, fx + 180 * s, y2, 100 * s, fh,

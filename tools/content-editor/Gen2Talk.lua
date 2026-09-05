@@ -14,6 +14,57 @@ local SIMPLE_OPS = {
   jumptextfaceplayer = true,
 }
 
+-- Gold VM giveitem/verbosegiveitem take a numeric item index, not "POTION".
+local ITEM_OPS = {
+  giveitem = true,
+  takeitem = true,
+  checkitem = true,
+  verbosegiveitem = true,
+  verbosegiveitemvar = true,
+  getitemname = true,
+}
+
+function Gen2Talk.itemIndex(S, item)
+  if item == nil or item == "" then return nil end
+  if type(item) == "number" then return item end
+  local s = tostring(item):match("^%s*(.-)%s*$") or ""
+  s = s:gsub("^[\"'](.*)[\"']$", "%1")
+  local n = tonumber(s)
+  if n then return n end
+  s = s:upper():gsub("%s+", "_")
+  if s == "" then return nil end
+  local function look(bag)
+    if type(bag) ~= "table" then return nil end
+    local rec = bag[s]
+    if type(rec) ~= "table" and s:sub(1, 5) ~= "ITEM_" then
+      rec = bag["ITEM_" .. s]
+    end
+    if type(rec) == "table" and type(rec.index) == "number" then
+      return rec.index
+    end
+    for id, def in pairs(bag) do
+      if type(def) == "table" and type(def.index) == "number" then
+        local name = tostring(def.name or ""):upper():gsub("%s+", "_")
+        if id == s or name == s then return def.index end
+      end
+    end
+    return nil
+  end
+  return look(S and S.project and S.project.items)
+    or look(S and S.data and S.data.items)
+end
+
+local function resolveCmdItem(S, cmd)
+  if type(cmd) ~= "table" then return cmd end
+  local idx = Gen2Talk.itemIndex(S, cmd.item)
+  if idx then cmd.item = idx end
+  if type(cmd.args) == "table" then
+    local a1 = Gen2Talk.itemIndex(S, cmd.args[1])
+    if a1 then cmd.args[1] = a1 end
+  end
+  return cmd
+end
+
 local function isForceShinyLoadvar(cmd)
   if type(cmd) ~= "table" or cmd.op ~= "loadvar" then return false end
   local var = tonumber(cmd.var) or tonumber(cmd.args and cmd.args[1])
@@ -470,7 +521,9 @@ function Gen2Talk.stepsToCmds(S, scriptKey, steps)
     if type(step) ~= "table" then
       -- skip
     elseif step.kind == "opcode" and type(step.cmd) == "table" then
-      cmds[#cmds + 1] = copyCmd(step.cmd)
+      local row = copyCmd(step.cmd)
+      if ITEM_OPS[row.op] then resolveCmdItem(S, row) end
+      cmds[#cmds + 1] = row
     elseif step.kind == "show_text" then
       local text = ensureText(step.text, "...")
       if step.jumptext then
@@ -510,13 +563,13 @@ function Gen2Talk.stepsToCmds(S, scriptKey, steps)
     elseif step.kind == "give_item" then
       cmds[#cmds + 1] = {
         op = "giveitem",
-        item = step.item or "POTION",
+        item = Gen2Talk.itemIndex(S, step.item) or step.item or "POTION",
         quantity = tonumber(step.count) or 1,
       }
     elseif step.kind == "take_item" then
       cmds[#cmds + 1] = {
         op = "takeitem",
-        item = step.item or "POTION",
+        item = Gen2Talk.itemIndex(S, step.item) or step.item or "POTION",
         quantity = tonumber(step.count) or 1,
       }
     elseif step.kind == "give_pokemon" or step.kind == "give_starter" then
@@ -600,7 +653,7 @@ function Gen2Talk.stepsToCmds(S, scriptKey, steps)
       cmds[#cmds + 1] = { op = "waitbutton" }
       cmds[#cmds + 1] = {
         op = "giveitem",
-        item = step.item or "POTION",
+        item = Gen2Talk.itemIndex(S, step.item) or step.item or "POTION",
         quantity = tonumber(step.count) or 1,
       }
       cmds[#cmds + 1] = { op = "setevent", event = ev }

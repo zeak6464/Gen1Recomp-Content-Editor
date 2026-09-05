@@ -2860,7 +2860,7 @@ function ModWriter.emitMain(project, baseData, derivedModId)
     local Gen2Talk = require("Gen2Talk")
     goldMapHooksIndex = ModWriter.commitGoldMapHooks(project)
     ModWriter.applySpecialEncounterBindsGold(project)
-    Gen2Talk.commitAllSteps({ project = project, data = nil })
+    Gen2Talk.commitAllSteps({ project = project, data = baseData })
   end
   if gen2 and type(project.scripts) == "table" and next(project.scripts) then
     local skIds = {}

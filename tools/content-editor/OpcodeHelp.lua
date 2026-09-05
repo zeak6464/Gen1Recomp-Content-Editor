@@ -10,7 +10,7 @@ end
 local EV = { F("event", "story flag #", "0", true) }
 local FLAG = { F("flag", "engine flag", "0", true) }
 local ITEM = {
-  F("item", "item", "POTION"),
+  F("item", "item", "POTION", false, "item"),
   F("quantity", "count", "1", true),
 }
 local SCRIPT = { F("script", "which talk", "", false, "script") }
@@ -72,7 +72,7 @@ local INFO = {
   loadvar = I("Set variable", { F("var", "variable", "0", true), F("value", "value", "0", true) }),
   giveitem = I("Give item", ITEM),
   takeitem = I("Take item", ITEM),
-  checkitem = I("Check item", { F("item", "item", "POTION") }),
+  checkitem = I("Check item", { F("item", "item", "POTION", false, "item") }),
   givemoney = I("Give money", { F("amount", "amount", "0", true) }),
   takemoney = I("Take money", { F("amount", "amount", "0", true) }),
   checkmoney = I("Check money", { F("amount", "amount", "0", true) }),
@@ -106,7 +106,7 @@ local INFO = {
   getcoins = I("Copy coins to buffer"),
   getnum = I("Copy number to buffer"),
   getmonname = I("Copy pokemon name", SPECIES),
-  getitemname = I("Copy item name", { F("item", "item", "") }),
+  getitemname = I("Copy item name", { F("item", "item", "", false, "item") }),
   getcurlandmarkname = I("Copy landmark name"),
   gettrainername = I("Copy trainer name", { F("class", "class", "1", true) }),
   getstring = I("Copy string", TEXT),
@@ -214,7 +214,7 @@ local INFO = {
 local FALLBACK_FIELDS = {
   F("event", "story flag #", "0", true),
   F("flag", "flag", ""),
-  F("item", "item", ""),
+  F("item", "item", "", false, "item"),
   F("quantity", "count", "1", true),
   F("script", "script", ""),
   F("text", "text", ""),

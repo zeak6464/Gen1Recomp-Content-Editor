@@ -46,6 +46,32 @@ local function itemDef(S, id)
     or (S.data and S.data.items and S.data.items[id])
 end
 
+function ItemPicker.indexForId(S, id)
+  if type(id) ~= "string" or id == "" then return nil end
+  local rec = itemDef(S, id)
+  if type(rec) == "table" and type(rec.index) == "number" then
+    return rec.index
+  end
+  rec = itemDef(S, "ITEM_" .. id)
+  if type(rec) == "table" and type(rec.index) == "number" then
+    return rec.index
+  end
+  return nil
+end
+
+function ItemPicker.idForIndex(S, index)
+  index = tonumber(index)
+  if not index then return nil end
+  local function scan(bucket)
+    if type(bucket) ~= "table" then return nil end
+    for sid, rec in pairs(bucket) do
+      if type(rec) == "table" and rec.index == index then return sid end
+    end
+  end
+  return scan(S and S.project and S.project.items)
+    or scan(S and S.data and S.data.items)
+end
+
 -- opts: current, title, onPick(id)
 function ItemPicker.open(S, opts)
   opts = opts or {}
