@@ -108,6 +108,96 @@ function LayeredMap.runtimeTilesetId(sourceId)
   return sourceId:sub(#RUNTIME_PREFIX + 1)
 end
 
+-- Map void is a 32x32 (2x2 of 16x16). One explicit tile repeats; two
+-- tiles (or a small stamp) wrap around the room.
+function LayeredMap.borderCellTile(map, cellX, cellY)
+  if type(map) ~= "table" then return 0 end
+  local cx = math.floor(tonumber(cellX) or 0)
+  local cy = math.floor(tonumber(cellY) or 0)
+  if map._borderExplicit then
+    local cells = map._borderCells
+    if type(cells) == "table" and cells[1] then
+      local minx = cells[1].dx or 0
+      local miny = cells[1].dy or 0
+      local maxx, maxy = minx, miny
+      for i = 2, #cells do
+        local dx, dy = cells[i].dx or 0, cells[i].dy or 0
+        if dx < minx then minx = dx end
+        if dy < miny then miny = dy end
+        if dx > maxx then maxx = dx end
+        if dy > maxy then maxy = dy end
+      end
+      local w = math.max(1, maxx - minx + 1)
+      local h = math.max(1, maxy - miny + 1)
+      local wantX = minx + ((cx % w) + w) % w
+      local wantY = miny + ((cy % h) + h) % h
+      for i = 1, #cells do
+        local cell = cells[i]
+        if (cell.dx or 0) == wantX and (cell.dy or 0) == wantY then
+          return tonumber(cell.tile) or 0
+        end
+      end
+      return tonumber(cells[1].tile) or 0
+    end
+    if type(map._borderTile) == "number" then
+      return map._borderTile
+    end
+  end
+  return (tonumber(map.borderBlock) or 0) * 4 + (cy % 2) * 2 + (cx % 2)
+end
+
+function LayeredMap.setExplicitBorder(map, sourceId, tileA, tileB)
+  if type(map) ~= "table" then return end
+  map._borderExplicit = true
+  map._borderSource = sourceId
+  map._borderTile = tonumber(tileA) or 0
+  local b = tonumber(tileB)
+  if b ~= nil and b ~= map._borderTile then
+    map._borderTile2 = b
+    map._borderCells = {
+      { dx = 0, dy = 0, tile = map._borderTile },
+      { dx = 1, dy = 0, tile = b },
+    }
+  else
+    map._borderTile2 = nil
+    map._borderCells = nil
+  end
+end
+
+function LayeredMap.setBorderFromStamp(map, sourceId, cells)
+  if type(map) ~= "table" then return end
+  map._borderExplicit = true
+  map._borderSource = sourceId
+  if type(cells) ~= "table" or not cells[1] then
+    map._borderTile = 0
+    map._borderTile2 = nil
+    map._borderCells = nil
+    return
+  end
+  local minx, miny = cells[1].dx or 0, cells[1].dy or 0
+  for i = 2, #cells do
+    local dx, dy = cells[i].dx or 0, cells[i].dy or 0
+    if dx < minx then minx = dx end
+    if dy < miny then miny = dy end
+  end
+  local copy = {}
+  for i, cell in ipairs(cells) do
+    copy[i] = {
+      dx = (cell.dx or 0) - minx,
+      dy = (cell.dy or 0) - miny,
+      tile = tonumber(cell.tile) or 0,
+    }
+  end
+  map._borderTile = copy[1].tile
+  if #copy >= 2 then
+    map._borderTile2 = copy[2].tile
+    map._borderCells = copy
+  else
+    map._borderTile2 = nil
+    map._borderCells = nil
+  end
+end
+
 local function resolveMap(S, mapId)
   local Generation = require("Generation")
   return (S.project and S.project.maps and S.project.maps[mapId])
@@ -2019,14 +2109,10 @@ local function compileRuntimeShared(context, mapId, mapSource, warpRecords,
       or LayeredMap.runtimeSourceId(mapSource.baseTileset or sharedId)
     local source = srcId and LayeredMap.sourceDescriptor(S, srcId)
     if source and source.tileset then
-      local metatile = map.borderBlock or 0
       local graphic = {}
       for q = 0, 3 do
-        local cellTile = metatile * 4 + q
-        if map._borderExplicit and type(map._borderTile) == "number" then
-          cellTile = map._borderTile
-        end
         local cellY, cellX = math.floor(q / 2), q % 2
+        local cellTile = LayeredMap.borderCellTile(map, cellX, cellY)
         for micro = 0, 3 do
           local microY, microX = math.floor(micro / 2), micro % 2
           graphic[(cellY * 2 + microY) * 4 + cellX * 2 + microX + 1]
@@ -2351,25 +2437,21 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   if #tiles == 0 then
     addTile({}, "solid")
   end
-  -- Gold's void is tileset block 0 when map.borderBlock is 0. Pack that
+  -- Gen 2 void is tileset block 0 when map.borderBlock is 0. Pack that
   -- 32x32 before the atlas is written, using the same wall the editor
-  -- previews (base-tileset metatile, or an explicit 16x16), not sixteen
-  -- copies of whatever 8x8 happened to be packed first.
+  -- previews (base-tileset metatile, or one/two explicit 16x16s), not
+  -- sixteen copies of whatever 8x8 happened to be packed first.
   local borderGraphic = nil
   do
     local srcId = (map._borderExplicit and map._borderSource)
       or LayeredMap.runtimeSourceId(mapSource.baseTileset)
     local source = srcId and LayeredMap.sourceDescriptor(S, srcId)
     if source then
-      local metatile = map.borderBlock or 0
       local graphic = {}
       for q = 0, 3 do
-        local cellTile = metatile * 4 + q
-        if map._borderExplicit and type(map._borderTile) == "number" then
-          cellTile = map._borderTile
-        end
-        local refs = { { source = source, tile = cellTile, opacity = 1 } }
         local cellY, cellX = math.floor(q / 2), q % 2
+        local cellTile = LayeredMap.borderCellTile(map, cellX, cellY)
+        local refs = { { source = source, tile = cellTile, opacity = 1 } }
         for micro = 0, 3 do
           local spec = transformSpec(
             context, refs, micro, nil, nil, paletteColors)

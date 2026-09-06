@@ -3777,9 +3777,12 @@ local function drawMapCoordLabels(S, mapDef, vx, vy, vw, vh)
   for i, obj in ipairs(mapDef.objects or {}) do
     if not obj.hidden then
       local selected = S.mapObjectIndex == i and S.mapSection == "objects"
-      labelAt(obj.x, obj.y,
-        string.format("%d,%d", obj.x or 0, obj.y or 0),
-        selected and PAL.yellow or PAL.heading)
+      local text = string.format("%d,%d", obj.x or 0, obj.y or 0)
+      if Generation.isGen2(S) then
+        local itemName = Maps._section.itemBallLabel(S, obj)
+        if itemName then text = itemName end
+      end
+      labelAt(obj.x, obj.y, text, selected and PAL.yellow or PAL.heading)
     end
   end
   for i, w in ipairs(mapDef.warps or {}) do
@@ -5016,6 +5019,35 @@ end
 
 Maps._section = {}
 
+-- Gen 2 OBJECTTYPE_ITEMBALL (type 1): pickup uses obj.itemball, not scriptKey.
+function Maps._section.isItemBall(obj)
+  if type(obj) ~= "table" then return false end
+  if type(obj.itemball) == "table" then return true end
+  if tonumber(obj.type) == 1 then return true end
+  local spr = tostring(obj.sprite or "")
+  return spr == "SPRITE_POKE_BALL" or spr == "SPRITE_POKEBALL"
+end
+
+function Maps._section.itemBallLabel(S, obj)
+  if type(obj) ~= "table" then return nil end
+  local ball = obj.itemball
+  if type(ball) ~= "table" then return nil end
+  local ItemPicker = require("ItemPicker")
+  local raw = ball.item
+  local name
+  if type(raw) == "number" or (type(raw) == "string" and raw:match("^%d+$")) then
+    name = ItemPicker.idForIndex(S, tonumber(raw)) or tostring(raw)
+  elseif type(raw) == "string" and raw ~= "" then
+    name = raw
+  end
+  if not name then return nil end
+  local qty = tonumber(ball.quantity)
+  if qty and qty ~= 1 then
+    return name .. " x" .. tostring(qty)
+  end
+  return name
+end
+
 function Maps._section.drawBasics(S, map, mutate, App, px, py, propW, listBottom, fh, s)
   local function prow(label, body)
     if py + fh + 22 * s > listBottom then return true end
@@ -5350,64 +5382,91 @@ function Maps._section.drawBasics(S, map, mutate, App, px, py, propW, listBottom
       and S.project.layeredMaps[map.id]
     local LM = require("LayeredMap")
     local bid = map.borderBlock or 0
-    local cellTile = map._borderTile
     local thumb = fh_
     local brush = S.paintBlock or 0
     if layered then
       brush = tonumber(S.builderTile) or 0
     end
-    if layered and map._borderExplicit and type(cellTile) == "number" then
-      local srcId = map._borderSource
-        or LM.runtimeSourceId(authoredTileset())
-      local desc = LM.sourceDescriptor(S, srcId)
-      if desc then
-        LM.drawSourceTile(S, desc, cellTile, fx, fy, thumb, 1)
+    local srcId = (layered and map._borderSource)
+      or (layered and S.builderSourceId)
+      or (layered and LM.runtimeSourceId(authoredTileset()))
+    local desc = layered and srcId and LM.sourceDescriptor(S, srcId)
+    local function drawBorderThumb(tile, x)
+      if desc and type(tile) == "number" then
+        LM.drawSourceTile(S, desc, tile, x, fy, thumb, 1)
+      elseif layered then
+        drawBlockThumb(S, authoredTileset(), bid, x, fy, thumb)
       else
-        drawBlockThumb(S, authoredTileset(), bid, fx, fy, thumb)
+        drawBlockThumb(S, map.tileset, bid, x, fy, thumb)
       end
-      bid = cellTile
+    end
+    if layered then
+      local tileA = map._borderExplicit and map._borderTile
+      local tileB = map._borderExplicit and map._borderTile2
+      if type(tileA) ~= "number" then tileA = tonumber(S.builderTile) or 0 end
+      drawBorderThumb(tileA, fx)
+      local numW = 36 * s
+      local aX = fx + thumb + 4 * s
+      local rawA = field(App, "mp_border", aX, fy, numW, fh_,
+        tostring(tileA), "0")
+      local nextA = tonumber(rawA)
+      local bX = aX + numW + 6 * s
+      drawBorderThumb(type(tileB) == "number" and tileB or tileA, bX)
+      local rawB = field(App, "mp_border2", bX + thumb + 4 * s, fy, numW, fh_,
+        type(tileB) == "number" and tostring(tileB) or "", "2nd")
+      local nextB = (rawB ~= "" and tonumber(rawB)) or nil
+      if nextA ~= nil and (nextA ~= tileA or nextB ~= tileB) then
+        map = mutate()
+        LM.setExplicitBorder(map, srcId, nextA, nextB)
+        MapLoader.invalidate(map.id)
+        App.markDirty()
+      end
+      local btnX = bX + thumb + 4 * s + numW + 6 * s
+      local btnW = math.max(0, fw - (btnX - fx))
+      if btnW >= 52 * s and Kit.button(btnX, fy, btnW, fh_, "Use brush", {
+          kind = "accent",
+          tooltip = "Use the selected tile, or a two-tile stamp, around the map",
+        }) then
+        map = mutate()
+        local stamp = S.builderStamp
+        local cells = stamp and stamp.cells
+        if type(cells) == "table" and cells[1] then
+          LM.setBorderFromStamp(map, stamp.source or srcId, cells)
+        else
+          LM.setExplicitBorder(map, srcId, brush, nil)
+        end
+        MapLoader.invalidate(map.id)
+        App.markDirty()
+        if map._borderTile2 then
+          S.status = string.format("Border 16x16 → %s + %s",
+            tostring(map._borderTile), tostring(map._borderTile2))
+        else
+          S.status = "Border 16x16 → " .. tostring(map._borderTile)
+        end
+      end
     else
       drawBlockThumb(S, map.tileset, bid, fx, fy, thumb)
-    end
-    local fieldX = fx + thumb + 6 * s
-    local v = tonumber(field(App, "mp_border", fieldX, fy, 50 * s, fh_,
-      tostring(bid), "0")) or 0
-    if v ~= bid then
-      map = mutate()
-      if layered then
-        map._borderTile = v
-        map._borderExplicit = true
-        map._borderSource = map._borderSource
-          or S.builderSourceId
-          or LM.runtimeSourceId(authoredTileset())
-      else
+      local fieldX = fx + thumb + 6 * s
+      local v = tonumber(field(App, "mp_border", fieldX, fy, 50 * s, fh_,
+        tostring(bid), "0")) or 0
+      if v ~= bid then
+        map = mutate()
         map.borderBlock = v
+        MapLoader.invalidate(map.id)
+        App.markDirty()
       end
-      MapLoader.invalidate(map.id)
-      App.markDirty()
-    end
-    local btnX = fieldX + 56 * s
-    local btnW = math.max(0, fw - (btnX - fx))
-    if btnW >= 56 * s and Kit.button(btnX, fy, btnW, fh_, "Use brush", {
-        kind = "accent",
-        tooltip = layered
-          and ("Set border to 16x16 tile " .. tostring(brush))
-          or ("Set border to paint block " .. tostring(brush)),
-      }) then
-      map = mutate()
-      if layered then
-        map._borderTile = brush
-        map._borderExplicit = true
-        map._borderSource = S.builderSourceId
-          or LM.runtimeSourceId(authoredTileset())
-      else
+      local btnX = fieldX + 56 * s
+      local btnW = math.max(0, fw - (btnX - fx))
+      if btnW >= 56 * s and Kit.button(btnX, fy, btnW, fh_, "Use brush", {
+          kind = "accent",
+          tooltip = "Set border to paint block " .. tostring(brush),
+        }) then
+        map = mutate()
         map.borderBlock = brush
+        MapLoader.invalidate(map.id)
+        App.markDirty()
+        S.status = "Border block → " .. tostring(map.borderBlock)
       end
-      MapLoader.invalidate(map.id)
-      App.markDirty()
-      S.status = layered
-        and ("Border 16x16 → " .. tostring(map._borderTile))
-        or ("Border block → " .. tostring(map.borderBlock))
     end
   end) then return py end
 
@@ -6191,6 +6250,12 @@ function Maps._section.drawObjects(S, map, mutate, App, px, py, propW, listBotto
     return py + 20 * s
   end
 
+  local ballLabel = Maps._section.itemBallLabel(S, obj)
+  if ballLabel and py + 16 * s <= listBottom then
+    Kit.text("micro", ballLabel, px + 10 * s, py, PAL.yellow or PAL.caption)
+    py = py + 16 * s
+  end
+
   -- Top of form so Delete is never clipped under the footer / scroll.
   if py + 32 * s <= listBottom then
     local half = (propW - 28 * s) * 0.5
@@ -6530,6 +6595,45 @@ function Maps._section.drawObjects(S, map, mutate, App, px, py, propW, listBotto
         tostring(cur), "0")) or 0
       if v ~= cur then map = mutate(); map.objects[i].eventFlag = v end
     end)
+    if Maps._section.isItemBall(obj) then
+      row("Item ball", function(fx, fy, fw, fh_)
+        local ItemPicker = require("ItemPicker")
+        local ball = type(obj.itemball) == "table" and obj.itemball or {}
+        local raw = ball.item
+        local shown = raw
+        if type(raw) == "number" then
+          shown = ItemPicker.idForIndex(S, raw) or tostring(raw)
+        elseif type(raw) == "string" and raw:match("^%d+$") then
+          shown = ItemPicker.idForIndex(S, tonumber(raw)) or raw
+        end
+        local qtyW = 50 * s
+        ItemPicker.field(S, {
+          x = fx, y = fy, w = math.max(40 * s, fw - qtyW - 8 * s), h = fh_,
+          current = type(shown) == "string" and shown or "",
+          emptyLabel = "(item)",
+          title = "ITEM BALL",
+          tooltip = "Item this Poké Ball gives when picked up",
+          onPick = function(pickId)
+            map = mutate()
+            local rec = map.objects[i]
+            rec.itemball = rec.itemball or {}
+            rec.itemball.item = ItemPicker.indexForId(S, pickId) or pickId
+            if rec.itemball.quantity == nil then rec.itemball.quantity = 1 end
+            rec.type = 1
+            App.markDirty()
+          end,
+        })
+        local qty = tonumber(ball.quantity) or 1
+        local v = tonumber(field(App, "ob_ibq", fx + fw - qtyW, fy, qtyW, fh_,
+          tostring(qty), "1")) or 1
+        if v ~= qty then
+          map = mutate()
+          map.objects[i].itemball = map.objects[i].itemball or {}
+          map.objects[i].itemball.quantity = v
+          map.objects[i].type = 1
+        end
+      end)
+    end
     row("Type / palette", function(fx, fy, fw, fh_)
       local t = tonumber(field(App, "ob_typ", fx, fy, 50 * s, fh_,
         tostring(obj.type or 0), "0")) or 0

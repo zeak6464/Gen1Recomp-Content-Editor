@@ -1042,10 +1042,9 @@ local function drawCanvas(S, source, x, y, w, h, App)
     math.max(0, viewX1 - viewX0 + 1) * CELL,
     math.max(0, viewY1 - viewY0 + 1) * CELL)
 
-  -- One 32x32 block of Gold border around this map — not the whole camera.
+  -- One 32x32 block of Gen 2 border around this map — not the whole camera.
   local BORDER = 2
   local mapRec = S.project.maps and S.project.maps[source.id]
-  local borderBlock = mapRec and (mapRec.borderBlock or 0) or 0
   local borderTs = source.baseTileset or (mapRec and mapRec.tileset)
   local borderDesc = borderTs
     and LayeredMap.sourceDescriptor(S, LayeredMap.runtimeSourceId(borderTs))
@@ -1058,14 +1057,10 @@ local function drawCanvas(S, source, x, y, w, h, App)
       for cx = bx0, bx1 do
         if cx < 0 or cy < 0
             or cx >= source.cellWidth or cy >= source.cellHeight then
-          local tile = borderBlock * 4 + (cy % 2) * 2 + (cx % 2)
+          local tile = LayeredMap.borderCellTile(mapRec, cx, cy)
           local desc = borderDesc
-          if mapRec and mapRec._borderExplicit
-              and type(mapRec._borderTile) == "number" then
-            tile = mapRec._borderTile
-            if mapRec._borderSource then
-              desc = LayeredMap.sourceDescriptor(S, mapRec._borderSource) or desc
-            end
+          if mapRec and mapRec._borderExplicit and mapRec._borderSource then
+            desc = LayeredMap.sourceDescriptor(S, mapRec._borderSource) or desc
           end
           drawSourceTile(S, desc, tile, cx * CELL, cy * CELL, CELL, 1)
         end

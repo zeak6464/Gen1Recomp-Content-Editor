@@ -1,0 +1,23 @@
+---
+description: Treat Gen 2 as Gold, Silver, and Crystal — not Gold only
+alwaysApply: true
+---
+
+# Gen 2 is all three games
+
+This editor supports **Gold, Silver, and Crystal**. Do not write Gold-only comments, status text, tooltips, or assumptions for shared Gen 2 behavior.
+
+- Gate shared Gen 2 features with `Generation.isGen2(S)` (covers `gold`, `silver`, `crystal`).
+- Use `Generation.isCrystal(S)` / `Generation.engine(S)` only when Crystal or GS actually differ.
+- Item balls, scripts, maps, palettes, and pickup use the same Gen 2 data unless a game-specific check already exists.
+- New mods target `Generation.manifestGames` (`all`), not `games: ["gold"]`.
+
+```lua
+-- BAD
+-- Gold pickup uses obj.itemball
+if S.version == "gold" then ...
+
+-- GOOD
+-- Gen 2 pickup uses obj.itemball
+if Generation.isGen2(S) then ...
+```

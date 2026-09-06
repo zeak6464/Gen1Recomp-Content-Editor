@@ -47,6 +47,8 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 MODKIT_VERSION = "1.0.0"
+ROM_VERSIONS = ("red", "blue", "yellow", "gold", "silver", "crystal")
+GEN2_VERSIONS = ("gold", "silver", "crystal")
 
 def luajit_exe():
     """Resolve LuaJIT at call time so editor-provided overrides take effect."""
@@ -781,23 +783,23 @@ def resolve_base(repo, choice):
     return "imported" if os.path.isfile(imported) else "fixture"
 
 
-# Gold's extractor never writes these Gen 1 tables. Data:load still asks for
+# Gen 2 extractors never write these Gen 1 tables. Data:load still asks for
 # them when POKEPORT_DATA_DIR is set; older Data.lua copies error instead of
 # substituting {}.
 GEN2_OPTIONAL_MODULES = ("text_pointers", "trainer_headers", "field")
 
 
 def infer_rom_version(explicit=None):
-    """CLI/env first; otherwise the Gold/Blue/Yellow cache path the editor set."""
-    if explicit in ("red", "blue", "yellow", "gold"):
+    """CLI/env first; otherwise the cache path the editor set."""
+    if explicit in ROM_VERSIONS:
         return explicit
     env = (os.environ.get("MODKIT_VERSION")
            or os.environ.get("POKEPORT_VERSION") or "").lower()
-    if env in ("red", "blue", "yellow", "gold"):
+    if env in ROM_VERSIONS:
         return env
     data_dir = (os.environ.get("POKEPORT_DATA_DIR") or "").replace("\\", "/")
     lowered = data_dir.lower()
-    for ver in ("gold", "yellow", "blue", "red"):
+    for ver in ("crystal", "silver", "gold", "yellow", "blue", "red"):
         token = "/" + ver + "/data/"
         if token in lowered or lowered.endswith("/" + ver + "/data/generated"):
             return ver
@@ -844,7 +846,7 @@ def run_loader(repo, mod_dir, findings, base="fixture", notes=None,
         "  [%s] = %s,\n" % (lua_quote(k), lua_quote(v))
         for k, v in sorted(files.items()))
     version = infer_rom_version(version)
-    if version not in ("red", "blue", "yellow", "gold"):
+    if version not in ROM_VERSIONS:
         findings.append(Finding("MK100", "error",
                                 f"unknown validation ROM version: {version}"))
         return
@@ -852,12 +854,13 @@ def run_loader(repo, mod_dir, findings, base="fixture", notes=None,
     try:
         with runtime_tree(repo) as engine_root:
             base = resolve_base(engine_root, base)
-            if base == "fixture" and version == "gold":
+            if base == "fixture" and version in GEN2_VERSIONS:
                 if notes is not None:
                     notes.append(
-                        "Gold loader checks not run: no selected Gold ROM "
-                        "cache is available; manifest, files, and other "
-                        "ROM-independent checks still ran")
+                        "Gen 2 loader checks not run: no selected "
+                        "Gold/Silver/Crystal ROM cache is available; "
+                        "manifest, files, and other ROM-independent "
+                        "checks still ran")
                 return
             source = IMPORTED_BASE if base == "imported" else FIXTURE_BASE
             driver = DRIVER_TEMPLATE % (lua_quote(version), source,
@@ -870,7 +873,7 @@ def run_loader(repo, mod_dir, findings, base="fixture", notes=None,
             try:
                 env = luajit_env()
                 data_dir = env.get("POKEPORT_DATA_DIR")
-                if version == "gold" and data_dir:
+                if version in GEN2_VERSIONS and data_dir:
                     data_dir, staged = stage_gold_optional_modules(data_dir)
                     if data_dir:
                         env["POKEPORT_DATA_DIR"] = data_dir
@@ -2240,8 +2243,9 @@ def main(argv):
     p.add_argument("--strict", action="store_true")
     p.add_argument("--base", default="auto",
                    choices=["auto", "fixture", "imported"])
-    p.add_argument("--version", choices=["red", "blue", "yellow", "gold"],
-                   help="ROM version/generation used for validation")
+    p.add_argument("--version", choices=list(ROM_VERSIONS),
+                   help="ROM version used for validation "
+                        "(red/blue/yellow/gold/silver/crystal)")
 
     p = sub.add_parser("lint", parents=[shared])
     p.add_argument("mod")
@@ -2251,8 +2255,9 @@ def main(argv):
     p.add_argument("-o", "--output")
     p.add_argument("--base", default="auto",
                    choices=["auto", "fixture", "imported"])
-    p.add_argument("--version", choices=["red", "blue", "yellow", "gold"],
-                   help="ROM version/generation used for validation")
+    p.add_argument("--version", choices=list(ROM_VERSIONS),
+                   help="ROM version used for validation "
+                        "(red/blue/yellow/gold/silver/crystal)")
 
     p = sub.add_parser("bounce", parents=[shared])
     p.add_argument("song", nargs="?")
