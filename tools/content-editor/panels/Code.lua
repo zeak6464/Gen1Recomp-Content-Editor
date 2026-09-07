@@ -71,6 +71,7 @@ local function loadFile(S, modId, rel)
   S.codeDirty = false
   S.codeLine = math.min(S.codeLine or 1, #S.codeLines)
   S.codeScroll = 0
+  S._codeFollowLine = nil
   S._codeUndo, S._codeRedo = {}, {}
 end
 
@@ -130,6 +131,34 @@ local function joinPath(root, rel)
   return root .. sep .. rel:gsub("/", sep)
 end
 
+function Code.engineRoots(S)
+  local roots = {}
+  local function add(r)
+    if type(r) ~= "string" or r == "" then return end
+    for i = 1, #roots do
+      if roots[i] == r then return end
+    end
+    roots[#roots + 1] = r
+  end
+  if S and S.dataPrefs then add(S.dataPrefs.recompRoot) end
+  local ok, DS = pcall(require, "DataSource")
+  if ok and DS and DS.mountedRecompRoot then add(DS.mountedRecompRoot()) end
+  add(joinPath(ModIO.repoRoot(), "runtime/gen1recomp"))
+  add(ModIO.repoRoot())
+  return roots
+end
+
+function Code.engineFilePath(S, rel)
+  rel = tostring(rel or ""):gsub("\\", "/"):gsub("^/+", "")
+  if rel == "" or rel:find("%.%.") then return nil end
+  for _, root in ipairs(Code.engineRoots(S)) do
+    local full = joinPath(root, rel)
+    local f = io.open(full, "rb")
+    if f then f:close(); return full end
+  end
+  return nil
+end
+
 local function jumpToQuery(S, query, line)
   if type(line) == "number" and line >= 1 then
     S.codeLine = math.min(line, #(S.codeLines or {}))
@@ -159,6 +188,7 @@ function Code.openModFile(S, modId, rel, opts)
   S.codeSourceKind = "mod"
   S.codeReadOnly = false
   S.codeRepoRel = nil
+  S.codeRepoFull = nil
   S.browseModId = modId
   S.codeFile = rel
   S._codeFor = nil
@@ -167,6 +197,7 @@ function Code.openModFile(S, modId, rel, opts)
   S._codeFor = tostring(modId) .. "\0" .. tostring(rel)
   jumpToQuery(S, opts.query, opts.line)
   S.codeScroll = math.max(0, (S.codeLine or 1) - 1)
+  S._codeFollowLine = S.codeLine
   S.tab = "code"
   S.status = "Opened mods/" .. modId .. "/" .. rel
   return true
@@ -181,8 +212,15 @@ function Code.openRepoFile(S, rel, opts)
   end
   rel = tostring(rel or ""):gsub("\\", "/"):gsub("^/+", "")
   if rel == "" or rel:find("%.%.") then return false end
-  local full = joinPath(ModIO.repoRoot(), rel)
-  local body, err = ModIO.readText(full)
+  local full = Code.engineFilePath(S, rel)
+  local body, err
+  if full then
+    body, err = ModIO.readText(full)
+  end
+  if body == nil and love and love.filesystem and love.filesystem.read then
+    local ok, data = pcall(love.filesystem.read, rel)
+    if ok and type(data) == "string" then body, err = data, nil end
+  end
   if body == nil then
     S.status = "Open failed: " .. tostring(err or rel)
     return false
@@ -190,12 +228,14 @@ function Code.openRepoFile(S, rel, opts)
   S.codeSourceKind = "repo"
   S.codeReadOnly = true
   S.codeRepoRel = rel
+  S.codeRepoFull = full
   S.codeLines = splitLines(body)
   S.codeLoadError = nil
   S.codeDirty = false
   S._codeUndo, S._codeRedo = {}, {}
   jumpToQuery(S, opts.query, opts.line)
   S.codeScroll = math.max(0, (S.codeLine or 1) - 1)
+  S._codeFollowLine = S.codeLine
   S.tab = "code"
   S.status = "Opened " .. rel .. " (read-only)"
   return true
@@ -264,8 +304,11 @@ function Code.draw(S, x, y, w, h, App)
   Kit.card(x, listY, col1, listH, 12 * s)
   local rowH = 28 * s
   local perMod = math.max(1, math.floor((listH - 16 * s) / rowH))
-  S.codeModOffset = Kit.scroll(x + 4 * s, listY + 8 * s, col1 - 8 * s, listH - 16 * s,
-    S.codeModOffset or 0, #mods, perMod)
+  local modX, modY = x + 4 * s, listY + 8 * s
+  local modW, modH = col1 - 8 * s, listH - 16 * s
+  local modInner = Kit.scrollInnerWidth(modW)
+  S.codeModOffset = Kit.scroll(modX, modY, modW, modH,
+    S.codeModOffset or 0, #mods, perMod, 1, "codeMods")
   local codeDirty = S.codeDirty
   local modGuard = codeDirty and S.browseModId or nil
   local modNav = RegList.bindNav(S, mods, {
@@ -281,12 +324,13 @@ function Code.draw(S, x, y, w, h, App)
       S._codeFiles = nil
     end,
   })
+  Kit.pushClip(modX, modY, modInner, modH)
   for i = 1, perMod do
     local mid = mods[(S.codeModOffset or 0) + i]
     if not mid then break end
     local ry = listY + 8 * s + (i - 1) * rowH
     local on = S.browseModId == mid
-    if Kit.row(x + 6 * s, ry, col1 - 12 * s, rowH - 4 * s, on, PAL.blue) then
+    if Kit.row(x + 6 * s, ry, modInner - 4 * s, rowH - 4 * s, on, PAL.blue) then
       modNav.activate()
       if S.codeDirty and not repoMode then
         S.status = "Unsaved file — Write or Reload before switching"
@@ -300,16 +344,22 @@ function Code.draw(S, x, y, w, h, App)
         S._codeFiles = nil
       end
     end
-    Kit.text("small", Kit.ellipsize("small", mid, col1 - 28 * s),
+    Kit.text("small", Kit.ellipsize("small", mid, modInner - 16 * s),
       x + 12 * s, ry + 5 * s, on and PAL.heading or PAL.text)
   end
+  Kit.popClip()
+  S.codeModOffset = Kit.scrollbar(modX, modY, modW, modH,
+    S.codeModOffset or 0, #mods, perMod, "codeMods")
 
   local fileX = x + col1 + gap
   Kit.caption(fileX, y, "LUA FILES")
   Kit.card(fileX, listY, col2, listH, 12 * s)
   local perFile = math.max(1, math.floor((listH - 50 * s) / rowH))
-  S.codeFileOffset = Kit.scroll(fileX + 4 * s, listY + 8 * s, col2 - 8 * s,
-    listH - 50 * s, S.codeFileOffset or 0, #files, perFile)
+  local fileListX, fileListY = fileX + 4 * s, listY + 8 * s
+  local fileListW, fileListH = col2 - 8 * s, listH - 50 * s
+  local fileInner = Kit.scrollInnerWidth(fileListW)
+  S.codeFileOffset = Kit.scroll(fileListX, fileListY, fileListW, fileListH,
+    S.codeFileOffset or 0, #files, perFile, 1, "codeFiles")
   local fileGuard = codeDirty and S.codeFile or nil
   local fileNav = RegList.bindNav(S, files, {
     selKey = "codeFile", offsetKey = "codeFileOffset", perPage = perFile,
@@ -322,12 +372,13 @@ function Code.draw(S, x, y, w, h, App)
       S._codeFor = nil
     end,
   })
+  Kit.pushClip(fileListX, fileListY, fileInner, fileListH)
   for i = 1, perFile do
     local rel = files[(S.codeFileOffset or 0) + i]
     if not rel then break end
     local ry = listY + 8 * s + (i - 1) * rowH
     local on = S.codeFile == rel
-    if Kit.row(fileX + 6 * s, ry, col2 - 12 * s, rowH - 4 * s, on, PAL.green) then
+    if Kit.row(fileX + 6 * s, ry, fileInner - 4 * s, rowH - 4 * s, on, PAL.green) then
       fileNav.activate()
       if S.codeDirty and not repoMode and S.codeFile ~= rel then
         S.status = "Unsaved file — Write or Reload before switching"
@@ -339,9 +390,12 @@ function Code.draw(S, x, y, w, h, App)
         S._codeFor = nil
       end
     end
-    Kit.text("small", Kit.ellipsize("small", rel, col2 - 28 * s),
+    Kit.text("small", Kit.ellipsize("small", rel, fileInner - 16 * s),
       fileX + 12 * s, ry + 5 * s, on and PAL.heading or PAL.text)
   end
+  Kit.popClip()
+  S.codeFileOffset = Kit.scrollbar(fileListX, fileListY, fileListW, fileListH,
+    S.codeFileOffset or 0, #files, perFile, "codeFiles")
   local newY = listY + listH - 38 * s
   if Kit.button(fileX + 8 * s, newY, col2 - 16 * s, 28 * s, "+ New .lua",
       { kind = "ghost" }) then
@@ -418,7 +472,9 @@ function Code.draw(S, x, y, w, h, App)
   end
   if repoMode and Kit.button(mainX + 200 * s, barY, 100 * s, btnH, "Copy path",
       { kind = "ghost" }) then
-    local full = joinPath(ModIO.repoRoot(), S.codeRepoRel or "")
+    local full = S.codeRepoFull
+      or Code.engineFilePath(S, S.codeRepoRel or "")
+      or joinPath(ModIO.repoRoot(), S.codeRepoRel or "")
     if love and love.system and love.system.setClipboardText then
       love.system.setClipboardText(full)
     end
@@ -488,35 +544,45 @@ function Code.draw(S, x, y, w, h, App)
 
   local lines = S.codeLines
   local lineH = 18 * s
-  local perPage = math.max(1, math.floor((viewH - 16 * s) / lineH))
-  S.codeScroll = Kit.scroll(mainX + 4 * s, viewY + 8 * s, mainW - 8 * s, viewH - 16 * s,
-    S.codeScroll or 0, #lines, perPage)
-  if lineIdx - 1 < (S.codeScroll or 0) then
-    S.codeScroll = math.max(0, lineIdx - 1)
-  elseif lineIdx > (S.codeScroll or 0) + perPage then
-    S.codeScroll = math.max(0, lineIdx - perPage)
+  local viewX, viewInnerY = mainX + 4 * s, viewY + 8 * s
+  local viewInnerW, viewInnerH = mainW - 8 * s, viewH - 16 * s
+  local perPage = math.max(1, math.floor(viewInnerH / lineH))
+  local innerW = Kit.scrollInnerWidth(viewInnerW)
+  S.codeScroll = Kit.scroll(viewX, viewInnerY, viewInnerW, viewInnerH,
+    S.codeScroll or 0, #lines, perPage, 3, "codeView")
+  if S._codeFollowLine ~= lineIdx then
+    S._codeFollowLine = lineIdx
+    if lineIdx - 1 < (S.codeScroll or 0) then
+      S.codeScroll = math.max(0, lineIdx - 1)
+    elseif lineIdx > (S.codeScroll or 0) + perPage then
+      S.codeScroll = math.max(0, lineIdx - perPage)
+    end
   end
 
   local gutter = 44 * s
+  Kit.pushClip(viewX, viewInnerY, innerW, viewInnerH)
   for i = 1, perPage do
     local li = (S.codeScroll or 0) + i
     local text = lines[li]
     if text == nil then break end
     local ry = viewY + 8 * s + (i - 1) * lineH
     local on = li == lineIdx
-    if Kit.press(mainX + 6 * s, ry, mainW - 12 * s, lineH) then
+    if Kit.press(mainX + 6 * s, ry, innerW - 4 * s, lineH) then
       S.codeLine = li
       if not readOnly then Kit.focus = "code_line" end
     end
     if on then
       Theme.col(PAL.blue, 0.18)
-      love.graphics.rectangle("fill", mainX + 6 * s, ry, mainW - 12 * s, lineH)
+      love.graphics.rectangle("fill", mainX + 6 * s, ry, innerW - 4 * s, lineH)
     end
-    Kit.text("mono", string.format("%3d", li),
+    Kit.text("mono", string.format("%4d", li),
       mainX + 10 * s, ry + 1 * s, PAL.faint)
-    Kit.text("mono", Kit.ellipsize("mono", text, mainW - gutter - 16 * s),
+    Kit.text("mono", Kit.ellipsize("mono", text, innerW - gutter - 16 * s),
       mainX + gutter, ry + 1 * s, on and PAL.heading or PAL.text)
   end
+  Kit.popClip()
+  S.codeScroll = Kit.scrollbar(viewX, viewInnerY, viewInnerW, viewInnerH,
+    S.codeScroll or 0, #lines, perPage, "codeView")
 
   Kit.text("micro",
     readOnly

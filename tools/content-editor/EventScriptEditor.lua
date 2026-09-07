@@ -7,7 +7,41 @@ local State = require("State")
 local Generation = require("Generation")
 local ModWriter = require("ModWriter")
 local FormPane = require("FormPane")
+local OpcodeHelp = require("OpcodeHelp")
+local Autocomplete = require("Autocomplete")
 local PAL = Theme.PAL
+
+local CMD_ID = "ese_cmd"
+
+local PRESET_FILL = {
+  show_text = { "text" },
+  ask = { "text" },
+  show_image = { "path", "text" },
+  give_item = { "item", "count" },
+  take_item = { "item", "count" },
+  check_item_skip = { "item" },
+  check_item_missing = { "item" },
+  give_pokemon = { "species", "level" },
+  give_starter = { "species", "level" },
+  oneshot_gift = { "item", "flag" },
+  oneshot_pokemon = { "species", "level" },
+  give_money = { "amount" },
+  trade = { "index" },
+  label = { "name" },
+  jump = { "name" },
+  jump_if_yes = { "name" },
+  jump_if_no = { "name" },
+  jump_script = { "script" },
+  set_flag = { "flag" },
+  clear_flag = { "flag" },
+  check_flag_skip = { "flag" },
+  check_flag_missing = { "flag" },
+  set_field = { "field", "value" },
+  warp = { "map", "x", "y" },
+  wild_battle = { "species", "level" },
+  trainer_battle = { "trainer", "party" },
+  oneshot_trainer = { "trainer" },
+}
 
 local EventScriptEditor = {}
 
@@ -42,8 +76,7 @@ local function uiFor(S, listKey)
   S._ese = S._ese or {}
   local ui = S._ese[listKey]
   if not ui then
-    ui = { sel = 1, edit = false, picker = false, editKind = false,
-      category = "message" }
+    ui = { sel = 1, editKind = false, category = "message", cmd = "" }
     S._ese[listKey] = ui
   end
   return ui
@@ -349,17 +382,209 @@ local function mark(S, App, onChange)
   if onChange then onChange() end
 end
 
-local function drawPicker(S, App, ui, Events, x, y, w, h, steps, onChange)
+local function tokenize(text)
+  local out = {}
+  local i = 1
+  local s = tostring(text or "")
+  while i <= #s do
+    local c = s:sub(i, i)
+    if c:match("%s") then
+      i = i + 1
+    elseif c == '"' then
+      local j = s:find('"', i + 1)
+      out[#out + 1] = s:sub(i + 1, (j or (#s + 1)) - 1)
+      i = (j or #s) + 1
+    else
+      local tok = s:match("^%S+", i)
+      out[#out + 1] = tok
+      i = i + #tok
+    end
+  end
+  return out
+end
+
+local function firstToken(text)
+  return tostring(text or ""):match("^%s*(%S+)")
+end
+
+local function replaceFirstToken(text, picked)
+  local rest = tostring(text or ""):match("^%s*%S+%s+(.*)$")
+  if rest and rest ~= "" then return picked .. " " .. rest end
+  return picked .. " "
+end
+
+local function matchKind(S, Events, name)
+  if type(name) ~= "string" or name == "" then return nil end
+  local key = name:lower():gsub("[%s%-]+", "_"):gsub("^%++_", "")
+  if Events then
+    for _, rec in ipairs(allowedKinds(S, Events)) do
+      if rec.id == name or rec.id:lower() == key then return rec.id end
+      local lab = tostring(rec.label or ""):lower():gsub("[%s%-]+", "_")
+      if lab == key then return rec.id end
+    end
+  else
+    for _, cat in ipairs(CATEGORIES) do
+      for _, id in ipairs(cat.kinds) do
+        if id:lower() == key then return id end
+      end
+    end
+    if PRESET_FILL[key] then return key end
+  end
+  return nil
+end
+
+local function fillPreset(step, tokens)
+  local keys = PRESET_FILL[step.kind]
+  if not keys then return step end
+  for i, key in ipairs(keys) do
+    local raw = tokens[i + 1]
+    if raw ~= nil and raw ~= "" then
+      local n = tonumber(raw)
+      if type(step[key]) == "number" or key == "count" or key == "level"
+          or key == "amount" or key == "index" or key == "party"
+          or key == "x" or key == "y" then
+        step[key] = n or raw
+      else
+        step[key] = raw
+      end
+    end
+  end
+  return step
+end
+
+function EventScriptEditor.parseCommand(S, text)
+  local line = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+  if line == "" then return nil, "empty" end
+  local tokens = tokenize(line)
+  local okEv, Events = pcall(eventsApi)
+  if not okEv then Events = nil end
+  local op = OpcodeHelp.parseLine(line)
+  if op then
+    return { kind = "opcode", cmd = op, op = op.op }
+  end
+  local kind = matchKind(S, Events, tokens[1])
+  if kind == "opcode" then
+    local rest = line:match("^%S+%s+(.*)$")
+    if rest and rest ~= "" then
+      local cmd = OpcodeHelp.parseLine(rest)
+      if cmd then return { kind = "opcode", cmd = cmd, op = cmd.op } end
+    end
+    return EventScriptEditor.defaultStep(S, "opcode")
+  end
+  if kind then
+    return fillPreset(EventScriptEditor.defaultStep(S, kind), tokens)
+  end
+  if not Generation.isGen2(S) then
+    return { kind = "raw", note = line, row = tokens }
+  end
+  local cmd = { op = tokens[1] }
+  for i = 2, #tokens do
+    cmd["arg" .. (i - 1)] = tokens[i]
+  end
+  return { kind = "opcode", cmd = cmd, op = tokens[1] }
+end
+
+local function insertStep(S, App, ui, steps, step, onChange)
+  if type(step) ~= "table" then return end
+  local at = math.max(0, ui.sel or 0)
+  table.insert(steps, at + 1, step)
+  ui.sel = at + 1
+  ui.editKind = false
+  mark(S, App, onChange)
+end
+
+local function submitCommand(S, App, ui, steps, onChange)
+  local step, err = EventScriptEditor.parseCommand(S, ui.cmd)
+  if not step then
+    if err ~= "empty" then
+      S.status = "Could not parse command"
+    end
+    return false
+  end
+  insertStep(S, App, ui, steps, step, onChange)
+  ui.cmd = ""
+  Kit.focus = CMD_ID
+  S.status = "Inserted " .. tostring(step.kind or step.op or "command")
+  return true
+end
+
+function EventScriptEditor.keypressed(S, key)
+  if not S or Kit.focus ~= CMD_ID then return false end
+  if key == "return" or key == "kpenter" then
+    S._eseSubmit = true
+    return true
+  end
+  return false
+end
+
+local function commandIds(S, Events)
+  local ids, seen = {}, {}
+  local function add(id)
+    if type(id) ~= "string" or id == "" or seen[id] then return end
+    seen[id] = true
+    ids[#ids + 1] = id
+  end
+  if Generation.isGen2(S) then
+    for _, op in ipairs(OpcodeHelp.ops()) do add(op) end
+  end
+  for _, rec in ipairs(allowedKinds(S, Events)) do add(rec.id) end
+  return ids
+end
+
+local function drawCommandLine(S, App, ui, Events, x, y, w, h, steps, onChange)
   local s = Kit.scale
-  Theme.col(PAL.rowBg, 0.92)
-  love.graphics.rectangle("fill", x, y, w, h, 8 * s, 8 * s)
-  Kit.text("micro", "INSERT COMMAND", x + 8 * s, y + 6 * s, PAL.caption)
-  local cy = y + 24 * s
-  local cx = x + 8 * s
+  Kit.text("micro", "TYPE A COMMAND", x, y, PAL.caption)
+  local fy = y + 14 * s
+  local addW = 56 * s
+  local picked = Autocomplete.takePick(S, CMD_ID)
+  if picked then
+    ui.cmd = replaceFirstToken(ui.cmd, picked)
+    Kit.focus = CMD_ID
+  end
+  if S._eseSubmit then
+    S._eseSubmit = nil
+    submitCommand(S, App, ui, steps, onChange)
+  end
+  local v = Kit.textfield(CMD_ID, x, fy, w - addW - 6 * s, h,
+    ui.cmd or "", "appear 3   applymovement 2 jump_bush",
+    "Type an opcode or preset and press Enter")
+  ui.cmd = v
+  local first = firstToken(v)
+  local exact = first and (OpcodeHelp.resolve(first) or matchKind(S, Events, first))
+  local rest = first and v:match("^%s*%S+(.*)$")
+  if Kit.focus == CMD_ID and not (exact and rest and rest:match("^%s")) then
+    Autocomplete.offer(S, {
+      fieldId = CMD_ID,
+      x = x,
+      y = fy + h + 2 * s,
+      w = w - addW - 6 * s,
+      query = first or v,
+      ids = commandIds(S, Events),
+    })
+  end
+  if Kit.button(x + w - addW, fy, addW, h, "Add", {
+      kind = "good", font = "small",
+      tooltip = "Insert this line after the selected step",
+    }) then
+    submitCommand(S, App, ui, steps, onChange)
+  end
+  return fy + h
+end
+
+local function drawPresetStrip(S, App, ui, Events, x, y, w, steps, onChange)
+  local s = Kit.scale
+  Kit.text("micro", "OR CLICK A PRESET", x, y, PAL.caption)
+  local cy = y + 14 * s
+  local cx = x
+  local fh = 20 * s
   for _, cat in ipairs(CATEGORIES) do
     if #kindsInCategory(S, Events, cat) > 0 then
-      local bw = Kit.textWidth("micro", cat.label) + 16 * s
-      if Kit.chip(cx, cy, bw, 22 * s, cat.label,
+      local bw = Kit.textWidth("micro", cat.label) + 14 * s
+      if cx + bw > x + w and cx > x then
+        cx = x
+        cy = cy + fh + 3 * s
+      end
+      if Kit.chip(cx, cy, bw, fh, cat.label,
           ui.category == cat.id, PAL.yellow, PAL.steel) then
         ui.category = cat.id
       end
@@ -372,31 +597,21 @@ local function drawPicker(S, App, ui, Events, x, y, w, h, steps, onChange)
   end
   cat = cat or CATEGORIES[1]
   local kinds = kindsInCategory(S, Events, cat)
-  local kx, ky = x + 8 * s, cy + 28 * s
+  cx, cy = x, cy + fh + 6 * s
   for _, rec in ipairs(kinds) do
-    local bw = Kit.textWidth("micro", rec.label) + 14 * s
-    if kx + bw > x + w - 8 * s and kx > x + 8 * s then
-      kx = x + 8 * s
-      ky = ky + 24 * s
+    local bw = Kit.textWidth("micro", rec.label) + 12 * s
+    if cx + bw > x + w and cx > x then
+      cx = x
+      cy = cy + fh + 3 * s
     end
-    if ky + 22 * s > y + h - 6 * s then break end
-    if Kit.chip(kx, ky, bw, 22 * s, rec.label, false, PAL.blue, PAL.steel) then
-      local step = EventScriptEditor.defaultStep(S, rec.id)
-      local at = math.max(0, ui.sel or 0)
-      table.insert(steps, at + 1, step)
-      ui.sel = at + 1
-      ui.edit = true
-      ui.picker = false
-      ui.editKind = false
-      mark(S, App, onChange)
+    if Kit.chip(cx, cy, bw, fh, rec.label, false, PAL.blue, PAL.steel,
+        "Insert " .. rec.label) then
+      insertStep(S, App, ui, steps, EventScriptEditor.defaultStep(S, rec.id),
+        onChange)
     end
-    kx = kx + bw + 4 * s
+    cx = cx + bw + 4 * s
   end
-  if Kit.button(x + w - 70 * s, y + 4 * s, 62 * s, 20 * s, "Close", {
-      kind = "ghost", font = "small",
-    }) then
-    ui.picker = false
-  end
+  return cy + fh
 end
 
 local function drawFooter(S, App, ui, x, y, w, h, steps, readOnly, scriptId, onChange)
@@ -422,16 +637,8 @@ local function drawFooter(S, App, ui, x, y, w, h, steps, readOnly, scriptId, onC
     return hit
   end
 
-  if not readOnly and slot("Insert", "good", "Add a command from the picker") then
-    ui.picker = true
-    ui.edit = false
-    ui.editKind = false
-  end
-  if not readOnly and slot("Edit", "accent", "Edit the selected command",
-      ui.sel and ui.sel > 0) then
-    ui.edit = true
-    ui.picker = false
-    ui.editKind = false
+  if not readOnly and slot("Insert", "good", "Focus the command line") then
+    Kit.focus = CMD_ID
   end
   if not readOnly and slot("Delete", "danger", "Remove the selected command",
       ui.sel and ui.sel > 0) then
@@ -504,80 +711,86 @@ function EventScriptEditor.draw(S, App, opts)
   clampSel(ui, steps)
 
   local footerH = 56 * s
-  local pad = 4 * s
-  local listY = y
-  local listH = math.max(40 * s, h - footerH - pad)
-  local editH = 0
-  if ui.edit and not readOnly and ui.sel and steps[ui.sel] then
-    editH = math.min(160 * s, math.floor(listH * 0.55))
-    listH = listH - editH - 4 * s
-  end
+  local gap = 8 * s
+  local bodyH = math.max(40 * s, h - footerH - 4 * s)
+  local listW = math.max(140 * s, math.floor(w * 0.42))
+  local editX = x + listW + gap
+  local editW = math.max(120 * s, w - listW - gap)
 
   Theme.col(PAL.rowBg, 0.35)
-  love.graphics.rectangle("fill", x, listY, w, listH, 6 * s, 6 * s)
+  love.graphics.rectangle("fill", x, y, listW, bodyH, 6 * s, 6 * s)
 
-  if ui.picker == true and not readOnly then
-    drawPicker(S, App, ui, Events, x, listY, w, listH, steps, opts.onChange)
-  else
-    local rowH = 22 * s
-    FormPane.track(S, "eseScroll", listKey)
-    local fy, view = FormPane.begin(S, "eseScroll", x + 2 * s, listY + 4 * s,
-      w - 4 * s, listH - 8 * s)
-    local contentTop = fy
-    local innerW = view.contentW or (w - 8 * s)
-    if #steps == 0 then
-      Kit.text("micro", "No commands — Insert to add one.",
-        x + 10 * s, fy + 4 * s, PAL.muted)
-      fy = fy + rowH
+  local rowH = 20 * s
+  local listInnerX, listInnerY = x + 4 * s, y + 4 * s
+  local listInnerW, listInnerH = listW - 8 * s, bodyH - 8 * s
+  local per = math.max(1, math.floor(listInnerH / rowH))
+  local innerW = Kit.scrollInnerWidth(listInnerW)
+  local scrollId = "eseList:" .. listKey
+  ui.offset = Kit.scroll(listInnerX, listInnerY, listInnerW, listInnerH,
+    ui.offset or 0, math.max(#steps, 1), per, 1, scrollId)
+  Kit.pushClip(listInnerX, listInnerY, innerW, listInnerH)
+  if #steps == 0 then
+    Kit.text("micro", "No commands yet — type one on the right.",
+      listInnerX + 6 * s, listInnerY + 6 * s, PAL.muted)
+  end
+  for i = 1, per do
+    local li = (ui.offset or 0) + i
+    local step = steps[li]
+    if not step then break end
+    local ry = listInnerY + (i - 1) * rowH
+    local selected = ui.sel == li
+    if Kit.row(listInnerX + 2 * s, ry, innerW - 4 * s, rowH - 1, selected,
+        PAL.yellow) then
+      ui.sel = li
+      ui.editKind = false
     end
-    for i, step in ipairs(steps) do
-      local selected = ui.sel == i
-      if Kit.row(x + 6 * s, fy, innerW - 8 * s, rowH, selected, PAL.yellow) then
-        if selected and not readOnly then
-          ui.edit = not ui.edit
-          ui.picker = false
-          ui.editKind = false
-        else
-          ui.sel = i
-          if not readOnly then ui.edit = false end
-        end
-      end
-      local line = string.format("%d %s", i,
-        EventScriptEditor.stepLine(S, step, innerW - 24 * s))
-      Kit.text("micro", Kit.ellipsize("micro", line, innerW - 16 * s),
-        x + 10 * s, fy + 4 * s, selected and PAL.heading or PAL.text)
-      fy = fy + rowH
-    end
-    FormPane.finish(S, "eseScroll", contentTop, fy, view)
+    local line = string.format("%d %s", li,
+      EventScriptEditor.stepLine(S, step, innerW - 20 * s))
+    Kit.text("micro", Kit.ellipsize("micro", line, innerW - 10 * s),
+      listInnerX + 6 * s, ry + 3 * s, selected and PAL.heading or PAL.text)
+  end
+  Kit.popClip()
+  ui.offset = Kit.scrollbar(listInnerX, listInnerY, listInnerW, listInnerH,
+    ui.offset or 0, math.max(#steps, 1), per, scrollId)
+
+  Theme.col(PAL.rowBg, 0.28)
+  love.graphics.rectangle("fill", editX, y, editW, bodyH, 6 * s, 6 * s)
+  local ex, ey, ew = editX + 8 * s, y + 6 * s, editW - 16 * s
+  if not readOnly then
+    ey = drawCommandLine(S, App, ui, Events, ex, ey, ew, 26 * s,
+      steps, opts.onChange) + 8 * s
   end
 
-  if editH > 0 then
-    local ex, ey, ew, eh = x, listY + listH + 4 * s, w, editH
-    Theme.col(PAL.rowBg, 0.5)
-    love.graphics.rectangle("fill", ex, ey, ew, eh, 6 * s, 6 * s)
-    local step = steps[ui.sel]
+  FormPane.track(S, "eseEdit", listKey)
+  local fy, view = FormPane.begin(S, "eseEdit", ex, ey, ew,
+    math.max(40 * s, y + bodyH - ey - 4 * s))
+  local contentTop = fy
+  local fw = view.contentW or ew
+  local step = steps[ui.sel]
+  if step then
     local kind = step.kind or "show_text"
-    local kindW = 168 * s
-    if Kit.button(ex + 6 * s, ey + 6 * s, kindW, 24 * s,
+    local kindW = math.min(168 * s, fw * 0.55)
+    if not readOnly and Kit.button(ex, fy, kindW, 24 * s,
         Kit.ellipsize("small", Events.stepLabel(kind, step), kindW - 10 * s), {
           kind = "accent", font = "small",
           tooltip = "Change command type",
         }) then
       ui.editKind = not ui.editKind
+    elseif readOnly then
+      Kit.text("small", Events.stepLabel(kind, step), ex, fy + 4 * s, PAL.heading)
     end
     Kit.text("micro", "Command " .. tostring(ui.sel),
-      ex + kindW + 14 * s, ey + 10 * s, PAL.faint)
-    if ui.editKind then
-      local kinds = allowedKinds(S, Events)
-      local kx, ky = ex + 6 * s, ey + 34 * s
-      for _, rec in ipairs(kinds) do
+      ex + kindW + 10 * s, fy + 6 * s, PAL.faint)
+    fy = fy + 28 * s
+    if ui.editKind and not readOnly then
+      local kx = ex
+      for _, rec in ipairs(allowedKinds(S, Events)) do
         local bw = Kit.textWidth("micro", rec.label) + 12 * s
-        if kx + bw > ex + ew - 6 * s then
-          kx = ex + 6 * s
-          ky = ky + 22 * s
+        if kx + bw > ex + fw and kx > ex then
+          kx = ex
+          fy = fy + 22 * s
         end
-        if ky + 20 * s > ey + eh then break end
-        if Kit.chip(kx, ky, bw, 20 * s, rec.label,
+        if Kit.chip(kx, fy, bw, 20 * s, rec.label,
             rec.id == kind, PAL.blue, PAL.steel) then
           local fresh = EventScriptEditor.defaultStep(S, rec.id)
           for k in pairs(step) do step[k] = nil end
@@ -587,11 +800,23 @@ function EventScriptEditor.draw(S, App, opts)
         end
         kx = kx + bw + 4 * s
       end
-    else
-      Events.drawStepFields(S, App, step, ui.sel, kind,
-        ex + 6 * s, ey + 36 * s, ew - 12 * s, 26 * s, s)
+      fy = fy + 26 * s
+    elseif not readOnly then
+      local used = Events.drawStepFields(S, App, step, ui.sel, kind,
+        ex, fy, fw, 26 * s, s)
+      fy = fy + math.max(1, tonumber(used) or 1) * 30 * s + 8 * s
     end
+  else
+    Kit.text("micro", readOnly and "No command selected"
+      or "Type a command above, or click a preset.",
+      ex, fy, PAL.muted)
+    fy = fy + 22 * s
   end
+  if not readOnly then
+    fy = drawPresetStrip(S, App, ui, Events, ex, fy, fw, steps, opts.onChange)
+      + 8 * s
+  end
+  FormPane.finish(S, "eseEdit", contentTop, fy, view)
 
   drawFooter(S, App, ui, x, y + h - footerH, w, footerH,
     steps, readOnly, opts.scriptId, opts.onChange)

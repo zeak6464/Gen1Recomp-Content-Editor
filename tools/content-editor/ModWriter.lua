@@ -1796,6 +1796,385 @@ function ModWriter.emitNewGameStart(out, project, gen2)
   out[#out + 1] = ""
 end
 
+local FITTED_SCREENS = {
+  pack = { "src.ui.gen2.PackMenu" },
+  pokedex = { "src.ui.gen2.PokedexMenu", "src.ui.PokedexMenu" },
+  pokegear = { "src.ui.gen2.Pokegear" },
+  naming = { "src.ui.gen2.NamingScreen", "src.ui.NamingScreen" },
+  billsPc = { "src.ui.gen2.PcMenu" },
+  stats = { "src.ui.gen2.SummaryMenu", "src.ui.SummaryMenu" },
+  diploma = { "src.ui.gen2.Diploma", "src.ui.Diploma" },
+  battleHud = { "src.ui.gen2.BattleState", "src.ui.BattleState" },
+  overworldFx = {},
+  emotionBubbles = {},
+  emotes = {},
+}
+
+local function walkMenuGfx(t, prefix, fn)
+  if type(t) ~= "table" then return end
+  for k, v in pairs(t) do
+    local key = prefix == "" and tostring(k) or (prefix .. "." .. tostring(k))
+    if type(v) == "table" and v.path == nil and v.image == nil and v.sheet == nil then
+      walkMenuGfx(v, key, fn)
+    else
+      fn(t, k, v, key)
+    end
+  end
+end
+
+function ModWriter.stripUnsafeMenuGfx(project, gfx)
+  if type(gfx) ~= "table" then return gfx end
+  local mismatch = type(project) == "table" and project.uiMismatch or {}
+  walkMenuGfx(gfx, "", function(t, k, _, key)
+    local parent = key:match("^(.*)%.path$") or key
+    if mismatch[parent] or mismatch[key] then
+      t[k] = nil
+    end
+  end)
+  return gfx
+end
+
+function ModWriter.customLayout(project, bucket)
+  local rec = type(project) == "table" and project[bucket]
+  return type(rec) == "table" and tostring(rec.layout or "") == "custom"
+end
+
+function ModWriter.emitUiScripts(out, project)
+  if type(out) ~= "table" or type(project) ~= "table" then return end
+  local bag = project.uiScripts
+  if type(bag) ~= "table" then return end
+  local items = {}
+  for id, rec in pairs(bag) do
+    if type(rec) == "table"
+        and type(rec.module) == "string" and rec.module ~= ""
+        and type(rec.rel) == "string" and rec.rel ~= ""
+        and not tostring(rec.rel):find("%.%.") then
+      items[#items + 1] = {
+        id = tostring(id),
+        module = rec.module,
+        rel = rec.rel:gsub("\\", "/"):gsub("^/+", ""),
+      }
+    end
+  end
+  if #items == 0 then return end
+  table.sort(items, function(a, b)
+    if a.module == b.module then return a.id < b.id end
+    return a.module < b.module
+  end)
+  out[#out + 1] = "  -- Custom UI scripts (UI → Scripts)"
+  out[#out + 1] = "  do"
+  for _, rec in ipairs(items) do
+    out[#out + 1] = string.format("    package.loaded[%q] = nil", rec.module)
+    out[#out + 1] = string.format("    package.preload[%q] = function()", rec.module)
+    out[#out + 1] = string.format(
+      "      local chunk, err = loadfile(mod.path .. %q)", "/" .. rec.rel)
+    out[#out + 1] = "      if not chunk then error(err) end"
+    out[#out + 1] = "      return chunk()"
+    out[#out + 1] = "    end"
+  end
+  out[#out + 1] = "  end"
+  out[#out + 1] = ""
+end
+
+function ModWriter.emitCustomUi(out, project, gen2)
+  if type(out) ~= "table" or type(project) ~= "table" then return end
+  local titleCustom = ModWriter.customLayout(project, "title")
+  local introCustom = ModWriter.customLayout(project, "intro")
+  local tm = project.townMap
+  local tmImage = type(tm) == "table" and type(tm.background) == "table"
+    and (tm.background.image or (type(tm.background.image) == "table"
+      and tm.background.image.path))
+  if type(tmImage) == "table" then tmImage = tmImage.path end
+  local poke = project.menuGfx and project.menuGfx.pokegear
+  local johtoImg = type(poke) == "table" and poke.johtoImage
+  local kantoImg = type(poke) == "table" and poke.kantoImage
+  if type(johtoImg) == "table" then johtoImg = johtoImg.path end
+  if type(kantoImg) == "table" then kantoImg = kantoImg.path end
+  local fitted = project.uiFitted or {}
+  local mismatch = project.uiMismatch or {}
+  local hasFitted = false
+  for key, on in pairs(fitted) do
+    if on and mismatch[key] then hasFitted = true; break end
+  end
+  if not (titleCustom or introCustom or (type(tmImage) == "string" and tmImage ~= "")
+      or (type(johtoImg) == "string" and johtoImg ~= "")
+      or (type(kantoImg) == "string" and kantoImg ~= "")
+      or hasFitted) then
+    return
+  end
+
+  out[#out + 1] = "  -- Size-safe custom title / intro / map / UI overlays"
+  out[#out + 1] = "  do"
+  out[#out + 1] = "    local function uiLoad(path)"
+  out[#out + 1] = "      if type(path) == \"table\" then path = path.path or path.image end"
+  out[#out + 1] = "      if type(path) ~= \"string\" or path == \"\" then return nil end"
+  out[#out + 1] = "      local Assets = require(\"src.render.Assets\")"
+  out[#out + 1] = "      local ok, img = pcall(Assets.image, path)"
+  out[#out + 1] = "      if ok and img then return img end"
+  out[#out + 1] = "      ok, img = pcall(love.graphics.newImage, path)"
+  out[#out + 1] = "      return ok and img or nil"
+  out[#out + 1] = "    end"
+  out[#out + 1] = "    local function uiFitted(img, x, y, w, h)"
+  out[#out + 1] = "      if not img then return false end"
+  out[#out + 1] = "      local ok, iw, ih = pcall(function() return img:getDimensions() end)"
+  out[#out + 1] = "      if not (ok and iw and ih and iw > 0 and ih > 0) then return false end"
+  out[#out + 1] = "      local sc = math.min(w / iw, h / ih)"
+  out[#out + 1] = "      love.graphics.setColor(1, 1, 1, 1)"
+  out[#out + 1] = "      love.graphics.draw(img, x + (w - iw * sc) / 2, y + (h - ih * sc) / 2, 0, sc, sc)"
+  out[#out + 1] = "      return true"
+  out[#out + 1] = "    end"
+  out[#out + 1] = "    local function titleBucket(game)"
+  out[#out + 1] = "      local data = game and game.data"
+  if gen2 then
+    out[#out + 1] = "      return (data and (data.title or data.gen2Title)) or {}"
+  else
+    out[#out + 1] = "      return (data and data.field and data.field.title) or {}"
+  end
+  out[#out + 1] = "    end"
+  out[#out + 1] = "    local function introBucket(game)"
+  out[#out + 1] = "      local data = game and game.data"
+  if gen2 then
+    out[#out + 1] = "      return (data and (data.gen2Intro or data.intro)) or {}"
+  else
+    out[#out + 1] = "      return (data and data.field and data.field.intro) or {}"
+  end
+  out[#out + 1] = "    end"
+  out[#out + 1] = "    local function paintCustomTitle(self, title)"
+  out[#out + 1] = "      if self.menuOpen then return end"
+  out[#out + 1] = "      love.graphics.setColor(1, 1, 1, 1)"
+  out[#out + 1] = "      love.graphics.rectangle(\"fill\", 0, 0, 160, 144)"
+  out[#out + 1] = "      uiFitted(self._customScreen, 0, 0, 160, 144)"
+  out[#out + 1] = "      uiFitted(self._customLogo, 0, 0, 160, 144)"
+  out[#out + 1] = "      uiFitted(self._customCopy, 0, 0, 160, 144)"
+  out[#out + 1] = "    end"
+  out[#out + 1] = "    local function adoptCustomTitle(self, title)"
+  out[#out + 1] = "      if type(title) ~= \"table\" or title.layout ~= \"custom\" then return self end"
+  out[#out + 1] = "      self.phase = \"loop\""
+  out[#out + 1] = "      self._customScreen = uiLoad(title.screen)"
+  out[#out + 1] = "      self._customLogo = uiLoad(title.logo or title.image)"
+  out[#out + 1] = "      self._customCopy = uiLoad(title.copyright)"
+  out[#out + 1] = "      function self:draw() paintCustomTitle(self, title) end"
+  out[#out + 1] = "      return self"
+  out[#out + 1] = "    end"
+  out[#out + 1] = "    local function adoptCustomIntro(self, intro)"
+  out[#out + 1] = "      if type(intro) ~= \"table\" or intro.layout ~= \"custom\" then return self end"
+  out[#out + 1] = "      local stills = {}"
+  out[#out + 1] = "      if type(intro.stills) == \"table\" then"
+  out[#out + 1] = "        for _, row in ipairs(intro.stills) do"
+  out[#out + 1] = "          local path = row"
+  out[#out + 1] = "          if type(row) == \"table\" then path = row.path or row.image end"
+  out[#out + 1] = "          local img = uiLoad(path)"
+  out[#out + 1] = "          if img then"
+  out[#out + 1] = "            stills[#stills + 1] = {"
+  out[#out + 1] = "              img = img, frames = tonumber(type(row) == \"table\" and row.frames) or 180,"
+  out[#out + 1] = "            }"
+  out[#out + 1] = "          end"
+  out[#out + 1] = "        end"
+  out[#out + 1] = "      end"
+  out[#out + 1] = "      self._stills, self._si, self._st = stills, 1, 0"
+  out[#out + 1] = "      local function done()"
+  out[#out + 1] = "        if self.finish then self:finish() return end"
+  out[#out + 1] = "        if type(self.onDone) == \"function\" then self.onDone() return end"
+  out[#out + 1] = "        local game = self.game"
+  out[#out + 1] = "        if game and game.showTitle then game:showTitle() end"
+  out[#out + 1] = "      end"
+  out[#out + 1] = "      function self:update()"
+  out[#out + 1] = "        if intro.skip or #self._stills == 0 then"
+  out[#out + 1] = "          done()"
+  out[#out + 1] = "          return"
+  out[#out + 1] = "        end"
+  out[#out + 1] = "        local input = self.game and self.game.input"
+  out[#out + 1] = "        local skip = input and (input:wasPressed(\"a\") or input:wasPressed(\"start\"))"
+  out[#out + 1] = "        self._st = self._st + 1"
+  out[#out + 1] = "        local cur = self._stills[self._si]"
+  out[#out + 1] = "        if skip or (cur and self._st >= (cur.frames or 180)) then"
+  out[#out + 1] = "          self._si = self._si + 1"
+  out[#out + 1] = "          self._st = 0"
+  out[#out + 1] = "          if not self._stills[self._si] then"
+  out[#out + 1] = "            done()"
+  out[#out + 1] = "          end"
+  out[#out + 1] = "        end"
+  out[#out + 1] = "      end"
+  out[#out + 1] = "      function self:draw()"
+  out[#out + 1] = "        love.graphics.setColor(1, 1, 1, 1)"
+  out[#out + 1] = "        love.graphics.rectangle(\"fill\", 0, 0, 160, 144)"
+  out[#out + 1] = "        local cur = self._stills[self._si]"
+  out[#out + 1] = "        if cur then uiFitted(cur.img, 0, 0, 160, 144) end"
+  out[#out + 1] = "      end"
+  out[#out + 1] = "      return self"
+  out[#out + 1] = "    end"
+  out[#out + 1] = "    local function wrapNew(modname, adopt)"
+  out[#out + 1] = "      local ok, M = pcall(require, modname)"
+  out[#out + 1] = "      if not (ok and M and type(M.new) == \"function\") then return end"
+  out[#out + 1] = "      local orig = M.new"
+  out[#out + 1] = "      function M.new(game, a, b)"
+  out[#out + 1] = "        local self = orig(game, a, b)"
+  out[#out + 1] = "        if type(self) == \"table\" then adopt(self, game) end"
+  out[#out + 1] = "        return self"
+  out[#out + 1] = "      end"
+  out[#out + 1] = "    end"
+
+  if titleCustom then
+    if gen2 then
+      out[#out + 1] = "    wrapNew(\"src.ui.gen2.TitleState\", function(self, game)"
+      out[#out + 1] = "      adoptCustomTitle(self, titleBucket(game))"
+      out[#out + 1] = "    end)"
+    else
+      out[#out + 1] = "    wrapNew(\"src.ui.TitleState\", function(self, game)"
+      out[#out + 1] = "      adoptCustomTitle(self, titleBucket(game))"
+      out[#out + 1] = "    end)"
+      out[#out + 1] = "    pcall(function()"
+      out[#out + 1] = "      mod.content.screens:register(\"CustomTitle\", {"
+      out[#out + 1] = "        new = function(game, opts)"
+      out[#out + 1] = "          return require(\"src.ui.TitleState\").new(game, opts)"
+      out[#out + 1] = "        end,"
+      out[#out + 1] = "      })"
+      out[#out + 1] = "    end)"
+    end
+  end
+
+  if introCustom then
+    if gen2 then
+      out[#out + 1] = "    wrapNew(\"src.ui.gen2.GoldSilverIntro\", function(self, game)"
+      out[#out + 1] = "      adoptCustomIntro(self, introBucket(game))"
+      out[#out + 1] = "    end)"
+      out[#out + 1] = "    wrapNew(\"src.ui.gen2.CrystalIntro\", function(self, game)"
+      out[#out + 1] = "      adoptCustomIntro(self, introBucket(game))"
+      out[#out + 1] = "    end)"
+    else
+      out[#out + 1] = "    wrapNew(\"src.ui.IntroMovie\", function(self, game)"
+      out[#out + 1] = "      adoptCustomIntro(self, introBucket(game))"
+      out[#out + 1] = "    end)"
+      out[#out + 1] = "    wrapNew(\"src.ui.YellowIntro\", function(self, game)"
+      out[#out + 1] = "      adoptCustomIntro(self, introBucket(game))"
+      out[#out + 1] = "    end)"
+    end
+  end
+
+  if type(tmImage) == "string" and tmImage ~= "" and not gen2 then
+    out[#out + 1] = "    wrapNew(\"src.ui.TownMap\", function(self, game)"
+    out[#out + 1] = "      local tm = game and game.data and game.data.field and game.data.field.townMap"
+    out[#out + 1] = "      local bg = type(tm) == \"table\" and tm.background"
+    out[#out + 1] = "      local path = bg and (type(bg.image) == \"table\" and bg.image.path or bg.image)"
+    out[#out + 1] = "      local img = uiLoad(path)"
+    out[#out + 1] = "      if not img then return end"
+    out[#out + 1] = "      function self:draw()"
+    out[#out + 1] = "        love.graphics.setColor(1, 1, 1, 1)"
+    out[#out + 1] = "        love.graphics.rectangle(\"fill\", 0, 0, 160, 144)"
+    out[#out + 1] = "        uiFitted(img, 0, 0, 160, 144)"
+    out[#out + 1] = "        local selected = self.locs and self.locs[self.sel]"
+    out[#out + 1] = "        if selected then"
+    out[#out + 1] = "          local x = (tonumber(selected.x) or 0) * 8 + 16"
+    out[#out + 1] = "          local y = (tonumber(selected.y) or 0) * 8 + 8"
+    out[#out + 1] = "          if (self.blink or 0) < 25 then"
+    out[#out + 1] = "            love.graphics.setColor(1, 0.2, 0.2, 1)"
+    out[#out + 1] = "            love.graphics.rectangle(\"fill\", x, y, 8, 8)"
+    out[#out + 1] = "            love.graphics.setColor(1, 1, 1, 1)"
+    out[#out + 1] = "          end"
+    out[#out + 1] = "          local Font = require(\"src.render.Font\")"
+    out[#out + 1] = "          love.graphics.setColor(0, 0, 0, 1)"
+    out[#out + 1] = "          love.graphics.rectangle(\"fill\", 0, 0, 160, 8)"
+    out[#out + 1] = "          pcall(Font.draw, tostring(selected.name or \"\"), 8, 0)"
+    out[#out + 1] = "          love.graphics.setColor(1, 1, 1, 1)"
+    out[#out + 1] = "        end"
+    out[#out + 1] = "      end"
+    out[#out + 1] = "    end)"
+  end
+
+  if gen2 and ((type(johtoImg) == "string" and johtoImg ~= "")
+      or (type(kantoImg) == "string" and kantoImg ~= "")) then
+    out[#out + 1] = "    do"
+    out[#out + 1] = "      local ok, PG = pcall(require, \"src.ui.gen2.Pokegear\")"
+    out[#out + 1] = "      if ok and PG and type(PG.drawMap) == \"function\" then"
+    out[#out + 1] = "        local orig = PG.drawMap"
+    out[#out + 1] = "        function PG:drawMap()"
+    out[#out + 1] = "          local gfx = self.gfx or {}"
+    out[#out + 1] = "          local region = self.region and self:region() or \"johto\""
+    out[#out + 1] = "          local path = region == \"kanto\" and gfx.kantoImage or gfx.johtoImage"
+    out[#out + 1] = "          local img = uiLoad(path)"
+    out[#out + 1] = "          if not img then return orig(self) end"
+    out[#out + 1] = "          love.graphics.setColor(1, 1, 1, 1)"
+    out[#out + 1] = "          love.graphics.rectangle(\"fill\", 0, 0, 160, 144)"
+    out[#out + 1] = "          uiFitted(img, 0, 0, 160, 144)"
+    out[#out + 1] = "          local current = self.mapLandmark and self:mapLandmark()"
+    out[#out + 1] = "          if current and current.x and current.y and (self.blink or 0) % 30 < 15 then"
+    out[#out + 1] = "            love.graphics.setColor(1, 0.15, 0.15, 1)"
+    out[#out + 1] = "            love.graphics.rectangle(\"fill\", current.x - 2, current.y - 2, 5, 5)"
+    out[#out + 1] = "            love.graphics.setColor(1, 1, 1, 1)"
+    out[#out + 1] = "            love.graphics.rectangle(\"fill\", current.x - 1, current.y - 1, 3, 3)"
+    out[#out + 1] = "          end"
+    out[#out + 1] = "          if current and current.name then"
+    out[#out + 1] = "            local Font = require(\"src.render.Font\")"
+    out[#out + 1] = "            love.graphics.setColor(0, 0, 0, 1)"
+    out[#out + 1] = "            local name = tostring(current.name)"
+    out[#out + 1] = "            local line1, line2 = name:match(\"^(.-)\\n(.*)$\")"
+    out[#out + 1] = "            if not line1 then line1 = name end"
+    out[#out + 1] = "            pcall(Font.draw, line1, 72, 0)"
+    out[#out + 1] = "            if line2 and line2 ~= \"\" then pcall(Font.draw, line2, 72, 8) end"
+    out[#out + 1] = "            love.graphics.setColor(1, 1, 1, 1)"
+    out[#out + 1] = "          end"
+    out[#out + 1] = "        end"
+    out[#out + 1] = "      end"
+    out[#out + 1] = "    end"
+  end
+
+  if hasFitted then
+    local byScreen = {}
+    for key, on in pairs(fitted) do
+      if on and mismatch[key] then
+        local spec = tostring(key):match("^([^%.]+)")
+        local mods = FITTED_SCREENS[spec]
+        if type(mods) == "table" then
+          local path
+          local cur = spec == "diploma" and project.diploma or project.menuGfx
+          local walk = spec == "diploma"
+            and (tostring(key):match("^diploma%.(.+)$") or "")
+            or tostring(key)
+          if type(cur) == "table" then
+            for part in (walk .. "."):gmatch("([^%.]+)%.") do
+              if type(cur) ~= "table" then cur = nil; break end
+              cur = cur[part]
+            end
+            if type(cur) == "string" then path = cur
+            elseif type(cur) == "table" then path = cur.path or cur.image end
+          end
+          if type(path) == "string" and path ~= "" then
+            for _, modname in ipairs(mods) do
+              byScreen[modname] = path
+            end
+          end
+        end
+      end
+    end
+    for _, modname in ipairs({
+      "src.ui.gen2.PackMenu", "src.ui.gen2.PokedexMenu", "src.ui.PokedexMenu",
+      "src.ui.gen2.Pokegear", "src.ui.gen2.NamingScreen", "src.ui.NamingScreen",
+      "src.ui.gen2.PcMenu", "src.ui.gen2.SummaryMenu", "src.ui.SummaryMenu",
+      "src.ui.gen2.Diploma", "src.ui.Diploma",
+      "src.ui.gen2.BattleState", "src.ui.BattleState",
+    }) do
+      local path = byScreen[modname]
+      if path then
+        local lit = rewriteModPaths(string.format("%q", path))
+        out[#out + 1] = "    wrapNew(" .. string.format("%q", modname) .. ", function(self)"
+        out[#out + 1] = "      local overlay = uiLoad(" .. lit .. ")"
+        out[#out + 1] = "      if not overlay then return end"
+        out[#out + 1] = "      local orig = self.draw"
+        out[#out + 1] = "      function self:draw(...)"
+        out[#out + 1] = "        love.graphics.setColor(1, 1, 1, 1)"
+        out[#out + 1] = "        love.graphics.rectangle(\"fill\", 0, 0, 160, 144)"
+        out[#out + 1] = "        uiFitted(overlay, 0, 0, 160, 144)"
+        out[#out + 1] = "        if type(orig) == \"function\" then orig(self, ...) end"
+        out[#out + 1] = "      end"
+        out[#out + 1] = "    end)"
+      end
+    end
+  end
+
+  out[#out + 1] = "  end"
+  out[#out + 1] = ""
+end
+
 function ModWriter.emitMain(project, baseData, derivedModId)
   baseData = baseData or {}
   emitProjectId = tostring(derivedModId or (project and project.id) or "")
@@ -3909,6 +4288,9 @@ function ModWriter.emitMain(project, baseData, derivedModId)
         if next(menuGfx.battleHud) == nil then menuGfx.battleHud = nil end
       end
     end
+    if type(menuGfx) == "table" then
+      menuGfx = pruneEmpty(ModWriter.stripUnsafeMenuGfx(project, menuGfx))
+    end
     if type(menuGfx) == "table" and next(menuGfx) then
       local lit = rewriteModPaths(emitTableLiteral(menuGfx, 2))
       out[#out + 1] = "  -- Gold menu chrome (data.gen2MenuGfx)"
@@ -4197,6 +4579,7 @@ function ModWriter.emitMain(project, baseData, derivedModId)
 
     if type(project.menuGfx) == "table" then
       local chrome = pruneEmpty(stripEditorFields(deepCopy(project.menuGfx)))
+      chrome = pruneEmpty(ModWriter.stripUnsafeMenuGfx(project, chrome))
       if type(chrome) == "table" then
         local keys = {}
         for k in pairs(chrome) do keys[#keys + 1] = k end
@@ -4481,6 +4864,9 @@ function ModWriter.emitMain(project, baseData, derivedModId)
       out[#out + 1] = ""
     end
   end
+
+  ModWriter.emitUiScripts(out, project)
+  ModWriter.emitCustomUi(out, project, gen2)
 
   -- engine Strings() overrides
   local strIds = {}

@@ -50,6 +50,7 @@ local SpeciesPicker = require("SpeciesPicker")
 local ItemPicker = require("ItemPicker")
 local ChoicePicker = require("ChoicePicker")
 local Autocomplete = require("Autocomplete")
+local EventScriptEditor = require("EventScriptEditor")
 local ColorWheel = require("ColorWheel")
 local PaletteEdit = require("PaletteEdit")
 local RegList = require("RegList")
@@ -1623,6 +1624,7 @@ function App.keypressed(key)
   if ColorWheel.isOpen(S) and ColorWheel.keypressed(S, key) then return end
   -- Autocomplete claims Up/Down/Enter/Tab/Esc before the textfield.
   if Autocomplete.keypressed(S, key) then return end
+  if EventScriptEditor.keypressed(S, key, App) then return end
   if Kit.keypressed(key) then return end
   if key == "escape" then
     if PalettePicker.keypressed(S, key) then return end

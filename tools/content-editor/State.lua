@@ -119,6 +119,9 @@ function State.blankProject(id, name)
     townMap = {},       -- field.townMap (Gen1) / landmark overrides (Gold)
     trainerCard = {},   -- Gold: gen2MenuGfx.trainerCard badge/leader sheets
     menuGfx = {},       -- Gen1 field chrome / Gold gen2MenuGfx sheet overrides
+    uiMismatch = {},    -- dotted menu keys whose import size != vanilla
+    uiFitted = {},      -- mismatched keys drawn as a fitted overlay instead
+    uiScripts = {},     -- UI tab script copies: id -> { module, rel }
     diploma = {},       -- Gold: gen2Diploma sheet
     pokedex = {},       -- Gold: gen2Pokedex.entries overrides (kind/text/…)
     -- Lab ball remap (Oak / Elm): vanillaSpecies -> { species, level }
@@ -194,6 +197,9 @@ function State.ensureProjectFields(project)
   project.townMap = project.townMap or {}
   project.trainerCard = project.trainerCard or {}
   project.menuGfx = project.menuGfx or {}
+  project.uiMismatch = project.uiMismatch or {}
+  project.uiFitted = project.uiFitted or {}
+  project.uiScripts = project.uiScripts or {}
   project.minigames = project.minigames or {}
   project.diploma = project.diploma or {}
   project.pokedex = project.pokedex or {}

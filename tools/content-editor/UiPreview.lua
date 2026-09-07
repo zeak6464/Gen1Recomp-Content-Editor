@@ -8,6 +8,7 @@ local Theme = require("Theme")
 local State = require("State")
 local Preview = require("Preview")
 local Generation = require("Generation")
+local UiSafe = require("UiSafe")
 local PAL = Theme.PAL
 
 local UiPreview = {}
@@ -339,6 +340,18 @@ end
 
 local function buildTitle(S)
   local layout = eff(S, "title", "layout")
+  if tostring(layout or "") == "custom" then
+    return {
+      kind = "title",
+      custom = true,
+      screen = img(S, pathOf(eff(S, "title", "screen"))),
+      logo = img(S, pathOf(eff(S, "title", "logo") or eff(S, "title", "image"))),
+      copyright = img(S, pathOf(eff(S, "title", "copyright"))),
+      copyrightText = tostring(eff(S, "title", "copyrightText") or ""),
+      timer = 0,
+      data = S.data,
+    }
+  end
   local gold = Generation.isGen2(S)
     or layout == "gold_title"
     or layout == "crystal_title"
@@ -506,6 +519,10 @@ local function hoohBob(phase)
 end
 
 local function updateTitle(st)
+  if st.custom then
+    st.timer = (st.timer or 0) + 1
+    return
+  end
   if st.crystal then
     st.timer = (st.timer or 0) + 1
     local every = math.max(1, st.suicuneEvery or 8)
@@ -585,6 +602,17 @@ end
 local function drawTitleFrame(st, S)
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.rectangle("fill", 0, 0, GB_W, GB_H)
+  if st.custom then
+    UiSafe.drawFitted(st.screen, 0, 0, GB_W, GB_H)
+    UiSafe.drawFitted(st.logo, 0, 0, GB_W, GB_H)
+    UiSafe.drawFitted(st.copyright, 0, 0, GB_W, GB_H)
+    if st.copyrightText ~= "" and ensureFont(S) then
+      love.graphics.setColor(0, 0, 0, 1)
+      pcall(require("src.render.Font").draw, st.copyrightText, 1, 136)
+      love.graphics.setColor(1, 1, 1, 1)
+    end
+    return
+  end
   if st.crystal then
     local sky = st.sky or { 123 / 255, 165 / 255, 1, 1 }
     love.graphics.setColor(sky[1], sky[2], sky[3], 1)
@@ -847,6 +875,23 @@ local function buildIntro(S)
   local p = (S.project and S.project.intro) or {}
   overlayIntro(intro, d)
   overlayIntro(intro, p)
+  if tostring(intro.layout or "") == "custom" then
+    local stills = {}
+    for _, row in ipairs(UiSafe.stills(intro)) do
+      stills[#stills + 1] = {
+        image = img(S, row.path),
+        frames = row.frames,
+      }
+    end
+    return {
+      kind = "customIntro",
+      stills = stills,
+      skipAll = intro.skip and true or false,
+      index = 1,
+      timer = 0,
+      done = false,
+    }
+  end
   local studio = {}
   if type(d.studio) == "table" then
     for k, v in pairs(d.studio) do studio[k] = v end
@@ -959,6 +1004,24 @@ local function drawBars()
 end
 
 local function updateIntro(st)
+  if st.kind == "customIntro" then
+    if st.skipAll or not st.stills or not st.stills[1] then
+      st.done = true
+      return
+    end
+    st.timer = (st.timer or 0) + 1
+    local cur = st.stills[st.index or 1]
+    local hold = (cur and cur.frames) or 180
+    if st.timer >= hold then
+      st.timer = 0
+      st.index = (st.index or 1) + 1
+      if st.index > #st.stills then
+        st.index = 1
+        st.done = true
+      end
+    end
+    return
+  end
   if st.kind == "movie" then
     local movie = st.movie
     if movie and movie.update then
@@ -1057,6 +1120,13 @@ local function drawMoviePanel(st)
 end
 
 local function drawIntroFrame(st, S)
+  if st.kind == "customIntro" then
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.rectangle("fill", 0, 0, GB_W, GB_H)
+    local cur = st.stills and st.stills[st.index or 1]
+    if cur then UiSafe.drawFitted(cur.image, 0, 0, GB_W, GB_H) end
+    return
+  end
   if st.kind == "movie" then
     drawMoviePanel(st)
     return
@@ -1738,6 +1808,14 @@ local function buildTownMap(S)
   local locs, tm = townMapLocs(S)
   if Generation.isGen2(S) then
     local gfx = (S.data and (S.data.gen2MenuGfx or S.data.menu_gfx) or {}).pokegear
+    local projPg = S.project and S.project.menuGfx and S.project.menuGfx.pokegear
+    if type(gfx) ~= "table" then gfx = {} end
+    if type(projPg) == "table" then
+      local merged = {}
+      for k, v in pairs(gfx) do merged[k] = v end
+      for k, v in pairs(projPg) do merged[k] = v end
+      gfx = merged
+    end
     local sheet
     if type(gfx) == "table" and type(gfx.tiles) == "string" then
       local okTs, TileSheet = pcall(require, "src.ui.gen2.TileSheet")
@@ -1765,6 +1843,8 @@ local function buildTownMap(S)
       sheet = sheet,
       maps = gfx and gfx.maps,
       ground = ground,
+      johtoImage = img(S, pathOf(gfx and gfx.johtoImage)),
+      kantoImage = img(S, pathOf(gfx and gfx.kantoImage)),
       locs = locs,
       index = 1,
       blink = 0,
@@ -1808,9 +1888,11 @@ local function buildTownMap(S)
       end
     end
   end
+  local customImage = img(S, pathOf(merged.background and merged.background.image))
   return {
     kind = "townmap",
-    movie = viewer or false,
+    movie = (not customImage) and (viewer or false) or false,
+    customImage = customImage,
     locs = locs,
     grid = merged.gridPixelSize or tm.gridPixelSize or 8,
     index = 1,
@@ -1871,6 +1953,10 @@ local function drawPokegearTownMap(st, S)
   loc = loc or st.locs[st.index]
 
   local region = pokegearRegion(loc and loc.index, S and S.uiTmRegion)
+  local custom = region == "kanto" and st.kantoImage or st.johtoImage
+  if custom then
+    UiSafe.drawFitted(custom, 0, 0, GB_W, GB_H)
+  else
   local cells = st.maps and st.maps[region]
   if st.sheet and cells then
     love.graphics.setColor(1, 1, 1, 1)
@@ -1892,6 +1978,7 @@ local function drawPokegearTownMap(st, S)
   elseif not st.sheet then
     love.graphics.setColor(0.2, 0.35, 0.25, 1)
     love.graphics.rectangle("fill", 0, 24, GB_W, GB_H - 24)
+  end
   end
 
   -- Landmark coords are already screen pixels (extractor undoes OAM +8/+16).
@@ -1919,6 +2006,30 @@ end
 local function drawTownMapFrame(st, S)
   if st.gen2 then
     drawPokegearTownMap(st, S)
+    return
+  end
+  if st.customImage then
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.rectangle("fill", 0, 0, GB_W, GB_H)
+    UiSafe.drawFitted(st.customImage, 0, 0, GB_W, GB_H)
+    local loc
+    if S and S.uiTmLoc then
+      for i, e in ipairs(st.locs or {}) do
+        if e.id == S.uiTmLoc then loc, st.index = e, i; break end
+      end
+    end
+    loc = loc or st.locs[st.index]
+    if loc and st.blink < 15 then
+      local x, y = loc.x * 8 + 16, loc.y * 8 + 8
+      love.graphics.setColor(1, 0.2, 0.2, 1)
+      love.graphics.rectangle("fill", x, y, 8, 8)
+    end
+    if loc and ensureFont(S) then
+      love.graphics.setColor(0, 0, 0, 1)
+      love.graphics.rectangle("fill", 0, 0, GB_W, 8)
+      pcall(require("src.render.Font").draw, tostring(loc.name), 8, 0)
+    end
+    love.graphics.setColor(1, 1, 1, 1)
     return
   end
   if st.movie then
@@ -4152,6 +4263,9 @@ local function previewStamp(S, mode)
     local acc = {}
     fingerprint(S.project[bucket], 0, acc)
     if mode == "oak" then fingerprint(S.project.text, 0, acc) end
+    if mode == "townmap" then
+      fingerprint(S.project.menuGfx and S.project.menuGfx.pokegear, 0, acc)
+    end
     if mode == "badges" then
       fingerprint(S.project.constants and S.project.constants.badges, 0, acc)
     end

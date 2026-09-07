@@ -294,4 +294,57 @@ function OpcodeHelp.labels()
   return labels
 end
 
+function OpcodeHelp.resolve(name)
+  if type(name) ~= "string" or name == "" then return nil end
+  if INFO[name] then return name end
+  local lower = name:lower()
+  if INFO[lower] then return lower end
+  for op in pairs(INFO) do
+    if op:lower() == lower then return op end
+  end
+  return nil
+end
+
+local function tokenize(text)
+  local out = {}
+  local i = 1
+  local s = tostring(text or "")
+  while i <= #s do
+    local c = s:sub(i, i)
+    if c:match("%s") then
+      i = i + 1
+    elseif c == '"' then
+      local j = s:find('"', i + 1)
+      out[#out + 1] = s:sub(i + 1, (j or (#s + 1)) - 1)
+      i = (j or #s) + 1
+    else
+      local tok = s:match("^%S+", i)
+      out[#out + 1] = tok
+      i = i + #tok
+    end
+  end
+  return out
+end
+
+-- "applymovement 2 jump_bush" → { op = "applymovement", object = "2", movement = "jump_bush" }
+function OpcodeHelp.parseLine(text)
+  local tokens = tokenize(text)
+  if #tokens == 0 then return nil end
+  local op = OpcodeHelp.resolve(tokens[1])
+  if not op then return nil end
+  local cmd = { op = op }
+  local fields = OpcodeHelp.fields(op, cmd)
+  for i, spec in ipairs(fields) do
+    local raw = tokens[i + 1]
+    if raw ~= nil and raw ~= "" then
+      if spec.numeric then
+        cmd[spec.key] = tonumber(raw) or raw
+      else
+        cmd[spec.key] = raw
+      end
+    end
+  end
+  return cmd
+end
+
 return OpcodeHelp

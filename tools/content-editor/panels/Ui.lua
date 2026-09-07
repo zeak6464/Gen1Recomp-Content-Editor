@@ -1,5 +1,5 @@
 -- UI tab: title/splash branding, boot screen ids, in-game menu chrome,
--- dialogue theme, fonts, engine strings, town map, and badge icons.
+-- dialogue theme, fonts, engine strings, town map, badge icons, and scripts.
 -- Gen1 writes field.* via project.title / intro / theme / townMap / boot /
 -- menuGfx; Gold (field gated) writes data.title / gen2Intro / landmarks /
 -- gen2MenuGfx / gen2BootScreens / gen2Diploma.
@@ -16,6 +16,8 @@ local Generation = require("Generation")
 local ChoicePicker = require("ChoicePicker")
 local SpeciesPicker = require("SpeciesPicker")
 local ColorWheel = require("ColorWheel")
+local UiSafe = require("UiSafe")
+local UiScripts = require("UiScripts")
 local PAL = Theme.PAL
 
 local Ui = {}
@@ -45,6 +47,8 @@ local MODES_GEN1 = {
     tip = "Town map grid size, locations, background" },
   { id = "badges", label = "Badges",
     tip = "Badge ids with optional icon paths" },
+  { id = "scripts", label = "Scripts",
+    tip = "Open or copy every UI Lua screen into this mod" },
 }
 
 local MODES_GEN2 = {
@@ -70,6 +74,8 @@ local MODES_GEN2 = {
     tip = "Pokegear landmarks (name, x, y, index)" },
   { id = "badges", label = "Badges",
     tip = "Trainer card badge / leader sheet paths" },
+  { id = "scripts", label = "Scripts",
+    tip = "Open or copy every UI Lua screen into this mod" },
 }
 
 local BOOT_SCREEN_DEFAULTS = {
@@ -310,7 +316,7 @@ local function browseImage(App, label, onRel)
 end
 
 local function imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, label,
-    fieldId, path, onSet, tip)
+    fieldId, path, onSet, tip, expectedPath)
   Kit.text("small", label, viewX, fy + 6 * s, PAL.caption)
   Kit.offerTooltip(viewX, fy, labelW, fh,
     tip or ("Import a PNG for " .. label))
@@ -323,6 +329,80 @@ local function imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, label,
       kind = "ghost", tooltip = "Import PNG into mod",
     }) then
     browseImage(App, label .. " PNG", function(rel) onSet(rel) end)
+  end
+  fy = fy + fh + 4 * s
+  local exp = expectedPath or cur
+  local ew, eh = UiSafe.imageSize(S, exp)
+  local aw, ah = UiSafe.imageSize(S, cur)
+  if ew and eh then
+    local sizeTxt = string.format("expected %dx%d", ew, eh)
+    if aw and ah and not UiSafe.sizesMatch(ew, eh, aw, ah) then
+      Kit.text("micro", sizeTxt .. string.format(" · imported %dx%d", aw, ah),
+        viewX, fy, PAL.yellow)
+      Kit.offerTooltip(viewX, fy, labelW + fieldW, 14 * s,
+        "Wrong size is not sliced into vanilla tiles. Use Custom layout or fitted overlay.")
+    else
+      Kit.text("micro", sizeTxt, viewX, fy, PAL.faint)
+    end
+    fy = fy + 14 * s
+  elseif aw and ah then
+    Kit.text("micro", string.format("%dx%d", aw, ah), viewX, fy, PAL.faint)
+    fy = fy + 14 * s
+  end
+  return fy + 4 * s
+end
+
+local function drawLayoutChips(x, y, w, h, cur, options)
+  local s = Kit.scale
+  local cx = x
+  local picked = cur
+  for _, opt in ipairs(options) do
+    local on = (cur or "") == (opt.id or "")
+    local bw = Kit.textWidth("micro", opt.label) + 16 * s
+    if Kit.chip(cx, y, bw, h, opt.label, on, PAL.green, PAL.steel, opt.tip) then
+      picked = opt.id
+    end
+    cx = cx + bw + 4 * s
+  end
+  return picked
+end
+
+local function drawCustomStills(S, App, viewX, fy, viewW, labelW, fieldW, fh, s)
+  local intro = ensureBucket(S, "intro")
+  intro.stills = intro.stills or {}
+  Kit.caption(viewX, fy, "CUSTOM STILLS")
+  fy = fy + 22 * s
+  Kit.text("micro", "Fitted 160×144 stills. A / START skips to the next, then the title.",
+    viewX, fy, PAL.muted)
+  fy = fy + 18 * s
+  for i, row in ipairs(intro.stills) do
+    if type(row) ~= "table" then
+      intro.stills[i] = { path = tostring(row or ""), frames = 180 }
+      row = intro.stills[i]
+    end
+    fy = imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, "Still " .. i,
+      "ui_intro_still_" .. i, pathOf(row.path or row), function(p)
+        row.path = p
+        App.markDirty()
+      end, "Full-screen intro still (fitted, never tile-sliced)", nil)
+    Kit.text("small", "Hold frames", viewX, fy + 6 * s, PAL.caption)
+    local frames = tonumber(row.frames) or 180
+    local v = RegList.num(App, "ui_intro_still_fr_" .. i, viewX + labelW, fy, 80 * s, fh, frames)
+    if v ~= frames then row.frames = v; App.markDirty() end
+    if Kit.button(viewX + labelW + 90 * s, fy, 80 * s, fh, "Remove", {
+        kind = "danger", tooltip = "Remove this still",
+      }) then
+      table.remove(intro.stills, i)
+      App.markDirty()
+      break
+    end
+    fy = fy + fh + 8 * s
+  end
+  if Kit.button(viewX, fy, 120 * s, fh, "Add still", {
+      kind = "good", tooltip = "Add a fitted intro still",
+    }) then
+    intro.stills[#intro.stills + 1] = { path = "", frames = 180 }
+    App.markDirty()
   end
   return fy + fh + 8 * s
 end
@@ -414,7 +494,45 @@ local function drawTitleGen2(S, x, y, w, h, App)
 
   Kit.caption(viewX, fy, crystalUi(S) and "CRYSTAL TITLE" or "GOLD TITLE")
   fy = fy + 24 * s
+  Kit.text("small", "Layout", viewX, fy + 6 * s, PAL.caption)
+  do
+    local cur = tostring(select(1, eff(S, "title", "layout")) or "")
+    local picked = drawLayoutChips(viewX + labelW, fy, fieldW, fh, cur, {
+      { id = "", label = "Vanilla", tip = "Ho-Oh / Suicune cinema title" },
+      { id = "custom", label = "Custom", tip = "Fitted full-screen title stills" },
+    })
+    if picked ~= cur then setKey(S, "title", "layout", picked ~= "" and picked or nil, App) end
+  end
+  fy = fy + fh + 8 * s
   fy = UiPreview.draw(S, "title", viewX, fy, viewW, s)
+
+  if tostring(select(1, eff(S, "title", "layout")) or "") == "custom" then
+    fy = imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, "Screen",
+      "ui_title_screen", pathOf(select(1, eff(S, "title", "screen"))),
+      function(p) setKey(S, "title", "screen", p, App) end,
+      "Full-screen title art (fitted to 160×144)")
+    fy = imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, "Logo",
+      "ui_title_logo", pathOf(select(1, eff(S, "title", "logo") or select(1, eff(S, "title", "image")))),
+      function(p) setKey(S, "title", "logo", p, App) end,
+      "Optional logo overlay")
+    fy = imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, "Copyright",
+      "ui_title_copyimg", pathOf(select(1, eff(S, "title", "copyright"))),
+      function(p) setKey(S, "title", "copyright", p, App) end,
+      "Optional copyright overlay")
+    Kit.text("small", "Music id", viewX, fy + 6 * s, PAL.caption)
+    drawMusicPicker(S, App, viewX + labelW, fy, fieldW, fh,
+      "title", "music", "Music_TitleScreen")
+    fy = fy + fh + 8 * s
+    if next(S.project.title) and Kit.button(viewX, fy, 120 * s, fh, "Clear all", {
+        kind = "danger", tooltip = "Remove project.title overrides",
+      }) then
+      S.project.title = {}
+      App.markDirty()
+    end
+    fy = fy + fh + 8 * s
+    FormPane.finish(S, "uiTitleScroll", contentTop, fy, view)
+    return
+  end
 
   local rows
   if crystalUi(S) then
@@ -525,7 +643,50 @@ local function drawTitle(S, x, y, w, h, App)
 
   Kit.caption(viewX, fy, "TITLE SCREEN")
   fy = fy + 24 * s
+  Kit.text("small", "Layout", viewX, fy + 6 * s, PAL.caption)
+  do
+    local cur = tostring(select(1, eff(S, "title", "layout")) or "")
+    local picked = drawLayoutChips(viewX + labelW, fy, fieldW, fh, cur, {
+      { id = "", label = "Vanilla", tip = "Red/Blue cycling title" },
+      { id = "yellow_pikachu", label = "Yellow", tip = "Pikachu title layout" },
+      { id = "custom", label = "Custom", tip = "Fitted full-screen title stills" },
+    })
+    if picked ~= cur then setKey(S, "title", "layout", picked ~= "" and picked or nil, App) end
+  end
+  fy = fy + fh + 8 * s
   fy = UiPreview.draw(S, "title", viewX, fy, viewW, s)
+
+  if tostring(select(1, eff(S, "title", "layout")) or "") == "custom" then
+    fy = imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, "Screen",
+      "ui_title_screen", pathOf(select(1, eff(S, "title", "screen"))),
+      function(p) setKey(S, "title", "screen", p, App) end,
+      "Full-screen title art (fitted to 160×144)")
+    fy = imageRow(S, App, viewX, fy, labelW, fieldW, fh, s, "Logo",
+      "ui_title_logo", pathOf(select(1, eff(S, "title", "logo"))),
+      function(p) setKey(S, "title", "logo", p, App) end,
+      "Optional logo overlay")
+    Kit.text("small", "Copyright", viewX, fy + 6 * s, PAL.caption)
+    do
+      local cur = tostring(select(1, eff(S, "title", "copyrightText")) or "")
+      local v = RegList.field(App, "ui_title_copy", viewX + labelW, fy, fieldW, fh,
+        cur, "©1995 …")
+      if v ~= cur then setKey(S, "title", "copyrightText", v ~= "" and v or nil, App) end
+    end
+    fy = fy + fh + 8 * s
+    Kit.text("small", "Music id", viewX, fy + 6 * s, PAL.caption)
+    drawMusicPicker(S, App, viewX + labelW, fy, fieldW, fh,
+      "title", "music", "Music_TitleScreen")
+    fy = fy + fh + 8 * s
+    if next(S.project.title) and Kit.button(viewX, fy, 120 * s, fh, "Clear all", {
+        kind = "danger", tooltip = "Remove project.title overrides",
+      }) then
+      S.project.title = {}
+      App.markDirty()
+    end
+    fy = fy + fh + 8 * s
+    FormPane.finish(S, "uiTitleScroll", contentTop, fy, view)
+    return
+  end
 
   local logo = pathOf(select(1, eff(S, "title", "logo")))
   local version = pathOf(select(1, eff(S, "title", "versionRibbon"))
@@ -557,24 +718,6 @@ local function drawTitle(S, x, y, w, h, App)
 
   fy = drawCycleSpecies(S, App, viewX, fy, labelW, fieldW, fh, s,
     select(1, eff(S, "title", "cycleSpecies")))
-
-  Kit.text("small", "Layout", viewX, fy + 6 * s, PAL.caption)
-  Kit.offerTooltip(viewX, fy, labelW, fh,
-    "Yellow can use the Pikachu title layout")
-  do
-    local cur = tostring(select(1, eff(S, "title", "layout")) or "")
-    local label = (cur ~= "" and cur) or "(default)"
-    if Kit.button(viewX + labelW, fy, fieldW, fh,
-        Kit.ellipsize("small", label, fieldW - 8 * s), {
-          kind = "ghost",
-          tooltip = "Cycle title layout (default / yellow Pikachu)",
-        }) then
-      local next = (cur == "") and "yellow_pikachu"
-        or (cur == "yellow_pikachu") and "" or ""
-      setKey(S, "title", "layout", next ~= "" and next or nil, App)
-    end
-  end
-  fy = fy + fh + 8 * s
 
   local pika = pathOf(select(1, eff(S, "title", "pikachu")))
   local bubble = pathOf(select(1, eff(S, "title", "pikaBubble")))
@@ -628,12 +771,44 @@ local function drawIntroGen2(S, x, y, w, h, App)
 
   Kit.caption(viewX, fy, crystal and "CRYSTAL INTRO" or "GOLD/SILVER INTRO")
   fy = fy + 22 * s
+  Kit.text("small", "Layout", viewX, fy + 6 * s, PAL.caption)
+  do
+    local cur = tostring(select(1, eff(S, "intro", "layout")) or "")
+    local picked = drawLayoutChips(viewX + labelW, fy, fieldW, fh, cur, {
+      { id = "", label = "Vanilla", tip = "Water-grass-fire or Unown cinema" },
+      { id = "custom", label = "Custom", tip = "Fitted stills, then the title" },
+    })
+    if picked ~= cur then setKey(S, "intro", "layout", picked ~= "" and picked or nil, App) end
+  end
+  fy = fy + fh + 8 * s
   Kit.text("micro", crystal
       and "Unown / Suicune cinema sheets (data.gen2Intro.acts)"
       or "Water → grass → fire acts (data.gen2Intro)",
     viewX, fy, PAL.muted)
   fy = fy + 20 * s
   fy = UiPreview.draw(S, "intro", viewX, fy, viewW, s)
+
+  if tostring(select(1, eff(S, "intro", "layout")) or "") == "custom" then
+    Kit.text("small", "Skip intro", viewX, fy + 6 * s, PAL.caption)
+    do
+      local skip = select(1, eff(S, "intro", "skip")) and true or false
+      if Kit.chip(viewX + labelW, fy, 80 * s, fh, skip and "YES" or "NO",
+          skip, PAL.yellow, PAL.steel,
+          "Skip stills and go straight to the title") then
+        setKey(S, "intro", "skip", (not skip) and true or nil, App)
+      end
+    end
+    fy = fy + fh + 8 * s
+    fy = drawCustomStills(S, App, viewX, fy, viewW, labelW, fieldW, fh, s)
+    if next(S.project.intro) and Kit.button(viewX, fy, 120 * s, fh, "Clear all", {
+        kind = "danger", tooltip = "Remove project.intro overrides" }) then
+      S.project.intro = {}
+      App.markDirty()
+    end
+    fy = fy + fh + 8 * s
+    FormPane.finish(S, "uiIntroScroll", contentTop, fy, view)
+    return
+  end
 
   if crystal then
     for i, row in ipairs(CRYSTAL_INTRO_SHEETS) do
@@ -696,7 +871,39 @@ local function drawIntro(S, x, y, w, h, App)
 
   Kit.caption(viewX, fy, yellow and "YELLOW INTRO" or "INTRO / SPLASH")
   fy = fy + 24 * s
+  Kit.text("small", "Layout", viewX, fy + 6 * s, PAL.caption)
+  do
+    local cur = tostring(select(1, eff(S, "intro", "layout")) or "")
+    local picked = drawLayoutChips(viewX + labelW, fy, fieldW, fh, cur, {
+      { id = "", label = "Vanilla", tip = "Studio splash and attract cinema" },
+      { id = "custom", label = "Custom", tip = "Fitted stills, then the title" },
+    })
+    if picked ~= cur then setKey(S, "intro", "layout", picked ~= "" and picked or nil, App) end
+  end
+  fy = fy + fh + 8 * s
   fy = UiPreview.draw(S, "intro", viewX, fy, viewW, s)
+
+  if tostring(select(1, eff(S, "intro", "layout")) or "") == "custom" then
+    Kit.text("small", "Skip intro", viewX, fy + 6 * s, PAL.caption)
+    do
+      local skip = select(1, eff(S, "intro", "skip")) and true or false
+      if Kit.chip(viewX + labelW, fy, 80 * s, fh, skip and "YES" or "NO",
+          skip, PAL.yellow, PAL.steel,
+          "Skip stills and go straight to the title") then
+        setKey(S, "intro", "skip", (not skip) and true or nil, App)
+      end
+    end
+    fy = fy + fh + 8 * s
+    fy = drawCustomStills(S, App, viewX, fy, viewW, labelW, fieldW, fh, s)
+    if next(S.project.intro) and Kit.button(viewX, fy, 120 * s, fh, "Clear all", {
+        kind = "danger", tooltip = "Remove project.intro overrides" }) then
+      S.project.intro = {}
+      App.markDirty()
+    end
+    fy = fy + fh + 8 * s
+    FormPane.finish(S, "uiIntroScroll", contentTop, fy, view)
+    return
+  end
 
   local studioLogo = pathOf((intro.studio and intro.studio.logo)
     or (dataField(S, "intro").studio and dataField(S, "intro").studio.logo))
@@ -1865,6 +2072,11 @@ local function drawTownMap(S, x, y, w, h, App)
       pcall(function() require("UiPreview").rebuild(S) end)
     end
     fy = imageRow(S, App, viewX, fy, labelW, viewW - labelW - 12 * s, fh, s,
+      "Map image", "ui_tm_image",
+      bgPath("image", ""),
+      function(p) setBg("image", p) end,
+      "Fitted 160×144 town map. When set, the 8×8 tile sheet is not used")
+    fy = imageRow(S, App, viewX, fy, labelW, viewW - labelW - 12 * s, fh, s,
       "Tiles", "ui_tm_tiles",
       bgPath("tiles", "assets/generated/townmap/tiles.png"),
       function(p) setBg("tiles", p) end, "Town map 8x8 tile sheet")
@@ -1876,6 +2088,29 @@ local function drawTownMap(S, x, y, w, h, App)
     Kit.text("micro", "Edits emit mod.content.landmarks:patch · coords are screen px",
       viewX, fy, PAL.muted)
     fy = fy + 18 * s
+    do
+      State.ensureProjectFields(S.project)
+      S.project.menuGfx = S.project.menuGfx or {}
+      local gfx = S.project.menuGfx
+      gfx.pokegear = gfx.pokegear or {}
+      local pg = gfx.pokegear
+      local dataPg = (S.data and (S.data.gen2MenuGfx or S.data.menu_gfx) or {}).pokegear or {}
+      local function pgPath(key)
+        return pathOf(pg[key] or dataPg[key])
+      end
+      fy = imageRow(S, App, viewX, fy, labelW, viewW - labelW - 12 * s, fh, s,
+        "Johto map", "ui_tm_johto", pgPath("johtoImage"), function(p)
+          pg.johtoImage = (p ~= "" and p) or nil
+          App.markDirty()
+          pcall(function() require("UiPreview").rebuild(S) end)
+        end, "Fitted Johto Pokégear map (replaces the 20×18 tilemap)")
+      fy = imageRow(S, App, viewX, fy, labelW, viewW - labelW - 12 * s, fh, s,
+        "Kanto map", "ui_tm_kanto", pgPath("kantoImage"), function(p)
+          pg.kantoImage = (p ~= "" and p) or nil
+          App.markDirty()
+          pcall(function() require("UiPreview").rebuild(S) end)
+        end, "Fitted Kanto Pokégear map (replaces the 20×18 tilemap)")
+    end
     Kit.text("small", "Region", viewX, fy + 6 * s, PAL.caption)
     do
       local cur = S.uiTmRegion or "auto"
@@ -2775,6 +3010,8 @@ function Ui.draw(S, x, y, w, h, App)
     drawStrings(S, x, modeY, w, bh, App)
   elseif mode == "townmap" then
     drawTownMap(S, x, modeY, w, bh, App)
+  elseif mode == "scripts" then
+    UiScripts.draw(S, x, modeY, w, bh, App)
   else
     drawBadges(S, x, modeY, w, bh, App)
   end

@@ -2,6 +2,12 @@ local ok, err = pcall(function()
   package.path = "tools/content-editor/?.lua;tools/content-editor/panels/?.lua;"
     .. "tools/save-editor/?.lua;tools/save-editor/panels/?.lua;"
     .. package.path
+  package.preload["src.link.Json"] = package.preload["src.link.Json"] or function()
+    return {
+      encode = function() return "{}" end,
+      decode = function() return {} end,
+    }
+  end
   -- stub love for Preview
   love = love or {}
   love.filesystem = love.filesystem or {
@@ -47,6 +53,24 @@ local ok, err = pcall(function()
   assert(EventScriptEditor.draw)
   assert(EventScriptEditor.defaultStep)
   assert(EventScriptEditor.stepLine)
+  assert(EventScriptEditor.parseCommand)
+  assert(EventScriptEditor.keypressed)
+  do
+    local OpcodeHelp = require("OpcodeHelp")
+    local cmd = OpcodeHelp.parseLine("applymovement 2 jump_bush")
+    assert(cmd and cmd.op == "applymovement", "parse applymovement")
+    assert(tostring(cmd.object) == "2", "parse applymovement object")
+    assert(cmd.movement == "jump_bush", "parse applymovement movement")
+    local appear = OpcodeHelp.parseLine("appear 3")
+    assert(appear and appear.op == "appear" and tostring(appear.object) == "3")
+    local step = EventScriptEditor.parseCommand({ version = "gold" },
+      "give_item POTION 2")
+    assert(step and step.kind == "give_item", "parse give_item kind")
+    assert(step.item == "POTION", "parse give_item item")
+    local raw = EventScriptEditor.parseCommand({ version = "red" },
+      "hide_object 2")
+    assert(raw and raw.kind == "raw", "gen1 raw fallback")
+  end
   assert(ModWriter.encodeLua)
   do
     local encoded = ModWriter.encodeLua({
@@ -129,6 +153,10 @@ local ok, err = pcall(function()
   assert(Project.draw)
   local TalkIndex = require("TalkIndex")
   local UiMenus = require("UiMenus")
+  local UiSafe = require("UiSafe")
+  assert(UiSafe.fieldKey("battleHud", { "hud1" }) == "battleHud.hud1")
+  assert(UiSafe.isCustom({ layout = "custom" }) == true)
+  assert(UiSafe.isCustom({ layout = "gold_title" }) == false)
   assert(TalkIndex.catalogLabel("_STD") == "Std scripts")
   assert(TalkIndex.isCatalogMap("_STD") == true)
   assert(TalkIndex.isCatalogMap("NEW_BARK_TOWN") == false)
@@ -420,6 +448,87 @@ local ok, err = pcall(function()
     assert(oakOut:find("demoSpecies"), "missing gen2 oak demoSpecies emit")
     assert(oakOut:find("src.ui.gen2.OakSpeech"), "missing gen2 OakSpeech wrap")
     assert(oakOut:find("loadMon"), "missing gen2 oak demo pic reload")
+  end
+  do
+    local custom = ModWriter.emitMain({
+      id = "t",
+      title = { layout = "custom", screen = "assets/title/custom.png" },
+      intro = {
+        layout = "custom",
+        stills = { { path = "assets/intro/1.png", frames = 90 } },
+      },
+      townMap = { background = { image = { path = "assets/town/map.png" } } },
+    }, {})
+    assert(custom:find("adoptCustomTitle"), "missing custom title wrap")
+    assert(custom:find("src.ui.TitleState"), "missing TitleState wrap")
+    assert(custom:find("src.ui.IntroMovie"), "missing IntroMovie wrap")
+    assert(custom:find("src.ui.TownMap"), "missing TownMap wrap")
+    assert(custom:find("uiFitted"), "missing fitted blit helper")
+    assert(custom:find("CustomTitle"), "missing CustomTitle screen id")
+  end
+  do
+    local stripped = ModWriter.stripUnsafeMenuGfx({
+      uiMismatch = { ["battleHud.hud1"] = { 16, 16, 32, 32 } },
+      uiFitted = {},
+    }, { battleHud = { hud1 = "assets/hud.png" } })
+    assert(stripped.battleHud == nil or stripped.battleHud.hud1 == nil,
+      "mismatched HUD sheet should not emit")
+    local kept = ModWriter.stripUnsafeMenuGfx({
+      uiMismatch = { ["battleHud.hud1"] = { 16, 16, 32, 32 } },
+      uiFitted = { ["battleHud.hud1"] = true },
+    }, { battleHud = { hud1 = "assets/hud.png" } })
+    assert(kept.battleHud == nil or kept.battleHud.hud1 == nil,
+      "fitted overlay must not merge the wrong-size sheet")
+    local overlay = {}
+    ModWriter.emitCustomUi(overlay, {
+      menuGfx = { battleHud = { hud1 = "assets/hud.png" } },
+      uiMismatch = { ["battleHud.hud1"] = { 16, 16, 32, 32 } },
+      uiFitted = { ["battleHud.hud1"] = true },
+    }, false)
+    local body = table.concat(overlay, "\n")
+    assert(body:find("src.ui.BattleState"), "missing fitted HUD overlay wrap")
+  end
+  do
+    package.loaded["src.core.GameVersion"] = nil
+    package.preload["src.core.GameVersion"] = function()
+      return {
+        get = function() return "gold" end,
+        generation = function() return 2 end,
+        engine = function() return "gs" end,
+      }
+    end
+    package.loaded["Generation"] = nil
+    local ModWriter = require("ModWriter")
+    local gold = ModWriter.emitMain({
+      id = "t", game = "gold",
+      title = { layout = "custom", screen = "assets/title/g.png" },
+      intro = { layout = "custom", stills = { { path = "assets/intro/g.png", frames = 60 } } },
+      menuGfx = { pokegear = { johtoImage = "assets/map/johto.png" } },
+    }, {})
+    assert(gold:find("src.ui.gen2.TitleState"), "missing gen2 custom title wrap")
+    assert(gold:find("src.ui.gen2.GoldSilverIntro"), "missing gen2 custom intro wrap")
+    assert(gold:find("src.ui.gen2.Pokegear"), "missing pokegear map wrap")
+    assert(gold:find("johtoImage") or gold:find("uiFitted"), "missing johto image use")
+    package.preload["src.core.GameVersion"] = nil
+    package.loaded["src.core.GameVersion"] = nil
+    package.loaded["Generation"] = nil
+  end
+  do
+    local UiScripts = require("UiScripts")
+    local items = UiScripts.list({ version = "red" })
+    assert(#items > 0, "gen1 UI script list empty")
+    local goldItems = UiScripts.list({ version = "gold" })
+    assert(#goldItems > 0, "gen2 UI script list empty")
+    local scripts = ModWriter.emitMain({
+      id = "t",
+      uiScripts = {
+        diploma = { module = "src.ui.Diploma", rel = "ui/Diploma.lua" },
+      },
+    }, {})
+    assert(scripts:find("Custom UI scripts"), "missing UI script emit")
+    assert(scripts:find('package.preload%["src.ui.Diploma"%]'),
+      "missing Diploma preload")
+    assert(scripts:find("ui/Diploma.lua"), "missing Diploma rel")
   end
   do
     local out = ModWriter.emitMain({

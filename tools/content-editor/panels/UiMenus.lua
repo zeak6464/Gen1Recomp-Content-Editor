@@ -11,6 +11,7 @@ local FormPane = require("FormPane")
 local Preview = require("Preview")
 local UiPreview = require("UiPreview")
 local Generation = require("Generation")
+local UiSafe = require("UiSafe")
 local PAL = Theme.PAL
 
 local UiMenus = {}
@@ -23,6 +24,7 @@ local SKIP = {
   orangePalette = true,
   pocketName = true, pocketOrder = true, pocketPicture = true,
   cards = true, maps = true, page1 = true, footprintOrder = true,
+  johtoImage = true, kantoImage = true,
   order = true, badgeOam = true, generation = true, source = true,
   bubbles = true, symbols = true,
 }
@@ -291,6 +293,7 @@ local function effPath(S, spec, keys)
 end
 
 local function setPath(S, spec, keys, val, App)
+  local vanilla = pathOf(walkKeys(groupSource(S, spec), keys))
   local root = projectBucket(S, spec)
   local cur = root
   if spec.nest then
@@ -308,6 +311,7 @@ local function setPath(S, spec, keys, val, App)
   else
     cur[last] = val
   end
+  UiSafe.noteMismatch(S, UiSafe.fieldKey(spec.id, keys), vanilla, val)
   if App then App.markDirty() end
   pcall(Preview.invalidate)
 end
@@ -320,6 +324,15 @@ local function clearGroup(S, spec, App)
     for _, k in ipairs(NAMING_KEYS) do root[k] = nil end
   elseif spec.nest then
     root[spec.nest] = nil
+  end
+  if S.project.uiMismatch then
+    local prefix = tostring(spec.id) .. "."
+    for key in pairs(S.project.uiMismatch) do
+      if key == spec.id or key:sub(1, #prefix) == prefix then
+        S.project.uiMismatch[key] = nil
+        if S.project.uiFitted then S.project.uiFitted[key] = nil end
+      end
+    end
   end
   if App then App.markDirty() end
   pcall(Preview.invalidate)
@@ -445,6 +458,31 @@ function UiMenus.draw(S, x, y, w, h, App)
       end)
     end
     fy = fy + fh + 6 * s
+    local vanilla = pathOf(walkKeys(groupSource(S, spec), field.keys))
+    local key = UiSafe.fieldKey(spec.id, field.keys)
+    if owned then UiSafe.noteMismatch(S, key, vanilla, cur) end
+    local ew, eh = UiSafe.imageSize(S, vanilla)
+    local aw, ah = UiSafe.imageSize(S, cur)
+    if ew and eh then
+      local sizeTxt = string.format("expected %dx%d", ew, eh)
+      if aw and ah and not UiSafe.sizesMatch(ew, eh, aw, ah) then
+        Kit.text("micro", sizeTxt .. string.format(" · imported %dx%d", aw, ah),
+          viewX, fy, PAL.yellow)
+        fy = fy + 14 * s
+        local fitted = UiSafe.fitted(S, key)
+        if Kit.chip(viewX, fy, 200 * s, 22 * s,
+            fitted and "FITTED OVERLAY ON" or "Keep vanilla sheet",
+            fitted, PAL.yellow, PAL.steel,
+            "Wrong-size sheets are not sliced. Fitted draws this PNG as a full-screen stand-in.") then
+          UiSafe.setFitted(S, key, not fitted)
+          App.markDirty()
+        end
+        fy = fy + 26 * s
+      else
+        Kit.text("micro", sizeTxt, viewX, fy, PAL.faint)
+        fy = fy + 14 * s
+      end
+    end
     local thumbH = 64 * s
     fy = fy + drawThumb(S, v ~= "" and v or cur, viewX, fy, viewW, thumbH) + 10 * s
   end

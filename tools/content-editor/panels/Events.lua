@@ -1864,12 +1864,11 @@ local function drawScripts(S, x, y, w, h, App)
   local readOnly = not owned
   local footerH = readOnly and 40 * s or 0
   local advH = advOn and math.min(210 * s, math.floor(listH * 0.42)) or 0
-  local pad = 12 * s
-  local viewX = formX + pad
-  local viewY = listY + pad + 36 * s
-  local viewW = formW - 2 * pad
+  local viewX = formX + 8 * s
+  local viewY = listY + 38 * s
+  local viewW = formW - 16 * s
   local viewH = math.max(40 * s,
-    listH - pad - footerH - 36 * s - advH - (advOn and 6 * s or 0))
+    listH - 38 * s - footerH - advH - (advOn and 6 * s or 0) - 6 * s)
 
   Kit.text("micro", fitIn("micro", S.eventScriptKey, formW - (readOnly and 24 or 200) * s),
     formX + 12 * s, listY + 10 * s, PAL.faint)
