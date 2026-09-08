@@ -116,7 +116,7 @@ function State.blankProject(id, name)
     theme = {},         -- field.theme (textBox / choiceBox / cursors)
     font = {},          -- font page overrides
     strings = {},       -- engine Strings() overrides (source -> text)
-    townMap = {},       -- field.townMap (Gen1) / landmark overrides (Gold)
+    townMap = {},       -- field.townMap (Gen1) / landmark + region overrides (Gen 2)
     trainerCard = {},   -- Gold: gen2MenuGfx.trainerCard badge/leader sheets
     menuGfx = {},       -- Gen1 field chrome / Gold gen2MenuGfx sheet overrides
     uiMismatch = {},    -- dotted menu keys whose import size != vanilla

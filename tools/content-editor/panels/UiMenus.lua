@@ -24,7 +24,8 @@ local SKIP = {
   orangePalette = true,
   pocketName = true, pocketOrder = true, pocketPicture = true,
   cards = true, maps = true, page1 = true, footprintOrder = true,
-  johtoImage = true, kantoImage = true,
+  johtoImage = true, kantoImage = true, customImage = true,
+  johtoMap = true, kantoMap = true, customMap = true,
   order = true, badgeOam = true, generation = true, source = true,
   bubbles = true, symbols = true,
 }

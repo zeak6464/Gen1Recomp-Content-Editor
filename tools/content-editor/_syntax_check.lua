@@ -508,7 +508,38 @@ local ok, err = pcall(function()
     assert(gold:find("src.ui.gen2.TitleState"), "missing gen2 custom title wrap")
     assert(gold:find("src.ui.gen2.GoldSilverIntro"), "missing gen2 custom intro wrap")
     assert(gold:find("src.ui.gen2.Pokegear"), "missing pokegear map wrap")
-    assert(gold:find("johtoImage") or gold:find("uiFitted"), "missing johto image use")
+    assert(gold:find("johtoImage") or gold:find("uiFitted") or gold:find("_pgPath"),
+      "missing johto image use")
+    local goldTm = ModWriter.emitMain({
+      id = "t", game = "gold",
+      menuGfx = { pokegear = { johtoMap = "assets/map/johto_item.png" } },
+      townMap = {
+        regions = { { id = "hoenn", name = "Hoenn", pokegear = "assets/map/h.png" } },
+        locations = {
+          LANDMARK_LITTLEROOT = {
+            name = "Littleroot", x = 10, y = 20, region = "hoenn",
+          },
+        },
+      },
+    }, {})
+    local goldCustom = ModWriter.emitMain({
+      id = "t", game = "gold",
+      menuGfx = { pokegear = { customImage = "assets/map/custom.png" } },
+      townMap = {
+        locations = {
+          LANDMARK_NEW = { name = "New", x = 8, y = 8, region = "custom" },
+        },
+      },
+    }, {})
+    assert(goldCustom:find("customImage") or goldCustom:find("custom"),
+      "missing custom region image")
+    assert(goldCustom:find('region = "custom"') or goldCustom:find("custom"),
+      "missing custom landmark region")
+    assert(goldTm:find("src.ui.gen2.TownMap"), "missing gen2 town map wrap")
+    assert(goldTm:find("johtoMap") or goldTm:find("townmap"), "missing town map paper path")
+    assert(goldTm:find("region"), "missing landmark region")
+    assert(goldTm:find("hoenn"), "missing custom region")
+    assert(goldTm:find("_pgPath") or goldTm:find("_pgExtra"), "missing region image helper")
     package.preload["src.core.GameVersion"] = nil
     package.loaded["src.core.GameVersion"] = nil
     package.loaded["Generation"] = nil

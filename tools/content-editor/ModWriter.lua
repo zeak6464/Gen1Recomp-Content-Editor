@@ -1885,11 +1885,42 @@ function ModWriter.emitCustomUi(out, project, gen2)
     and (tm.background.image or (type(tm.background.image) == "table"
       and tm.background.image.path))
   if type(tmImage) == "table" then tmImage = tmImage.path end
+  local function uiPath(v)
+    if type(v) == "table" then v = v.path or v.image end
+    if type(v) == "string" and v ~= "" then return v end
+  end
   local poke = project.menuGfx and project.menuGfx.pokegear
-  local johtoImg = type(poke) == "table" and poke.johtoImage
-  local kantoImg = type(poke) == "table" and poke.kantoImage
-  if type(johtoImg) == "table" then johtoImg = johtoImg.path end
-  if type(kantoImg) == "table" then kantoImg = kantoImg.path end
+  local johtoImg = type(poke) == "table" and uiPath(poke.johtoImage)
+  local kantoImg = type(poke) == "table" and uiPath(poke.kantoImage)
+  local customImg = type(poke) == "table" and uiPath(poke.customImage)
+  local johtoMap = type(poke) == "table" and uiPath(poke.johtoMap)
+  local kantoMap = type(poke) == "table" and uiPath(poke.kantoMap)
+  local customMap = type(poke) == "table" and uiPath(poke.customMap)
+  local extraRegions = {}
+  local tmRegions = type(tm) == "table" and tm.regions
+  if type(tmRegions) == "table" then
+    for _, r in ipairs(tmRegions) do
+      if type(r) == "table" and type(r.id) == "string"
+          and r.id ~= "johto" and r.id ~= "kanto" and r.id ~= "custom" then
+        extraRegions[r.id] = {
+          pokegear = uiPath(r.pokegear),
+          townmap = uiPath(r.townmap),
+        }
+      end
+    end
+  end
+  local hasLocRegion = false
+  if type(tm) == "table" and type(tm.locations) == "table" then
+    for _, row in pairs(tm.locations) do
+      if type(row) == "table" and type(row.region) == "string" and row.region ~= "" then
+        hasLocRegion = true
+        break
+      end
+    end
+  end
+  local hasExtra = next(extraRegions) ~= nil
+  local hasPgImg = johtoImg or kantoImg or customImg or hasExtra
+  local hasTmImg = johtoMap or kantoMap or customMap or hasExtra
   local fitted = project.uiFitted or {}
   local mismatch = project.uiMismatch or {}
   local hasFitted = false
@@ -1897,8 +1928,7 @@ function ModWriter.emitCustomUi(out, project, gen2)
     if on and mismatch[key] then hasFitted = true; break end
   end
   if not (titleCustom or introCustom or (type(tmImage) == "string" and tmImage ~= "")
-      or (type(johtoImg) == "string" and johtoImg ~= "")
-      or (type(kantoImg) == "string" and kantoImg ~= "")
+      or hasPgImg or hasTmImg or hasLocRegion
       or hasFitted) then
     return
   end
@@ -2081,41 +2111,127 @@ function ModWriter.emitCustomUi(out, project, gen2)
     out[#out + 1] = "    end)"
   end
 
-  if gen2 and ((type(johtoImg) == "string" and johtoImg ~= "")
-      or (type(kantoImg) == "string" and kantoImg ~= "")) then
-    out[#out + 1] = "    do"
-    out[#out + 1] = "      local ok, PG = pcall(require, \"src.ui.gen2.Pokegear\")"
-    out[#out + 1] = "      if ok and PG and type(PG.drawMap) == \"function\" then"
-    out[#out + 1] = "        local orig = PG.drawMap"
-    out[#out + 1] = "        function PG:drawMap()"
-    out[#out + 1] = "          local gfx = self.gfx or {}"
-    out[#out + 1] = "          local region = self.region and self:region() or \"johto\""
-    out[#out + 1] = "          local path = region == \"kanto\" and gfx.kantoImage or gfx.johtoImage"
-    out[#out + 1] = "          local img = uiLoad(path)"
-    out[#out + 1] = "          if not img then return orig(self) end"
-    out[#out + 1] = "          love.graphics.setColor(1, 1, 1, 1)"
-    out[#out + 1] = "          love.graphics.rectangle(\"fill\", 0, 0, 160, 144)"
-    out[#out + 1] = "          uiFitted(img, 0, 0, 160, 144)"
-    out[#out + 1] = "          local current = self.mapLandmark and self:mapLandmark()"
-    out[#out + 1] = "          if current and current.x and current.y and (self.blink or 0) % 30 < 15 then"
-    out[#out + 1] = "            love.graphics.setColor(1, 0.15, 0.15, 1)"
-    out[#out + 1] = "            love.graphics.rectangle(\"fill\", current.x - 2, current.y - 2, 5, 5)"
-    out[#out + 1] = "            love.graphics.setColor(1, 1, 1, 1)"
-    out[#out + 1] = "            love.graphics.rectangle(\"fill\", current.x - 1, current.y - 1, 3, 3)"
-    out[#out + 1] = "          end"
-    out[#out + 1] = "          if current and current.name then"
-    out[#out + 1] = "            local Font = require(\"src.render.Font\")"
-    out[#out + 1] = "            love.graphics.setColor(0, 0, 0, 1)"
-    out[#out + 1] = "            local name = tostring(current.name)"
-    out[#out + 1] = "            local line1, line2 = name:match(\"^(.-)\\n(.*)$\")"
-    out[#out + 1] = "            if not line1 then line1 = name end"
-    out[#out + 1] = "            pcall(Font.draw, line1, 72, 0)"
-    out[#out + 1] = "            if line2 and line2 ~= \"\" then pcall(Font.draw, line2, 72, 8) end"
-    out[#out + 1] = "            love.graphics.setColor(1, 1, 1, 1)"
-    out[#out + 1] = "          end"
-    out[#out + 1] = "        end"
+  if gen2 and (hasPgImg or hasTmImg or hasLocRegion) then
+    out[#out + 1] = "    local _pgExtra = " .. emitTableLiteral(extraRegions, 2)
+    out[#out + 1] = "    local function _pgPath(gfx, region, kind)"
+    out[#out + 1] = "      gfx = gfx or {}"
+    out[#out + 1] = "      local extra = _pgExtra[region]"
+    out[#out + 1] = "      if type(extra) == \"table\" then"
+    out[#out + 1] = "        local p = kind == \"townmap\" and extra.townmap or extra.pokegear"
+    out[#out + 1] = "        if p then return p end"
     out[#out + 1] = "      end"
+    out[#out + 1] = "      if kind == \"townmap\" then"
+    out[#out + 1] = "        if region == \"kanto\" then return gfx.kantoMap end"
+    out[#out + 1] = "        if region == \"custom\" then return gfx.customMap end"
+    out[#out + 1] = "        return gfx.johtoMap"
+    out[#out + 1] = "      end"
+    out[#out + 1] = "      if region == \"kanto\" then return gfx.kantoImage end"
+    out[#out + 1] = "      if region == \"custom\" then return gfx.customImage end"
+    out[#out + 1] = "      return gfx.johtoImage"
     out[#out + 1] = "    end"
+    out[#out + 1] = "    local function _pgRegionOf(lm, fallback)"
+    out[#out + 1] = "      if type(lm) == \"table\" and type(lm.region) == \"string\" and lm.region ~= \"\" then"
+    out[#out + 1] = "        return lm.region"
+    out[#out + 1] = "      end"
+    out[#out + 1] = "      local i = tonumber(lm and lm.index) or 0"
+    out[#out + 1] = "      if i == 94 then return \"johto\" end"
+    out[#out + 1] = "      if i >= 46 then return \"kanto\" end"
+    out[#out + 1] = "      return fallback or \"johto\""
+    out[#out + 1] = "    end"
+    out[#out + 1] = "    local function _pgGfx(self, game)"
+    out[#out + 1] = "      local gfx = self and self.gfx"
+    out[#out + 1] = "      if type(gfx) == \"table\" then return gfx end"
+    out[#out + 1] = "      local data = (game or (self and self.game) or {}).data"
+    out[#out + 1] = "      local mg = data and (data.gen2MenuGfx or data.menu_gfx)"
+    out[#out + 1] = "      return (mg and mg.pokegear) or {}"
+    out[#out + 1] = "    end"
+    if hasPgImg or hasLocRegion then
+      out[#out + 1] = "    do"
+      out[#out + 1] = "      local ok, PG = pcall(require, \"src.ui.gen2.Pokegear\")"
+      out[#out + 1] = "      if ok and PG then"
+      out[#out + 1] = "        if type(PG.region) == \"function\" then"
+      out[#out + 1] = "          local origR = PG.region"
+      out[#out + 1] = "          function PG:region()"
+      out[#out + 1] = "            local lm = self.mapLandmark and self:mapLandmark()"
+      out[#out + 1] = "            if type(lm) == \"table\" and type(lm.region) == \"string\" and lm.region ~= \"\" then"
+      out[#out + 1] = "              return lm.region"
+      out[#out + 1] = "            end"
+      out[#out + 1] = "            return origR(self)"
+      out[#out + 1] = "          end"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "        if type(PG.drawMap) == \"function\" then"
+      out[#out + 1] = "        local orig = PG.drawMap"
+      out[#out + 1] = "        function PG:drawMap()"
+      out[#out + 1] = "          local gfx = _pgGfx(self)"
+      out[#out + 1] = "          local current = self.mapLandmark and self:mapLandmark()"
+      out[#out + 1] = "          local region = _pgRegionOf(current, self.region and self:region() or \"johto\")"
+      out[#out + 1] = "          local img = uiLoad(_pgPath(gfx, region, \"pokegear\"))"
+      out[#out + 1] = "          if not img then return orig(self) end"
+      out[#out + 1] = "          love.graphics.setColor(1, 1, 1, 1)"
+      out[#out + 1] = "          love.graphics.rectangle(\"fill\", 0, 0, 160, 144)"
+      out[#out + 1] = "          uiFitted(img, 0, 0, 160, 144)"
+      out[#out + 1] = "          if current and current.x and current.y and (self.blink or 0) % 30 < 15 then"
+      out[#out + 1] = "            love.graphics.setColor(1, 0.15, 0.15, 1)"
+      out[#out + 1] = "            love.graphics.rectangle(\"fill\", current.x - 2, current.y - 2, 5, 5)"
+      out[#out + 1] = "            love.graphics.setColor(1, 1, 1, 1)"
+      out[#out + 1] = "            love.graphics.rectangle(\"fill\", current.x - 1, current.y - 1, 3, 3)"
+      out[#out + 1] = "          end"
+      out[#out + 1] = "          if current and current.name then"
+      out[#out + 1] = "            local Font = require(\"src.render.Font\")"
+      out[#out + 1] = "            love.graphics.setColor(0, 0, 0, 1)"
+      out[#out + 1] = "            local name = tostring(current.name)"
+      out[#out + 1] = "            local line1, line2 = name:match(\"^(.-)\\n(.*)$\")"
+      out[#out + 1] = "            if not line1 then line1 = name end"
+      out[#out + 1] = "            pcall(Font.draw, line1, 72, 0)"
+      out[#out + 1] = "            if line2 and line2 ~= \"\" then pcall(Font.draw, line2, 72, 8) end"
+      out[#out + 1] = "            love.graphics.setColor(1, 1, 1, 1)"
+      out[#out + 1] = "          end"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "    end"
+    end
+    if hasTmImg or hasLocRegion then
+      out[#out + 1] = "    local function adoptTownMapPaper(self, game)"
+      out[#out + 1] = "      local origDraw = self.draw"
+      out[#out + 1] = "      function self:draw()"
+      out[#out + 1] = "        local locs = self.locs or {}"
+      out[#out + 1] = "        local selected = locs[self.sel]"
+      out[#out + 1] = "        local region = _pgRegionOf(selected, self.region)"
+      out[#out + 1] = "        local img = uiLoad(_pgPath(_pgGfx(self, game), region, \"townmap\"))"
+      out[#out + 1] = "        if not img then"
+      out[#out + 1] = "          if origDraw then return origDraw(self) end"
+      out[#out + 1] = "          return"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "        love.graphics.setColor(1, 1, 1, 1)"
+      out[#out + 1] = "        love.graphics.rectangle(\"fill\", 0, 0, 160, 144)"
+      out[#out + 1] = "        uiFitted(img, 0, 0, 160, 144)"
+      out[#out + 1] = "        for _, loc in ipairs(locs) do"
+      out[#out + 1] = "          if type(loc) == \"table\" and _pgRegionOf(loc, region) == region"
+      out[#out + 1] = "              and loc.x and loc.y then"
+      out[#out + 1] = "            local on = selected == loc"
+      out[#out + 1] = "            if (not on) or (self.blink or 0) % 30 < 15 then"
+      out[#out + 1] = "              love.graphics.setColor(on and 1 or 0.85, on and 0.15 or 0.25, on and 0.15 or 0.3, 1)"
+      out[#out + 1] = "              love.graphics.rectangle(\"fill\", loc.x - 2, loc.y - 2, 5, 5)"
+      out[#out + 1] = "              if on then"
+      out[#out + 1] = "                love.graphics.setColor(1, 1, 1, 1)"
+      out[#out + 1] = "                love.graphics.rectangle(\"fill\", loc.x - 1, loc.y - 1, 3, 3)"
+      out[#out + 1] = "              end"
+      out[#out + 1] = "            end"
+      out[#out + 1] = "          end"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "        if selected and selected.name then"
+      out[#out + 1] = "          local Font = require(\"src.render.Font\")"
+      out[#out + 1] = "          love.graphics.setColor(0, 0, 0, 1)"
+      out[#out + 1] = "          love.graphics.rectangle(\"fill\", 0, 0, 160, 8)"
+      out[#out + 1] = "          pcall(Font.draw, tostring(selected.name), 8, 0)"
+      out[#out + 1] = "          love.graphics.setColor(1, 1, 1, 1)"
+      out[#out + 1] = "        end"
+      out[#out + 1] = "      end"
+      out[#out + 1] = "    end"
+      out[#out + 1] = "    wrapNew(\"src.ui.gen2.TownMap\", adoptTownMapPaper)"
+      out[#out + 1] = "    wrapNew(\"src.ui.TownMap\", adoptTownMapPaper)"
+    end
   end
 
   if hasFitted then
@@ -4245,6 +4361,9 @@ function ModWriter.emitMain(project, baseData, derivedModId)
           if row.x ~= nil then patch.x = row.x end
           if row.y ~= nil then patch.y = row.y end
           if row.index ~= nil then patch.index = row.index end
+          if type(row.region) == "string" and row.region ~= "" then
+            patch.region = row.region
+          end
           -- landmarks schema requires name; fall back to the id token
           if patch.name == nil then patch.name = lid end
           local lit = emitTableLiteral(patch, 1)

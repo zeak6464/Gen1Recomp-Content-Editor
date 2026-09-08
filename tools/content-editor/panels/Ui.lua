@@ -71,7 +71,7 @@ local MODES_GEN2 = {
   { id = "strings", label = "Strings",
     tip = "Engine Strings() source → override catalog" },
   { id = "townmap", label = "Town map",
-    tip = "Pokegear landmarks (name, x, y, index)" },
+    tip = "Town Map + Pokégear arts, landmarks, and regions" },
   { id = "badges", label = "Badges",
     tip = "Trainer card badge / leader sheet paths" },
   { id = "scripts", label = "Scripts",
@@ -1968,6 +1968,28 @@ end
 
 -- ---- Town map ----
 
+local function inferRegion(index)
+  index = tonumber(index) or 0
+  if index == 94 then return "johto" end
+  if index >= 46 then return "kanto" end
+  return "johto"
+end
+
+local function locRegionOf(rec)
+  if type(rec) == "table" and type(rec.region) == "string" and rec.region ~= "" then
+    return rec.region
+  end
+  return inferRegion(rec and rec.index)
+end
+
+local function locRec(S, id)
+  local p = S.project and S.project.townMap and S.project.townMap.locations
+  if p and p[id] then return p[id], true end
+  local d = dataField(S, "townMap").locations
+  if d and d[id] then return d[id], false end
+  return { x = 0, y = 0, name = id }, false
+end
+
 local function townLocIds(S)
   local seen, ids = {}, {}
   local function addFrom(locs)
@@ -1982,15 +2004,108 @@ local function townLocIds(S)
   addFrom(S.project and S.project.townMap and S.project.townMap.locations)
   addFrom(dataField(S, "townMap").locations)
   table.sort(ids)
+  local filter = S.uiTmRegion
+  if filter and filter ~= "" and filter ~= "auto" then
+    local kept = {}
+    for _, id in ipairs(ids) do
+      if locRegionOf(select(1, locRec(S, id))) == filter then
+        kept[#kept + 1] = id
+      end
+    end
+    ids = kept
+  end
   return ids
 end
 
-local function locRec(S, id)
-  local p = S.project and S.project.townMap and S.project.townMap.locations
-  if p and p[id] then return p[id], true end
-  local d = dataField(S, "townMap").locations
-  if d and d[id] then return d[id], false end
-  return { x = 0, y = 0, name = id }, false
+local VANILLA_PG_KEY = {
+  johto = "johtoImage", kanto = "kantoImage", custom = "customImage",
+}
+local VANILLA_TM_KEY = {
+  johto = "johtoMap", kanto = "kantoMap", custom = "customMap",
+}
+
+local function isBuiltinRegion(id)
+  return id == "johto" or id == "kanto" or id == "custom"
+end
+
+local function ensureRegions(S)
+  local tm = ensureBucket(S, "townMap")
+  if type(tm.regions) ~= "table" then tm.regions = {} end
+  local have = {}
+  for _, r in ipairs(tm.regions) do
+    if type(r) == "table" and type(r.id) == "string" then have[r.id] = true end
+  end
+  local function seed(id, name, after)
+    if have[id] then return end
+    local at = 1
+    if after then
+      at = #tm.regions + 1
+      for i, r in ipairs(tm.regions) do
+        if r.id == after then at = i + 1; break end
+      end
+    end
+    table.insert(tm.regions, at, { id = id, name = name })
+    have[id] = true
+  end
+  seed("johto", "Johto")
+  seed("kanto", "Kanto", "johto")
+  seed("custom", "Custom", "kanto")
+  return tm.regions
+end
+
+local function findRegion(S, id)
+  for _, r in ipairs(ensureRegions(S)) do
+    if r.id == id then return r end
+  end
+end
+
+local function pokegearBucket(S)
+  State.ensureProjectFields(S.project)
+  S.project.menuGfx = S.project.menuGfx or {}
+  S.project.menuGfx.pokegear = S.project.menuGfx.pokegear or {}
+  return S.project.menuGfx.pokegear
+end
+
+local function regionImagePath(S, regionId, kind)
+  if VANILLA_PG_KEY[regionId] then
+    local pg = pokegearBucket(S)
+    local dataPg = (S.data and (S.data.gen2MenuGfx or S.data.menu_gfx) or {}).pokegear or {}
+    local key = kind == "townmap" and VANILLA_TM_KEY[regionId] or VANILLA_PG_KEY[regionId]
+    return pathOf(pg[key] or dataPg[key])
+  end
+  local r = findRegion(S, regionId)
+  if not r then return "" end
+  return pathOf(kind == "townmap" and r.townmap or r.pokegear)
+end
+
+local function setRegionImage(S, App, regionId, kind, p)
+  p = (p ~= "" and p) or nil
+  if VANILLA_PG_KEY[regionId] then
+    local pg = pokegearBucket(S)
+    local key = kind == "townmap" and VANILLA_TM_KEY[regionId] or VANILLA_PG_KEY[regionId]
+    pg[key] = p
+  else
+    local r = findRegion(S, regionId)
+    if r then
+      if kind == "townmap" then r.townmap = p else r.pokegear = p end
+    end
+  end
+  App.markDirty()
+  pcall(function() require("UiPreview").rebuild(S) end)
+end
+
+local function nextIndexForRegion(S, tm, region)
+  local floor = isBuiltinRegion(region) and region ~= "custom" and 0 or 199
+  local maxIdx = floor
+  local function consider(e)
+    if type(e) ~= "table" then return end
+    if locRegionOf(e) ~= region then return end
+    local i = tonumber(e.index)
+    if i then maxIdx = math.max(maxIdx, i) end
+  end
+  for _, e in pairs(dataField(S, "townMap").locations or {}) do consider(e) end
+  for _, e in pairs((tm and tm.locations) or {}) do consider(e) end
+  return maxIdx + 1
 end
 
 local function ensureLoc(S, id, App)
@@ -2003,6 +2118,7 @@ local function ensureLoc(S, id, App)
       y = (src and src.y) or 0,
       name = (src and src.name) or id,
       index = src and src.index,
+      region = src and src.region,
       id = (src and src.id) or id,
     }
     if App then App.markDirty() end
@@ -2014,8 +2130,18 @@ local function drawTownMap(S, x, y, w, h, App)
   local s = Kit.scale
   local tm = ensureBucket(S, "townMap")
   local gen2 = Generation.isGen2(S)
+  if gen2 and (S.uiTmRegion == nil or S.uiTmRegion == "auto") then
+    S.uiTmRegion = "johto"
+  end
   local ids = townLocIds(S)
-  if #ids == 0 then ids = { gen2 and "LANDMARK_NEW_BARK_TOWN" or "PALLET_TOWN" } end
+  if #ids == 0 and not gen2 then ids = { "PALLET_TOWN" } end
+  if gen2 and S.uiTmLoc then
+    local inList = false
+    for _, id in ipairs(ids) do
+      if id == S.uiTmLoc then inList = true; break end
+    end
+    if not inList then S.uiTmLoc = ids[1] end
+  end
 
   local formX, formW, listY, listH, shown = RegList.drawList(S, App, x, y, w, h,
     gen2 and "LANDMARKS" or "LOCATIONS", ids, {
@@ -2028,13 +2154,30 @@ local function drawTownMap(S, x, y, w, h, App)
     })
 
   local fy, view, viewX, viewW = RegList.beginForm(S, formX, listY, formW, listH,
-    "uiTmScroll", "townmap|" .. tostring(S.uiTmLoc), 12 * s)
+    "uiTmScroll",
+    "townmap|" .. tostring(S.uiTmLoc) .. "|" .. tostring(S.uiTmRegion)
+      .. "|" .. tostring(S.uiTmView), 12 * s)
   local contentTop = fy
   local labelW = 110 * s
   local fh = 28 * s
 
-  Kit.caption(viewX, fy, gen2 and "POKEGEAR LANDMARKS" or "TOWN MAP")
+  Kit.caption(viewX, fy, gen2 and "TOWN MAP / POKEGEAR" or "TOWN MAP")
   fy = fy + 24 * s
+  if gen2 then
+    local viewMode = S.uiTmView == "townmap" and "townmap" or "pokegear"
+    if Kit.chip(viewX, fy, 100 * s, 24 * s, "Town map", viewMode == "townmap",
+        PAL.green, PAL.steel, "Physical Town Map: background + landmark icons") then
+      S.uiTmView = "townmap"
+      pcall(function() require("UiPreview").rebuild(S) end)
+    end
+    if Kit.chip(viewX + 108 * s, fy, 100 * s, 24 * s, "Pokégear",
+        viewMode == "pokegear", PAL.blue, PAL.steel,
+        "Pokégear card: full map image") then
+      S.uiTmView = "pokegear"
+      pcall(function() require("UiPreview").rebuild(S) end)
+    end
+    fy = fy + 30 * s
+  end
   fy = UiPreview.draw(S, "townmap", viewX, fy, viewW, s)
 
   if not gen2 then
@@ -2085,49 +2228,75 @@ local function drawTownMap(S, x, y, w, h, App)
       bgPath("cursor", "assets/generated/townmap/cursor.png"),
       function(p) setBg("cursor", p) end, "Blinking town-map cursor")
   else
-    Kit.text("micro", "Edits emit mod.content.landmarks:patch · coords are screen px",
+    Kit.text("micro", "Edits emit landmarks:patch · coords are screen px",
       viewX, fy, PAL.muted)
     fy = fy + 18 * s
-    do
-      State.ensureProjectFields(S.project)
-      S.project.menuGfx = S.project.menuGfx or {}
-      local gfx = S.project.menuGfx
-      gfx.pokegear = gfx.pokegear or {}
-      local pg = gfx.pokegear
-      local dataPg = (S.data and (S.data.gen2MenuGfx or S.data.menu_gfx) or {}).pokegear or {}
-      local function pgPath(key)
-        return pathOf(pg[key] or dataPg[key])
-      end
-      fy = imageRow(S, App, viewX, fy, labelW, viewW - labelW - 12 * s, fh, s,
-        "Johto map", "ui_tm_johto", pgPath("johtoImage"), function(p)
-          pg.johtoImage = (p ~= "" and p) or nil
-          App.markDirty()
-          pcall(function() require("UiPreview").rebuild(S) end)
-        end, "Fitted Johto Pokégear map (replaces the 20×18 tilemap)")
-      fy = imageRow(S, App, viewX, fy, labelW, viewW - labelW - 12 * s, fh, s,
-        "Kanto map", "ui_tm_kanto", pgPath("kantoImage"), function(p)
-          pg.kantoImage = (p ~= "" and p) or nil
-          App.markDirty()
-          pcall(function() require("UiPreview").rebuild(S) end)
-        end, "Fitted Kanto Pokégear map (replaces the 20×18 tilemap)")
-    end
     Kit.text("small", "Region", viewX, fy + 6 * s, PAL.caption)
     do
-      local cur = S.uiTmRegion or "auto"
-      local opts = { "auto", "johto", "kanto" }
-      if Kit.button(viewX + labelW, fy, 120 * s, fh,
-          Kit.ellipsize("small", cur:upper(), 110 * s), {
-            kind = "ghost",
-            tooltip = "Pokegear map tilemap (auto follows landmark index)",
-          }) then
-        local i = 1
-        for n, o in ipairs(opts) do if o == cur then i = n; break end end
-        S.uiTmRegion = opts[(i % #opts) + 1]
-        if S.uiTmRegion == "auto" then S.uiTmRegion = nil end
+      local regions = ensureRegions(S)
+      local cx, rowY = viewX + labelW, fy
+      local chipW = 88 * s
+      for _, r in ipairs(regions) do
+        if cx + chipW > viewX + viewW and cx > viewX + labelW then
+          rowY = rowY + fh + 4 * s
+          cx = viewX + labelW
+        end
+        local label = r.name or r.id
+        if Kit.chip(cx, rowY, chipW, fh,
+            Kit.ellipsize("small", tostring(label), chipW - 10 * s),
+            S.uiTmRegion == r.id, PAL.green, PAL.steel,
+            "Show only this region's landmarks") then
+          S.uiTmRegion = r.id
+          pcall(function() require("UiPreview").rebuild(S) end)
+        end
+        cx = cx + chipW + 6 * s
+      end
+      fy = rowY + fh + 8 * s
+    end
+    do
+      local rid = S.uiTmRegion or "johto"
+      fy = imageRow(S, App, viewX, fy, labelW, viewW - labelW - 12 * s, fh, s,
+        "Pokégear", "ui_tm_pg_" .. rid, regionImagePath(S, rid, "pokegear"),
+        function(p) setRegionImage(S, App, rid, "pokegear", p) end,
+        "Full-screen Pokégear map for this region")
+      fy = imageRow(S, App, viewX, fy, labelW, viewW - labelW - 12 * s, fh, s,
+        "Town map", "ui_tm_paper_" .. rid, regionImagePath(S, rid, "townmap"),
+        function(p) setRegionImage(S, App, rid, "townmap", p) end,
+        "Town Map item background; landmark icons draw on top")
+    end
+    Kit.text("micro", "Add region id:", viewX, fy, PAL.caption)
+    fy = fy + 16 * s
+    local newReg = RegList.field(App, "ui_tm_newreg", viewX, fy, viewW - 100 * s, fh,
+      S.uiTmNewRegion or "", "hoenn")
+    if newReg ~= (S.uiTmNewRegion or "") then S.uiTmNewRegion = newReg end
+    if Kit.button(viewX + viewW - 92 * s, fy, 92 * s, fh, "Add", { kind = "good" }) then
+      local k = tostring(S.uiTmNewRegion or ""):lower():gsub("[^a-z0-9_]", "")
+      if k ~= "" and not isBuiltinRegion(k) and not findRegion(S, k) then
+        local regions = ensureRegions(S)
+        regions[#regions + 1] = { id = k, name = k:gsub("^%l", string.upper) }
+        S.uiTmRegion = k
+        S.uiTmNewRegion = ""
+        App.markDirty()
         pcall(function() require("UiPreview").rebuild(S) end)
       end
     end
-    fy = fy + fh + 8 * s
+    fy = fy + fh + 6 * s
+    do
+      local rid = S.uiTmRegion
+      if rid and not isBuiltinRegion(rid) then
+        if Kit.button(viewX, fy, 140 * s, fh, "Remove region", { kind = "danger" }) then
+          local nextRegs = {}
+          for _, r in ipairs(ensureRegions(S)) do
+            if r.id ~= rid then nextRegs[#nextRegs + 1] = r end
+          end
+          tm.regions = nextRegs
+          S.uiTmRegion = "johto"
+          App.markDirty()
+          pcall(function() require("UiPreview").rebuild(S) end)
+        end
+        fy = fy + fh + 8 * s
+      end
+    end
   end
 
   if not S.uiTmLoc then S.uiTmLoc = shown[1] end
@@ -2169,13 +2338,37 @@ local function drawTownMap(S, x, y, w, h, App)
       do
         local cur = tonumber(rec.index) or 0
         local v = RegList.num(App, "ui_tm_idx", viewX + labelW, fy, 80 * s, fh, cur)
-        Kit.text("micro", "≥46 = Kanto map", viewX + labelW + 90 * s, fy + 8 * s, PAL.faint)
+        Kit.text("micro", "engine id (nests / fly)",
+          viewX + labelW + 90 * s, fy + 8 * s, PAL.faint)
         if v ~= cur then
           ensureLoc(S, id, App).index = v
           pcall(function() require("UiPreview").rebuild(S) end)
         end
       end
-      fy = fy + fh + 8 * s
+      fy = fy + fh + 6 * s
+      Kit.text("small", "Region", viewX, fy + 6 * s, PAL.caption)
+      do
+        local cur = locRegionOf(rec)
+        local cx, rowY = viewX + labelW, fy
+        local chipW = 88 * s
+        for _, r in ipairs(ensureRegions(S)) do
+          if cx + chipW > viewX + viewW and cx > viewX + labelW then
+            rowY = rowY + fh + 4 * s
+            cx = viewX + labelW
+          end
+          local label = r.name or r.id
+          if Kit.chip(cx, rowY, chipW, fh,
+              Kit.ellipsize("small", tostring(label), chipW - 10 * s),
+              cur == r.id, PAL.green, PAL.steel,
+              "Pin this landmark on the " .. tostring(label) .. " map only") then
+            ensureLoc(S, id, App).region = r.id
+            S.uiTmRegion = r.id
+            pcall(function() require("UiPreview").rebuild(S) end)
+          end
+          cx = cx + chipW + 6 * s
+        end
+        fy = rowY + fh + 8 * s
+      end
     else
       fy = fy + 2 * s
     end
@@ -2197,19 +2390,13 @@ local function drawTownMap(S, x, y, w, h, App)
     local k = tostring(S.uiTmNewId or ""):match("^%s*(.-)%s*$")
     if k and k ~= "" then
       local row = ensureLoc(S, k, App)
-      if gen2 and (row.index == nil) then
-        local maxIdx = 0
-        for _, e in pairs(dataField(S, "townMap").locations or {}) do
-          if type(e) == "table" and tonumber(e.index) then
-            maxIdx = math.max(maxIdx, tonumber(e.index))
-          end
+      if gen2 then
+        local region = S.uiTmRegion or "johto"
+        if region == "auto" then region = "johto" end
+        row.region = region
+        if row.index == nil then
+          row.index = nextIndexForRegion(S, tm, region)
         end
-        for _, e in pairs(tm.locations or {}) do
-          if type(e) == "table" and tonumber(e.index) then
-            maxIdx = math.max(maxIdx, tonumber(e.index))
-          end
-        end
-        row.index = maxIdx + 1
       end
       S.uiTmLoc = k
       S.uiTmNewId = ""

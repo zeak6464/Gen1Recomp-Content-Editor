@@ -1740,9 +1740,14 @@ local function drawStringsFrame(st, S)
   love.graphics.setColor(1, 1, 1, 1)
 end
 
--- Pokegear region: KANTO_LANDMARK = 46; index 94 is Fast Ship (Johto map).
-local function pokegearRegion(index, override)
-  if override == "johto" or override == "kanto" then return override end
+-- Named loc.region wins; else KANTO_LANDMARK = 46 (index 94 is Fast Ship / Johto).
+local function pokegearRegion(index, override, loc)
+  if type(override) == "string" and override ~= "" and override ~= "auto" then
+    return override
+  end
+  if loc and type(loc.region) == "string" and loc.region ~= "" then
+    return loc.region
+  end
   index = tonumber(index) or 0
   if index == 94 then return "johto" end
   if index >= 46 then return "kanto" end
@@ -1761,7 +1766,7 @@ local function townMapLocs(S)
     if type(e) == "table" then
       locs[#locs + 1] = {
         id = id, x = e.x or 0, y = e.y or 0,
-        name = e.name or id, index = e.index,
+        name = e.name or id, index = e.index, region = e.region,
       }
     end
   end
@@ -1837,14 +1842,36 @@ local function buildTownMap(S)
     if type(pal0) == "table" and type(pal0[4]) == "table" then
       ground = pal0[4]
     end
+    local gear = {
+      johto = img(S, pathOf(gfx and gfx.johtoImage)),
+      kanto = img(S, pathOf(gfx and gfx.kantoImage)),
+      custom = img(S, pathOf(gfx and gfx.customImage)),
+    }
+    local paper = {
+      johto = img(S, pathOf(gfx and gfx.johtoMap)),
+      kanto = img(S, pathOf(gfx and gfx.kantoMap)),
+      custom = img(S, pathOf(gfx and gfx.customMap)),
+    }
+    local regs = S.project and S.project.townMap and S.project.townMap.regions
+    if type(regs) == "table" then
+      for _, r in ipairs(regs) do
+        if type(r) == "table" and type(r.id) == "string"
+            and r.id ~= "johto" and r.id ~= "kanto" and r.id ~= "custom" then
+          gear[r.id] = img(S, pathOf(r.pokegear))
+          paper[r.id] = img(S, pathOf(r.townmap))
+        end
+      end
+    end
     return {
       kind = "townmap",
       gen2 = true,
       sheet = sheet,
       maps = gfx and gfx.maps,
       ground = ground,
-      johtoImage = img(S, pathOf(gfx and gfx.johtoImage)),
-      kantoImage = img(S, pathOf(gfx and gfx.kantoImage)),
+      gear = gear,
+      paper = paper,
+      johtoImage = gear.johto,
+      kantoImage = gear.kanto,
       locs = locs,
       index = 1,
       blink = 0,
@@ -1952,8 +1979,9 @@ local function drawPokegearTownMap(st, S)
   end
   loc = loc or st.locs[st.index]
 
-  local region = pokegearRegion(loc and loc.index, S and S.uiTmRegion)
-  local custom = region == "kanto" and st.kantoImage or st.johtoImage
+  local region = pokegearRegion(loc and loc.index, S and S.uiTmRegion, loc)
+  local custom = (st.gear and st.gear[region])
+    or (region == "kanto" and st.kantoImage or st.johtoImage)
   if custom then
     UiSafe.drawFitted(custom, 0, 0, GB_W, GB_H)
   else
@@ -2003,9 +2031,60 @@ local function drawPokegearTownMap(st, S)
   love.graphics.setColor(1, 1, 1, 1)
 end
 
+local function drawTownMapPaper(st, S)
+  local loc
+  local sel = S and S.uiTmLoc
+  if sel then
+    for i, e in ipairs(st.locs or {}) do
+      if e.id == sel then loc, st.index = e, i; break end
+    end
+  end
+  loc = loc or st.locs[st.index]
+  local region = pokegearRegion(loc and loc.index, S and S.uiTmRegion, loc)
+  local paper = st.paper and st.paper[region]
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.rectangle("fill", 0, 0, GB_W, GB_H)
+  if paper then
+    UiSafe.drawFitted(paper, 0, 0, GB_W, GB_H)
+  else
+    local g = st.ground or { 180, 200, 160 }
+    love.graphics.setColor(g[1] / 255, g[2] / 255, g[3] / 255, 1)
+    love.graphics.rectangle("fill", 0, 0, GB_W, GB_H)
+    love.graphics.setColor(1, 1, 1, 1)
+  end
+  for _, e in ipairs(st.locs or {}) do
+    if pokegearRegion(e.index, nil, e) == region then
+      local x, y = tonumber(e.x) or 0, tonumber(e.y) or 0
+      local on = loc and e.id == loc.id
+      if (not on) or st.blink < 15 then
+        if on then
+          love.graphics.setColor(1, 0.15, 0.15, 1)
+        else
+          love.graphics.setColor(0.85, 0.25, 0.3, 1)
+        end
+        love.graphics.rectangle("fill", x - 2, y - 2, 5, 5)
+        if on then
+          love.graphics.setColor(1, 1, 1, 1)
+          love.graphics.rectangle("fill", x - 1, y - 1, 3, 3)
+        end
+      end
+    end
+  end
+  if loc and ensureFont(S) then
+    love.graphics.setColor(0, 0, 0, 1)
+    love.graphics.rectangle("fill", 0, 0, GB_W, 8)
+    pcall(require("src.render.Font").draw, tostring(loc.name or ""), 8, 0)
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
 local function drawTownMapFrame(st, S)
   if st.gen2 then
-    drawPokegearTownMap(st, S)
+    if S and S.uiTmView == "townmap" then
+      drawTownMapPaper(st, S)
+    else
+      drawPokegearTownMap(st, S)
+    end
     return
   end
   if st.customImage then
@@ -4251,6 +4330,8 @@ local function previewStamp(S, mode)
     tostring(S and S.uiFontId or ""),
     tostring(S and S.uiStrId or ""),
     tostring(S and S.uiTmLoc or ""),
+    tostring(S and S.uiTmRegion or ""),
+    tostring(S and S.uiTmView or ""),
     tostring(S and S.uiCreditIndex or 1),
     tostring(S and S.uiBadgeId or ""),
     tostring(S and S.uiMinigame or "slots"),
