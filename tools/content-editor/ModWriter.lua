@@ -2320,10 +2320,23 @@ function ModWriter.emitMain(project, baseData, derivedModId)
       "pokemon", "trainers", "objects", "bg", "environments", "roofs",
       "hpBar", "expBar", "partyMenu", "battleObjects",
     }
+    -- An RGB triple is {r,g,b} numbers (or .r/.g/.b). A list of those triples
+    -- is one palette row. A list of rows (BG pool, OW OBJ per TOD) must recurse
+    -- — treating val[1][1] ~= nil as "this is a row" flattened nested tables
+    -- into junk RGB and crashed Gold on load.
+    local function isRgb(c)
+      if type(c) ~= "table" then return false end
+      if type(c.r) == "number" then return true end
+      return type(c[1]) == "number" and type(c[2]) == "number"
+        and type(c[3]) == "number" and c[4] == nil
+    end
     local function cleanPalValue(val)
       if type(val) ~= "table" then return val end
-      -- colour row: list of {r,g,b}
-      if type(val[1]) == "table" and (val[1][1] ~= nil or val[1].r ~= nil) then
+      if isRgb(val) then
+        if val.r then return { val.r, val.g, val.b } end
+        return { val[1] or 0, val[2] or 0, val[3] or 0 }
+      end
+      if type(val[1]) == "table" and isRgb(val[1]) then
         local row = {}
         for i, c in ipairs(val) do
           if type(c) == "table" then

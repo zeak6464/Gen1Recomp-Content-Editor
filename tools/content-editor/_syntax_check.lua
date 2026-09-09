@@ -507,6 +507,41 @@ local ok, err = pcall(function()
     }, {})
     assert(gold:find("src.ui.gen2.TitleState"), "missing gen2 custom title wrap")
     assert(gold:find("src.ui.gen2.GoldSilverIntro"), "missing gen2 custom intro wrap")
+    local goldPal = ModWriter.emitMain({
+      id = "t", game = "gold",
+      palettes = {
+        objects = {
+          MORN = {
+            { { 248, 128, 64 }, { 200, 80, 32 }, { 80, 32, 16 }, { 16, 16, 16 } },
+            { { 248, 248, 248 }, { 168, 168, 168 }, { 88, 88, 88 }, { 16, 16, 16 } },
+          },
+        },
+        bg = {
+          { { 248, 248, 248 }, { 120, 200, 80 }, { 40, 80, 32 }, { 0, 0, 0 } },
+          { { 248, 248, 248 }, { 80, 120, 200 }, { 32, 40, 80 }, { 0, 0, 0 } },
+        },
+      },
+    }, {})
+    assert(goldPal:find('palettes:patch%("objects"'), "missing objects palette patch")
+    assert(goldPal:find('palettes:patch%("bg"'), "missing bg palette patch")
+    local objLit = goldPal:match('palettes:patch%("objects",%s*(%b{})%)')
+    assert(objLit, "objects patch literal missing")
+    local objFn, objErr = loadstring("return " .. objLit)
+    assert(objFn, "objects patch is not a table: " .. tostring(objErr))
+    local obj = objFn()
+    local row = obj and obj.MORN and obj.MORN[1]
+    assert(type(row) == "table" and type(row[1]) == "table" and row[1][1] == 248,
+      "OW OBJ row must stay a list of RGB triples")
+    assert(type(row[1][1]) == "number" and row[4] and row[4][1] == 16,
+      "OW OBJ first row must keep four RGB triples")
+    local bgLit = goldPal:match('palettes:patch%("bg",%s*(%b{})%)')
+    assert(bgLit, "bg patch literal missing")
+    local bgFn, bgErr = loadstring("return " .. bgLit)
+    assert(bgFn, "bg patch is not a table: " .. tostring(bgErr))
+    local bg = bgFn()
+    assert(type(bg[1]) == "table" and type(bg[1][1]) == "table"
+        and type(bg[1][1][1]) == "number" and bg[2] ~= nil,
+      "BG pool must stay a list of 4-color rows")
     assert(gold:find("src.ui.gen2.Pokegear"), "missing pokegear map wrap")
     assert(gold:find("johtoImage") or gold:find("uiFitted") or gold:find("_pgPath"),
       "missing johto image use")
