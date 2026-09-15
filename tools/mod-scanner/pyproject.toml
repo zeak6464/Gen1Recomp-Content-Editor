@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mod-scanner"
+version = "0.1.0"
+description = "High-performance copyright & ROM scanner for gen1recomp and decomp mods"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "Pillow>=10.0.0",
+    "imagehash>=4.3.1",
+    "PyYAML>=6.0.1",
+    "requests>=2.31.0",
+    "discord.py>=2.3.2",
+]
+
+[project.scripts]
+mod-scanner = "mod_scanner.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mod_scanner*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

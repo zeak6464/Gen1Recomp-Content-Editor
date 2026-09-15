@@ -69,7 +69,7 @@ end
 
 local TABS = {
   { id = "project",  label = "PROJECT",
-    tip = "Create / open mod, boot & constants, validate / playtest" },
+    tip = "Create / open mod, boot & constants, validate / scan / playtest" },
   { id = "manifest", label = "MANIFEST",
     tip = "Edit mods/<id>/manifest.json" },
   { id = "cart",     label = "CART",
@@ -764,13 +764,26 @@ local function engineHasLoader(root)
 end
 
 local function linkedRecompRoot()
-  local prefs = (S and S.dataPrefs) or DataSource.loadPrefs()
-  local recomp = (prefs and prefs.recompRoot)
-    or DataSource.mountedRecompRoot()
+  local persisted = DataSource.loadPrefs()
+  local prefs = (S and S.dataPrefs) or persisted
+  local recomp = (DataSource.mountedRecompRoot and DataSource.mountedRecompRoot())
+    or (prefs and prefs.recompRoot)
+    or (persisted and persisted.recompRoot)
   if recomp and recomp ~= "" and DataSource.isValidRecompRoot(recomp) then
     return recomp:gsub("[/\\]+$", "")
   end
   return nil
+end
+
+local function recompIsLaunchable(root)
+  if not root or root == "" then return false end
+  local sep = package.config:sub(1, 1)
+  local exe = io.open(root .. sep .. "gen1recomp.exe", "rb")
+  if exe then exe:close(); return true end
+  if engineHasLoader(root) then return true end
+  local main = io.open(root .. sep .. "main.lua", "rb")
+  if main then main:close(); return true end
+  return false
 end
 
 local function validationEngineRoot()
@@ -863,6 +876,121 @@ function App.validateMod()
   end
 end
 
+local function stripAnsi(text)
+  return (tostring(text or ""):gsub("\27%[[0-9;]*m", ""):gsub("\r", ""))
+end
+
+local function scanVerdict(text)
+  local u = stripAnsi(text):upper()
+  if u:find("[REJECT", 1, true) or u:find("REJECT -", 1, true) then
+    return "REJECT"
+  end
+  if u:find("[FLAGGED", 1, true) or u:find("FLAGGED -", 1, true) then
+    return "FLAGGED"
+  end
+  if u:find("[CLEAN", 1, true) or u:find("CLEAN -", 1, true) then
+    return "CLEAN"
+  end
+  return nil
+end
+
+local function scannerToolRoot()
+  local sep = package.config:sub(1, 1)
+  local function hasCli(root)
+    if not root or root == "" then return false end
+    local path = root .. sep .. "tools" .. sep .. "mod-scanner"
+      .. sep .. "mod_scanner" .. sep .. "cli.py"
+    local f = io.open(path, "rb")
+    if f then f:close(); return true end
+    return false
+  end
+  local root = ModIO.repoRoot()
+  if hasCli(root) then return root .. sep .. "tools" .. sep .. "mod-scanner" end
+  root = repoRoot()
+  if hasCli(root) then return root .. sep .. "tools" .. sep .. "mod-scanner" end
+  return nil
+end
+
+local function missingScannerModule(text)
+  local t = tostring(text or "")
+  return t:find("ModuleNotFoundError", 1, true)
+    or t:find("No module named", 1, true)
+end
+
+local SCANNER_PY_DEPS = "PyYAML Pillow imagehash requests"
+
+function App.scanMod()
+  if not S or not S.project or not S.project.id then
+    return say("No mod open")
+  end
+  if S.dirty then
+    if not App.save() then return false end
+  end
+  local id = S.project.id
+  local toolRoot = scannerToolRoot()
+  if not toolRoot then
+    S.scanOutput = "ERROR mod-scanner is not in this checkout (tools/mod-scanner)"
+    return say("Scan needs tools/mod-scanner — see log on Project tab")
+  end
+  local sep = package.config:sub(1, 1)
+  local configPath = toolRoot .. sep .. "config.yaml"
+  local previewDir = toolRoot .. sep .. "scan_previews" .. sep .. id
+  local modPath = S.path or ModIO.modDir(id)
+  say("Scanning assets (first run may download reference sprites)…")
+
+  local function runScan(py)
+    local inner
+    if sep == "\\" then
+      inner = string.format(
+        'cd /d "%s" && %s -m mod_scanner.cli --config "%s" scan "%s" '
+          .. '--preview-dir "%s" --no-fail-on-flagged',
+        toolRoot, py, configPath, modPath, previewDir)
+    else
+      inner = string.format(
+        'cd "%s" && %s -m mod_scanner.cli --config "%s" scan "%s" '
+          .. '--preview-dir "%s" --no-fail-on-flagged',
+        toolRoot, py, configPath, modPath, previewDir)
+    end
+    return runShell(inner)
+  end
+
+  local py = "python"
+  local ok, out = runScan(py)
+  if (not ok and (out or ""):find("python")) or (out or ""):find("not recognized") then
+    py = "python3"
+    ok, out = runScan(py)
+  end
+  out = stripAnsi(out)
+  if missingScannerModule(out) then
+    say("Installing scanner Python packages…")
+    local pipOk, pipOut = runShell(py .. " -m pip install " .. SCANNER_PY_DEPS)
+    if not pipOk then
+      S.scanOutput = stripAnsi(pipOut)
+        .. "\nERROR Install scanner deps: " .. py .. " -m pip install " .. SCANNER_PY_DEPS
+      return say("Scan failed — could not install Python packages")
+    end
+    ok, out = runScan(py)
+    out = stripAnsi(out)
+  end
+  if missingScannerModule(out) then
+    out = out .. "\nERROR Install scanner deps: " .. py
+      .. " -m pip install " .. SCANNER_PY_DEPS
+  end
+  S.scanOutput = out
+  local verdict = scanVerdict(out)
+  if verdict == "CLEAN" then
+    say("Scan clean — " .. id)
+  elseif verdict == "FLAGGED" then
+    say("Scan flagged — see log on Project tab")
+  elseif verdict == "REJECT" then
+    say("Scan rejected — see log on Project tab")
+  elseif ok then
+    say("Scan finished — " .. id)
+  else
+    say("Scan failed — see log on Project tab")
+  end
+end
+
 local function fileOk(path)
   if not path or path == "" then return false end
   local f = io.open(path, "rb")
@@ -947,6 +1075,10 @@ function App.playtestMod()
     return say("Playtest requires a Linked Recomp folder. "
       .. "Use Project > Link Recomp, then try again.")
   end
+  if not recompIsLaunchable(recomp) then
+    return say("Linked Recomp is not a launchable game (needs main.lua or gen1recomp.exe). "
+      .. "Link the Gen1Recomp install, not just a data cache.")
+  end
 
   local dest = recomp .. sep .. "mods" .. sep .. id
   local src = S.path or (ModIO.modsRoot() .. sep .. id)
@@ -991,14 +1123,18 @@ function App.playtestMod()
     return
   end
 
-  local loveExe, fused = resolveLoveExe({
-    recomp,
-    repoRoot(),
-    os.getenv("POKEPORT_CONTENT_ROOT"),
-  })
-  if not fused then
-    local running = runningLoveExe()
-    if running then loveExe = running end
+  -- Launch only the Linked Recomp folder. Do not fall back to this editor's
+  -- bundled / fused runtime — that is a different game tree.
+  local loveExe, fused = resolveLoveExe({ recomp })
+  if (not loveExe or loveExe == "love") and not fused then
+    local fusedEditor = love and love.filesystem
+      and love.filesystem.isFused and love.filesystem.isFused()
+    if not fusedEditor then
+      loveExe = runningLoveExe()
+    end
+  end
+  if not loveExe or loveExe == "love" then
+    return say("Playtest needs love.exe or gen1recomp.exe inside the Linked Recomp folder.")
   end
   local cmd
   if sep == "\\" then
@@ -1022,7 +1158,7 @@ function App.playtestMod()
   if not ok then
     return say("Playtest launch failed: " .. tostring(err))
   end
-  say("Playtest launched " .. version .. " with selected editor mod: " .. id)
+  say("Playtest launched " .. version .. " via Linked Recomp: " .. recomp)
 end
 
 function App.markDirty()

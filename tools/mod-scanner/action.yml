@@ -1,0 +1,100 @@
+name: 'Mod Scanner'
+description: 'Automated copyright, ROM header, and direct asset rip scanner for decomp and recomp mods'
+author: 'Jamie'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  path:
+    description: 'Path to mod working directory or .zip archive to scan'
+    required: false
+    default: '.'
+  config:
+    description: 'Path to custom config.yaml configuration file (optional)'
+    required: false
+    default: ''
+  fail-on-flagged:
+    description: 'Fail the step with non-zero exit code if assets are flagged for review (true/false)'
+    required: false
+    default: 'true'
+  save-previews:
+    description: 'Generate 3-panel side-by-side PNG diff previews for flagged assets'
+    required: false
+    default: 'true'
+  upload-artifacts:
+    description: 'Upload generated preview diffs as a GitHub Actions workflow artifact'
+    required: false
+    default: 'true'
+
+outputs:
+  verdict:
+    description: 'Final scan verdict (CLEAN, FLAGGED, or REJECT)'
+    value: ${{ steps.run-scan.outputs.verdict }}
+  scanned-count:
+    description: 'Total number of files scanned'
+    value: ${{ steps.run-scan.outputs.scanned-count }}
+  violations-count:
+    description: 'Number of hard violations detected'
+    value: ${{ steps.run-scan.outputs.violations-count }}
+  flags-count:
+    description: 'Number of flagged assets needing human review'
+    value: ${{ steps.run-scan.outputs.flags-count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Cache Reference Hash Database
+      uses: actions/cache@v4
+      with:
+        path: |
+          .cache/reference_hashes.json
+          ~/.cache/mod-scanner/
+        key: mod-scanner-ref-db-${{ runner.os }}-${{ hashFiles('**/config.yaml') }}
+        restore-keys: |
+          mod-scanner-ref-db-${{ runner.os }}-
+
+    - name: Install mod-scanner
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        pip install "${{ github.action_path }}"
+
+    - name: Run Mod Scanner
+      id: run-scan
+      shell: bash
+      run: |
+        CONFIG_ARG=""
+        if [ -n "${{ inputs.config }}" ]; then
+          CONFIG_ARG="--config ${{ inputs.config }}"
+        fi
+
+        FAIL_FLAG="--fail-on-flagged"
+        if [ "${{ inputs.fail-on-flagged }}" = "false" ]; then
+          FAIL_FLAG="--no-fail-on-flagged"
+        fi
+
+        PREVIEW_ARG="--save-previews"
+        if [ "${{ inputs.save-previews }}" = "false" ]; then
+          PREVIEW_ARG=""
+        fi
+
+        python -m mod_scanner.cli $CONFIG_ARG scan "${{ inputs.path }}" \
+          --github-actions \
+          --preview-dir ./scan_previews \
+          $FAIL_FLAG \
+          $PREVIEW_ARG
+
+    - name: Upload Diff Previews Artifact
+      if: always() && inputs.upload-artifacts == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: mod-scanner-diffs
+        path: ./scan_previews/
+        if-no-files-found: ignore

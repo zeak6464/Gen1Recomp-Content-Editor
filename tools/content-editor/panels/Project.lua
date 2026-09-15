@@ -1,4 +1,4 @@
--- Project tab: create / open mod, target game, data source, validate.
+-- Project tab: create / open mod, target game, data source, validate / scan.
 
 local Kit = require("Kit")
 local Theme = require("Theme")
@@ -11,6 +11,48 @@ local Generation = require("Generation")
 local PAL = Theme.PAL
 
 local Project = {}
+
+local function lastScanLines(text, n)
+  if not text or text == "" then return {} end
+  local all, hits, other = {}, {}, {}
+  for line in tostring(text):gmatch("[^\r\n]+") do
+    line = line:gsub("\27%[[0-9;]*m", "")
+    if line:match("%S") then
+      all[#all + 1] = line
+      local u = line:upper()
+      if u:find("REJECT", 1, true) or u:find("FLAGGED", 1, true)
+          or u:find("CLEAN", 1, true) or u:find("VIOLATION", 1, true)
+          or u:find("ERROR", 1, true) or u:find("HAMMING", 1, true)
+          or u:find("NO MODULE", 1, true) or u:find("INSTALL", 1, true) then
+        hits[#hits + 1] = line
+      elseif not u:find("====", 1, true) then
+        other[#other + 1] = line
+      end
+    end
+  end
+  local pick = (#hits > 0) and hits or other
+  if #pick == 0 then pick = all end
+  if #pick <= n then return pick end
+  local out = {}
+  for i = 1, n do out[i] = pick[i] end
+  return out
+end
+
+local function scanLineColor(line)
+  local u = line:upper()
+  if u:find("REJECT", 1, true) or u:find("VIOLATION", 1, true)
+      or u:find("PROHIBITED", 1, true) or u:find("ERROR", 1, true) then
+    return PAL.red
+  end
+  if u:find("FLAGGED", 1, true) or u:find("REVIEW", 1, true)
+      or u:find("HAMMING", 1, true) then
+    return PAL.yellow
+  end
+  if u:find("CLEAN", 1, true) or u:find("PASSED", 1, true) then
+    return PAL.green
+  end
+  return PAL.muted
+end
 
 -- Prefer MK* ERROR / FAIL lines; tips at the end used to hide the real errors.
 local function lastValidateLines(text, n)
@@ -188,7 +230,7 @@ function Project.draw(S, x, y, w, h, App)
   Kit.caption(x, row, "3  GAME DATA")
   row = row + 28 * s
   Kit.text("micro",
-    "Choose where editor previews and validation read game data. This does not change the Playtest runtime.",
+    "Choose where editor previews and validation read game data. Playtest launches the Linked Recomp folder.",
     x, row, PAL.muted)
   row = row + 22 * s
   local dataCardY = row
@@ -295,7 +337,7 @@ function Project.draw(S, x, y, w, h, App)
   Kit.caption(x, row, "4  CHECK & RUN")
   row = row + 28 * s
   Kit.text("micro",
-    "Validate finds content errors. Playtest saves and launches only this mod with the selected game.",
+    "Validate finds content errors. Scan checks assets for ROM dumps and sprite rips. Playtest launches Linked Recomp.",
     x, row, PAL.muted)
   row = row + 22 * s
 
@@ -325,7 +367,7 @@ function Project.draw(S, x, y, w, h, App)
     "Save writes editor_project.lua + main.lua (or editor_apply.lua if main.lua is hand-written).",
     x + 20 * s, row + 78 * s, PAL.muted)
   local actionGap = 10 * s
-  local actionW = math.floor((w - 40 * s - actionGap) / 2)
+  local actionW = math.floor((w - 40 * s - 2 * actionGap) / 3)
   if Kit.button(x + 20 * s, row + 108 * s,
       actionW, 36 * s, "Validate mod", {
         kind = "primary",
@@ -335,9 +377,20 @@ function Project.draw(S, x, y, w, h, App)
     else S.status = "Implement App.validateMod() to run modkit validate from the editor" end
   end
   if Kit.button(x + 20 * s + actionW + actionGap, row + 108 * s,
+      actionW, 36 * s, "Scan mod", {
+        kind = "ghost",
+        tooltip = "Check this mod for ROM dumps, proprietary binaries, and sprite rips",
+      }) then
+    if App.scanMod then App.scanMod()
+    else S.status = "Implement App.scanMod() to run tools/mod-scanner from the editor" end
+  end
+  if Kit.button(x + 20 * s + 2 * (actionW + actionGap), row + 108 * s,
       actionW, 36 * s, "Playtest mod", {
         kind = "accent",
-        tooltip = "Save and launch the bundled runtime with only this mod enabled",
+        enabled = validRecompRoot,
+        tooltip = validRecompRoot
+          and "Save, copy this mod into the Linked Recomp folder, and launch that game"
+          or "Link a Gen1Recomp folder first (Link Recomp)",
       }) then
     if App.playtestMod then App.playtestMod()
     else S.status = "Implement App.playtestMod() to launch a playtest build" end
@@ -358,6 +411,22 @@ function Project.draw(S, x, y, w, h, App)
     row = row + 4 * s
   else
     Kit.text("micro", "Not run yet. Select Validate to check this mod against the active game data.",
+      x, row, PAL.faint)
+    row = row + 20 * s
+  end
+
+  row = row + 8 * s
+  Kit.caption(x, row, "ASSET SCAN RESULT")
+  row = row + 24 * s
+  if S.scanOutput and S.scanOutput ~= "" then
+    local lines = lastScanLines(S.scanOutput, 8)
+    for _, line in ipairs(lines) do
+      Kit.text("micro", Kit.ellipsize("micro", line, w), x, row, scanLineColor(line))
+      row = row + 14 * s
+    end
+    row = row + 4 * s
+  else
+    Kit.text("micro", "Not run yet. Select Scan to check this mod for ROM dumps and sprite rips.",
       x, row, PAL.faint)
     row = row + 20 * s
   end
