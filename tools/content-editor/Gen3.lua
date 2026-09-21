@@ -107,7 +107,7 @@ end
 function Gen3.projectError(project)
   local Generation = require("Generation")
   if not Generation.isGen3({version=project.game or project.version}) then
-    if (project.gen3 and next(project.gen3)) or next(project.gen3Terrain or {}) or next(project.gen3Hooks or {}) or next(project.gen3Starters or {}) or require("Gen3Native").used(project) or next(project.gen3MapLayouts or {}) then
+    if (project.gen3 and next(project.gen3)) or next(project.gen3Borders or {}) or next(project.gen3Terrain or {}) or next(project.gen3Hooks or {}) or next(project.gen3Starters or {}) or require("Gen3Native").used(project) or next(project.gen3MapLayouts or {}) then
       return "This project has Gen 3 edits. Select FireRed before saving."
     end
     return nil

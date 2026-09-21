@@ -209,6 +209,10 @@ function MapsWorkspace.draw(S, x, y, w, h, App)
         kind = "ghost", tooltip = "Show or hide advanced map actions" }) then
     S.mapMoreActions = not S.mapMoreActions
   end
+  if Generation.isGen3(S) and Kit.button(x+508*s,actionY,100*s,28*s,
+      S.mapBorderEditor and "Back to map" or "Border",{kind="ghost",enabled=S.project~=nil}) then
+    S.mapBorderEditor=not S.mapBorderEditor;S.g3MapId=selected;S.g3MapMode="border";S.g3Tool="Paint"
+  end
   local actionRight = x + w - 12 * s
   if Kit.button(actionRight - 104 * s, actionY, 104 * s, 28 * s,
       S.dirty and "Save changes" or "Saved", {
@@ -264,6 +268,10 @@ function MapsWorkspace.draw(S, x, y, w, h, App)
   if selected then
     S.mapId = selected
     S.builderMapId = selected
+  end
+  if Generation.isGen3(S) and S.mapBorderEditor then
+    require("Gen3Maps").draw(S,x,bodyY,w,bodyH,App)
+    return
   end
   S.mapPreviewOnly = not isLayered
   MapBuilder.draw(S, x, bodyY, w, bodyH, App)

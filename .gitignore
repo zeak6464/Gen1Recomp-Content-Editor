@@ -17,6 +17,7 @@ portable.txt
 # Local content projects; keep only the bundled starter under version control
 /mods/*/
 !/mods/my_content/
+!/mods/realtime_day_night/
 
 # Tool caches
 __pycache__/

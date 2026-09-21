@@ -1,6 +1,8 @@
 -- Export source (not bytecode): assembles shared-editor layers against the
 -- player's native FireRed atlases. No extracted pixels are bundled in a mod.
-return [=[
+local C=require("Gen3Collision")
+local encode=require("ModWriter").encodeLua
+return "  local collisionModes="..encode(C.modes).."\n  local paintedCollision="..encode(C.painted).."\n"..[=[
   mod.events:on("game.ready",function(ctx)
     local T=require("src.core.game3.tileset_native")
     local Layout=require("src.core.game3.layout_native")
@@ -77,15 +79,15 @@ return [=[
           end
         end
         local mode=(source.collision or {})[index] or "solid"
-        local painted={grass=2,water=16,door=105,cave=96,stairs=96,panel=103,
-          ledge_down=56,ledge_up=57,ledge_left=58,ledge_right=59}
-        behavior=painted[mode] or behavior
-        key[#key+1]=mode;local signature=table.concat(key,"|")
+        local original=(source.gen3Collision or {})[index]
+        local nativeMode=collisionModes[original] or (original==0 and "walk" or "solid")
+        local preserve=original~=nil and (mode==nativeMode or mode==(original==0 and "walk" or "solid"))
+        local value=paintedCollision[mode] or paintedCollision.solid
+        local coll=preserve and original or value[1]
+        if not preserve then behavior=value[2] end
+        key[#key+1]=tostring(behavior);local signature=table.concat(key,"|")
         local mid=seen[signature]
         if mid==nil then mid=#slots;seen[signature]=mid;slots[#slots+1]=refs;behaviors[mid]=behavior end
-        local coll=mode=="solid" and 255 or 0
-        local original=(source.gen3Collision or {})[index]
-        if original and ((original==0 and mode=="walk") or (original~=0 and mode=="solid")) then coll=original end
         cells[index]={mid=mid,coll=coll,elev=(source.gen3Elevation or {})[index] or 3}
       end
       local border=source.gen3Border or {width=1,height=1,mids={0}}

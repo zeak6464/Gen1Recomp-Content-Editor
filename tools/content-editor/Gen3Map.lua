@@ -75,7 +75,46 @@ function M.paint(project, id, layout, x, y, cell)
   return true
 end
 
+-- Borders repeat outside the map and always remain blocked.
+function M.borderLayout(project,id,base)
+  local border=(project.gen3Borders or {})[id] or base
+  local layout={width=border.borderWidth,height=border.borderHeight,pair=base.pair}
+  function layout:cellAt(x,y)
+    return {mid=border.borderMids[y*self.width+x+1] or 0,coll=255,elev=0}
+  end
+  return layout
+end
+
+function M.paintBorder(project,id,base,x,y,mid)
+  local layout=M.borderLayout(project,id,base)
+  if x<0 or y<0 or x>=layout.width or y>=layout.height then return false end
+  assert(type(mid)=="number" and mid%1==0 and mid>=0 and mid<=1023,"Invalid border metatile")
+  if layout:cellAt(x,y).mid==mid then return false end
+  project.gen3Borders=project.gen3Borders or {}
+  if not project.gen3Borders[id] then
+    project.gen3Borders[id]={borderWidth=base.borderWidth,borderHeight=base.borderHeight,
+      borderMids=require("src.mods.Merge").deepCopy(base.borderMids)}
+  end
+  project.gen3Borders[id].borderMids[y*layout.width+x+1]=mid
+  local source=(project.layeredMaps or {})[id]
+  if source then
+    local border=project.gen3Borders[id]
+    source.gen3Border={width=border.borderWidth,height=border.borderHeight,
+      mids=require("src.mods.Merge").deepCopy(border.borderMids)}
+  end
+  return true
+end
+
 function M.emit(project, encode, out)
+  for _,border in pairs(project.gen3Borders or {}) do
+    for _,key in ipairs({"borderWidth","borderHeight"}) do
+      local n=border[key];assert(type(n)=="number" and n%1==0 and n>=1 and n<=512,"Invalid border dimensions")
+    end
+    assert(type(border.borderMids)=="table" and #border.borderMids==border.borderWidth*border.borderHeight,"Invalid border pattern")
+    for _,mid in ipairs(border.borderMids) do
+      assert(type(mid)=="number" and mid%1==0 and mid>=0 and mid<=1023,"Invalid border metatile")
+    end
+  end
   for id,spec in pairs(project.gen3MapLayouts or {}) do
     assert(type(id)=="string" and type(spec.source)=="string","Map layouts need a source map")
     for _,key in ipairs({"width","height"}) do
@@ -91,9 +130,11 @@ function M.emit(project, encode, out)
   local terrain = require("src.mods.Merge").deepCopy(project.gen3Terrain or {})
   for id in pairs((project.gen3 or {}).maps or {}) do terrain[id] = terrain[id] or {} end
   for id in pairs(project.gen3MapLayouts or {}) do terrain[id]=terrain[id] or {} end
+  for id in pairs(project.gen3Borders or {}) do terrain[id]=terrain[id] or {} end
   if not next(terrain) then return end
   out[#out+1] = "  local terrain = " .. encode(terrain)
   out[#out+1] = "  local mapLayouts = " .. encode(project.gen3MapLayouts or {})
+  out[#out+1] = "  local borders = " .. encode(project.gen3Borders or {})
   out[#out+1] = [[  mod.events:on("game.ready", function(ctx)
     local maps = ctx.game and ctx.game.data and ctx.game.data.maps or {}
     local Layout = require("src.core.game3.layout_native")
@@ -128,6 +169,11 @@ function M.emit(project, encode, out)
         if layout then
           -- Registry merges copy tables; restore the native layout methods.
           setmetatable(layout, Layout)
+          local border=borders[id]
+          if border then
+            layout.borderWidth=border.borderWidth;layout.borderHeight=border.borderHeight
+            layout.borderMids=border.borderMids
+          end
           layout.overrides = layout.overrides or {}
           for key, cell in pairs(edits) do
             layout:applyOverride(key % 1024, math.floor(key / 1024), cell.mid, cell.coll, cell.elev)

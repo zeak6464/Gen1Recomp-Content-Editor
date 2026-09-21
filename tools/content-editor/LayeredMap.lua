@@ -434,6 +434,8 @@ end
 
 function LayeredMap.collisionForRef(S, ref)
   if type(ref) ~= "table" then return nil end
+  -- FireRed passage belongs to map cells, not a Gen1 tile walkability list.
+  if S.data and S.data._gen3Read then return nil end
   local tilesetId = LayeredMap.runtimeTilesetId(ref.source)
   if not tilesetId then return nil end
   local tileset = resolveTileset(S, tilesetId)
@@ -750,6 +752,7 @@ function LayeredMap.setCollision(source, x, y, mode)
   end
   if not valid then return false end
   source.collision[cellIndex(source, x, y)] = mode
+  if source.gen3Collision then source.gen3Collision[cellIndex(source, x, y)] = nil end
   return true
 end
 

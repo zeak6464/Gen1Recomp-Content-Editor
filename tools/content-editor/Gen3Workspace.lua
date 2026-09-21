@@ -18,6 +18,13 @@ function M.prepare(S)
     end
   end
   if S.project then S.project.gen3Workspace=1 end
+  for _,source in pairs(S.project and S.project.layeredMaps or {}) do
+    for i,coll in pairs(source.gen3Collision or {}) do
+      if source.collision[i]==(coll==0 and "walk" or "solid") then
+        source.collision[i]=require("Gen3Collision").mode(coll)
+      end
+    end
+  end
   for id,map in pairs(S.project and S.project.maps or {}) do
     local source=(S.project.layeredMaps or {})[id]
     local native=data.maps[id]
@@ -28,7 +35,8 @@ function M.prepare(S)
       map._gen3Native=true;map.trueColor=true
       local layout=require("Gen3Map").layout(data,id,S.project)
       if layout then
-        map._gen3Border={width=layout.borderWidth,height=layout.borderHeight,mids=copy(layout.borderMids)}
+        local border=(S.project.gen3Borders or {})[id] or layout
+        map._gen3Border={width=border.borderWidth,height=border.borderHeight,mids=copy(border.borderMids)}
         if source then source.gen3Border=copy(map._gen3Border) end
       end
     end
@@ -57,12 +65,13 @@ function M.source(S,id)
     local i=y*layout.width+x+1
     local c=require("Gen3Map").cell(S.project,id,layout,x,y)
     cells[i]={source=L.runtimeSourceId(layout.pair),tile=c.mid}
-    collision[i]=c.coll==0 and "walk" or "solid";elevation[i]=c.elev;nativeCollision[i]=c.coll
+    collision[i]=require("Gen3Collision").mode(c.coll);elevation[i]=c.elev;nativeCollision[i]=c.coll
   end end
+  local border=(S.project.gen3Borders or {})[id] or layout
   local source={id=id,cellWidth=layout.width,cellHeight=layout.height,baseTileset=layout.pair,
     layers={{id="ground",name="Ground",visible=true,export=true,opacity=1,cells=cells}},
     collision=collision,gen3Elevation=elevation,gen3Collision=nativeCollision,
-    gen3Border={width=layout.borderWidth,height=layout.borderHeight,mids=copy(layout.borderMids)}}
+    gen3Border={width=border.borderWidth,height=border.borderHeight,mids=copy(border.borderMids)}}
   return source
 end
 function M.convert(S,id)
