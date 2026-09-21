@@ -67,6 +67,9 @@ function Panel.draw(S,x,y,w,h,App)
     end
   end
   Kit.caption(fx,y+310*s,"Imports are copied into this mod. Save to apply in game.")
+  Kit.caption(fx,y+350*s,"Party icon — 32 x 32, or two frames stacked in a 32 x 64 PNG")
+  Preview.drawPokemonIcon(S,rec,fx,y+385*s,64*s,64*s,id,false)
+  require("Gen3PokemonIcons").drawControls(S,rec.index,App,fx+80*s,y+400*s,fw-80*s,30*s,s)
 end
 
 return Panel

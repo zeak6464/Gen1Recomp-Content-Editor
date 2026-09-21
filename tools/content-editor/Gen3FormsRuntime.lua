@@ -8,9 +8,15 @@ function M.choose(f,personality)
   elseif f.mode=="personality" then return p%#f.forms+1 end
   return math.max(1,math.min(#f.forms,f.default or 1))
 end
-function M.install(mod,configs)
+function M.install(mod,configs,species,artwork)
   local Runtime=require("src.mods.Runtime");local P=require("src.core.game3.pokemon")
   local families,parents,records,pictures={},{},{},{}
+  -- Standalone custom species need the same reload, identity, encounter and
+  -- artwork support as alternate forms, without assigning them a form family.
+  for _,id in ipairs(species or {}) do
+    local rec=assert(mod.content.pokemon:get(id),"Missing species "..id)
+    records[rec.index]=rec
+  end
   for _,f in ipairs(configs) do
     local parent=assert(mod.content.pokemon:get(f.parent),"Missing form parent "..f.parent);f.index=parent.index;parents[parent.index]=f
     for _,row in ipairs(f.forms) do local rec=assert(mod.content.pokemon:get(row.species),"Missing form "..row.species);row.index=rec.index;families[rec.index]=f;records[rec.index]=rec end
@@ -36,7 +42,7 @@ function M.install(mod,configs)
                 from=from.slots or from.mons or from;to=to.slots or to.mons or to
                 for i,slot in ipairs(from) do
                   local rec=mod.content.pokemon:get(slot.species or slot[1])
-                  if rec and families[rec.index] and to[i] then
+                  if rec and records[rec.index] and to[i] then
                     if to[i].species~=nil then to[i].species=rec.index else to[i][1]=rec.index end
                   end
                 end
@@ -48,7 +54,13 @@ function M.install(mod,configs)
     end
   end
   local function restore()
-    if registry and P._names then registry.spec.write(P,registry) end
+    if registry and P._names then
+      -- Rebuild the schema's cached name index on each write. Older runtimes
+      -- cache a string instead of a numeric ID when adding a new species.
+      local names={};for index,name in pairs(P._names) do names[index]=name end
+      P._names=names
+      registry.spec.write(P,registry)
+    end
     pictures={}
   end
   mod.events:on("mods.loaded",function(ev)
@@ -84,9 +96,18 @@ function M.install(mod,configs)
   for _,side in ipairs({"front","back"}) do
     local method=side.."Pic";local hook="editor.gen3.forms."..side
     bridge(P,method,hook)
-    mod.hooks:wrap(hook,function(proceed,species,form)
+    mod.hooks:wrap(hook,function(proceed,species,form,shiny)
       local rec=records[tonumber(species)]
       local path=rec and rec[side=="front" and "spriteFront" or "spriteBack"]
+      local customShiny=shiny and rec and artwork and artwork[rec.id] and artwork[rec.id][side]
+      if customShiny and not customShiny:match("^gen3%-shiny/") then
+        local key="shiny/"..customShiny
+        if not pictures[key] then
+          local img=love.graphics.newImage(love.filesystem.newFileData(assert(mod:read(customShiny)),"shiny.png"));img:setFilter("nearest","nearest")
+          pictures[key]={image=img,w=img:getWidth(),h=img:getHeight()}
+        end
+        return pictures[key]
+      end
       if path and not path:match("^data/generated/") then
         if not pictures[path] then
           local img=love.graphics.newImage(path);img:setFilter("nearest","nearest")
@@ -123,7 +144,16 @@ function M.install(mod,configs)
   bridge(P,"icon","editor.gen3.forms.icon")
   mod.hooks:wrap("editor.gen3.forms.icon",function(proceed,species)
     local entry=proceed(species);local f=families[tonumber(species)]
-    if not entry and f and tonumber(species)~=f.index then return proceed(f.index) end
+    if not entry and f and tonumber(species)~=f.index then
+      if f.parent=="UNOWN" then
+        for i,row in ipairs(f.forms) do
+          if row.index==tonumber(species) and i<=28 then
+            local letter=proceed(411+i);if letter then return letter end
+          end
+        end
+      end
+      return proceed(f.index)
+    end
     return entry
   end)
   bridge(Party,"giveMon","editor.gen3.forms.gift")

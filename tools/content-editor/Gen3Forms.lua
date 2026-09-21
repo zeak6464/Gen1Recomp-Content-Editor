@@ -49,16 +49,44 @@ function M.add(S,parent,name)
   local index=439;for _,bag in ipairs({S.data.pokemon,S.project.pokemon}) do for _,rec in pairs(bag) do index=math.max(index,rec.index or 0) end end
   assert(index<1023,"No free FireRed species slots remain")
   local rec=copy(base);rec.id=id;rec.index=index+1;rec._isNew=true;rec.name=base.name;rec.trueColor=true
+  rec.spriteShinyFront=M.spritePath(base,false,true);rec.spriteShinyBack=M.spritePath(base,true,true)
   rec.letters=nil;rec.forms=nil;S.project.pokemon[id]=rec
   local row={name=name or "New form",species=id};family.forms[#family.forms+1]=row
   return row,rec
 end
+-- Resolve inherited artwork by its source species, never a custom ROM slot.
+function M.spritePath(rec,back,shiny,S)
+  local side=back and "Back" or "Front"
+  local path=rec["sprite"..(shiny and "Shiny" or "")..side]
+  if path and path~="" then return path end
+  if shiny then
+    if S then
+      local family,parent=M.family(S,rec.id)
+      if family then
+        for i,row in ipairs(family.forms) do
+          if row.species==rec.id and i>1 then
+            local species,frame,palette
+            if parent=="UNOWN" and i<=28 then species,frame,palette=411+i,0,0
+            elseif parent=="CASTFORM" and i<=4 then species,frame,palette=385,i-1,i-1
+            elseif parent=="DEOXYS" and i==2 then species,frame,palette=410,0,0 end
+            if species then return "gen3-form-shiny/"..side:lower().."/"..species.."/"..frame.."/"..palette end
+            local base=S.project.pokemon[parent] or S.data.pokemon[parent]
+            if base then return M.spritePath(base,back,true) end
+          end
+        end
+      end
+    end
+    local normal=rec["sprite"..side] or ""
+    local source=normal:match("/pokemon/[^/]+/(%d+)%.rgba$")
+    source=tonumber(source) or (tonumber(rec.index) and rec.index<=439 and rec.index)
+    if source then return "gen3-shiny/"..side:lower().."/"..source end
+  end
+end
 local function writePictures(S,rec,species,frame,palette)
   local IO=require("ModIO");local dir="assets/forms/"..rec.id
-  local front=require("Gen3Rom").formPicture(S,species,false,frame,palette)
-  local back=require("Gen3Rom").formPicture(S,species,true,frame,palette)
   assert(IO.ensureDirectory(S.path.."/"..dir))
-  for key,img in pairs({spriteFront=front,spriteBack=back}) do
+  for i,key in ipairs({"spriteFront","spriteBack","spriteShinyFront","spriteShinyBack"}) do
+    local img,err=require("Gen3Rom").formPicture(S,species,i%2==0,frame,palette,i>2);assert(img,err)
     local path=dir.."/"..key..".png";assert(IO.writeText(S.path.."/"..path,img:encode("png"):getString()));rec[key]=path
   end
 end
@@ -118,6 +146,10 @@ function M.draw(S,mon,x,y,w,App)
       if not available then K.caption(x,y,"Artwork is not present in this ROM. Use Edit these forms to import it.") end
       for i,img in ipairs(S._nativeFormPictures[cacheKey] or {}) do K.caption(x+(i-1)*160*s,y,({"Front","Back","Shiny front","Shiny back"})[i]);img:setFilter("nearest","nearest");love.graphics.setColor(1,1,1,1);love.graphics.draw(img,x+(i-1)*160*s,y+24*s,0,2*s,2*s) end
       y=y+165*s
+      K.caption(x,y,"Party icon")
+      local iconIndex=parent=="UNOWN" and (selected==1 and 201 or 411+selected) or mon.index
+      require("Preview").drawPokemonIcon(S,{index=iconIndex},x,y+24*s,64*s,64*s)
+      y=y+100*s
       if K.button(x,y,300*s,30*s,"Edit these forms",{kind="good"}) then
         local staged=setmetatable({project=copy(S.project)},{__index=S});local ok,err=pcall(M.template,staged,parent)
         if ok then S.project=staged.project;S.g3FormSelection=S.g3FormSelection or {};S.g3FormSelection[parent]=selected;App.markDirty() else S.status=tostring(err) end
@@ -153,10 +185,13 @@ function M.draw(S,mon,x,y,w,App)
   K.caption(x,y,"Pokemon entry: "..row.species);y=y+30*s
   if K.button(x,y,290*s,30*s,"Edit this form's stats and moves",{}) then S.pokemonId=row.species;S.pokemonSection="basics" end;y=y+44*s
   if row.needsArtwork then K.caption(x,y,"Template uses copied artwork and stats. Import sprites and edit stats for this form.");y=y+30*s end
-  for i,key in ipairs({"spriteFront","spriteBack"}) do
-    local xx=x+(i-1)*210*s
-    require("Preview").draw(S,rec[key],xx,y,128*s,128*s,false)
-    if K.button(xx,y+134*s,200*s,30*s,i==1 and "Import front PNG" or "Import back PNG",{}) then
+  for i,key in ipairs({"spriteFront","spriteBack","spriteShinyFront","spriteShinyBack"}) do
+    local xx=x+((i-1)%2)*210*s
+    local yy=y+math.floor((i-1)/2)*200*s
+    local label=({"Front","Back","Shiny front","Shiny back"})[i]
+    K.caption(xx,yy,label)
+    require("Preview").draw(S,M.spritePath(rec,i%2==0,i>2,S),xx,yy+22*s,128*s,128*s,false)
+    if K.button(xx,yy+156*s,200*s,30*s,"Import "..label:lower().." PNG",{}) then
       App.pickFile("Form sprite","PNG|*.png",function(file)
         local IO=require("ModIO");local bytes=IO.readText(file);local ok,img=pcall(function() return love.image.newImageData(love.filesystem.newFileData(bytes,"form.png")) end)
         if not ok or img:getWidth()~=64 or img:getHeight()~=64 then S.status="Use a 64 x 64 PNG for this form";return end
@@ -165,36 +200,27 @@ function M.draw(S,mon,x,y,w,App)
       end)
     end
   end
-  y=y+185*s
-  local nativeSpecies,nativeFrame
-  if parent=="UNOWN" and selection<=28 then nativeSpecies=selection==1 and 201 or 411+selection;nativeFrame=0
-  elseif parent=="CASTFORM" and selection<=4 then nativeSpecies=385;nativeFrame=selection-1
-  elseif parent=="DEOXYS" and selection<=2 then nativeSpecies=410;nativeFrame=selection==1 and 1 or 0 end
-  if nativeSpecies then
-    S._formShinyPictures=S._formShinyPictures or {}
-    local key=parent..selection
-    if not S._formShinyPictures[key] then
-      local ok,imgs=pcall(function() return {
-        love.graphics.newImage(assert(require("Gen3Rom").formPicture(S,nativeSpecies,false,nativeFrame,parent=="CASTFORM" and nativeFrame or 0,true))),
-        love.graphics.newImage(assert(require("Gen3Rom").formPicture(S,nativeSpecies,true,nativeFrame,parent=="CASTFORM" and nativeFrame or 0,true)))} end)
-      if ok then S._formShinyPictures[key]=imgs else S.status=tostring(imgs) end
-    end
-    for i,img in ipairs(S._formShinyPictures[key] or {}) do
-      K.caption(x+(i-1)*210*s,y,i==1 and "Original shiny front" or "Original shiny back")
-      img:setFilter("nearest","nearest");love.graphics.setColor(1,1,1,1);love.graphics.draw(img,x+(i-1)*210*s,y+24*s,0,2*s,2*s)
-    end
-    y=y+165*s
-  end
+  y=y+400*s
+  K.caption(x,y,"Party icon");y=y+24*s
+  require("Preview").drawPokemonIcon(S,rec,x,y,64*s,64*s)
+  require("Gen3PokemonIcons").drawControls(S,rec.index,App,x+80*s,y,math.max(300*s,w-80*s),30*s,s)
+  y=y+76*s
   return y
 end
 function M.emit(p,encode,out)
-  if not next(p.gen3Forms or {}) then return end
-  local configs={}
-  for parent,f in pairs(p.gen3Forms) do
+  local species={}
+  for id in pairs((p.gen3 or {}).pokemon or {}) do species[#species+1]=id end
+  table.sort(species)
+  if not next(p.gen3Forms or {}) and #species==0 then return end
+  local configs,artwork={},{}
+  for id,rec in pairs(p.pokemon or {}) do
+    artwork[id]={front=rec.spriteShinyFront,back=rec.spriteShinyBack}
+  end
+  for parent,f in pairs(p.gen3Forms or {}) do
     assert(#f.forms>0 and f.forms[1].species==parent,"Invalid form family")
     assert(f.mode=="fixed" or f.mode=="personality" or f.mode=="unown" or f.mode=="weather","Invalid form selection")
     local rec=copy(f);rec.parent=parent;configs[#configs+1]=rec
   end
-  out[#out+1]="local forms=(function()\n"..assert(love.filesystem.read("tools/content-editor/Gen3FormsRuntime.lua")).."\nend)()\nforms.install(mod,"..encode(configs)..")"
+  out[#out+1]="local forms=(function()\n"..assert(love.filesystem.read("tools/content-editor/Gen3FormsRuntime.lua")).."\nend)()\nforms.install(mod,"..encode(configs)..","..encode(species)..","..encode(artwork)..")"
 end
 return M

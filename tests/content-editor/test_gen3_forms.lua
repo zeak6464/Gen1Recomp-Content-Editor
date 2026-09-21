@@ -31,6 +31,16 @@ return function(data,root,mount)
   local unown=Forms.template(S,"UNOWN");assert(#unown.forms==28)
   local cast=Forms.template(S,"CASTFORM");assert(#cast.forms==4)
   local deoxys=Forms.template(S,"DEOXYS");assert(#deoxys.forms==4)
+  for _,family in ipairs({unown,cast,deoxys}) do
+    for _,row in ipairs(family.forms) do
+      local rec=S.project.pokemon[row.species] or S.data.pokemon[row.species]
+      assert(Forms.spritePath(rec,false,true) and Forms.spritePath(rec,true,true),"Form lost shiny artwork")
+      if row.species~=family.forms[1].species and not row.needsArtwork then
+        assert(IO.readText(S.path.."/"..rec.spriteShinyFront),"Missing saved shiny front")
+        assert(IO.readText(S.path.."/"..rec.spriteShinyBack),"Missing saved shiny back")
+      end
+    end
+  end
   local custom,rec=Forms.add(S,"PIKACHU","Winter");rec.baseStats.attack=110
   rec.learnset={{level=1,move="TACKLE"}}
   S.project.gen3Forms.PIKACHU.default=2

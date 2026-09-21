@@ -198,10 +198,12 @@ end
 
 function Preview.image(S, path)
   local side,index=tostring(path):match("^gen3%-shiny/(%a+)/(%d+)$")
+  local formSide,formIndex,frame,palette=tostring(path):match("^gen3%-form%-shiny/(%a+)/(%d+)/(%d+)/(%d+)$")
+  side,index=side or formSide,index or formIndex
   if side then
     S.data._g3ShinyImages=S.data._g3ShinyImages or {}
     if not S.data._g3ShinyImages[path] then
-      local data,err=require("Gen3Rom").shiny(S,tonumber(index),side=="back")
+      local data,err=require("Gen3Rom").formPicture(S,tonumber(index),side=="back",tonumber(frame) or 0,tonumber(palette) or 0,true)
       if not data then S.status=err;return nil end
       local img=love.graphics.newImage(data);img:setFilter("nearest","nearest");S.data._g3ShinyImages[path]=img
     end
@@ -1819,16 +1821,18 @@ end
 -- optional SGB palette tint (species palette). Custom PNG icons remap
 -- directly through the palette when one is provided.
 -- paletteName: nil = species default; false = no remap (trueColor); string = that id.
-function Preview.drawPokemonIcon(S, mon, x, y, maxW, maxH, speciesId, paletteName)
+function Preview.drawPokemonIcon(S, mon, x, y, maxW, maxH, speciesId, paletteName, shiny)
   if S and S.data and S.data._editorGen3 then
     local rec=mon or (S.data.pokemon or {})[speciesId]
     local index=rec and rec.index
     if index then
-      local key="g3icon:"..index
+      local path=require("Gen3PokemonIcons").path(index,shiny)
+      local override=((S.project or {}).gen3Assets or {})[path]
+      local key=cacheKey(S,"g3icon:"..index..(shiny and ":shiny" or ":normal"))..tostring(override or "")
       S.data._g3IconImages=S.data._g3IconImages or {}
       local img=S.data._g3IconImages[key]
       if not img then
-        local bytes=S.data._gen3Read("data/generated/gba/pokemon/icons/"..index..".rgba")
+        local bytes=require("Gen3PokemonIcons").read(S,index,shiny)
         if bytes and #bytes>=32*32*4 and #bytes%(32*4)==0 then
           img=love.graphics.newImage(love.image.newImageData(32,#bytes/(32*4),"rgba8",bytes))
           img:setFilter("nearest","nearest");S.data._g3IconImages[key]=img

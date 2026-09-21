@@ -1,5 +1,6 @@
 local M={}
 function M.used(p)
+  if next(p.pokemon or {}) or next((p.gen3 or {}).pokemon or {}) then return true end
   if p.gen3Screens or p.gen3Roamers or p.gen3Fame then return true end
   return next(p.gen3Forms or {}) or p.gen3Fly or next(p.gen3OakScene or {}) or next(p.gen3Oak or {}) or p.gen3Breeding or next(p.gen3Behaviors or {}) or next(p.gen3TrainerMusic or {}) or next(p.items or {}) or next(p.gen3Help or {}) or next(p.gen3Trades or {}) or next(p.gen3Effects or {}) or next(p.gen3BattleRules or {}) or require("Gen3Workbench").used(p) or next(p.gen3Animations or {}) or next(p.gen3Assets or {}) or next(p.gen3Audio or {})
 end
@@ -48,6 +49,7 @@ M.source=[=[
   local Runtime = require("src.mods.Runtime")
   local Cache = require("src.import.CacheFs")
   local function invalidateNativeImages()
+    require("src.core.game3.pokemon")._icons={}
     local cache=require("src.core.game3.dataset").cache()
     local Anim=require("src.core.game3.battle.anim")
     Anim._packLoaded=false;Anim._pack=nil

@@ -57,10 +57,15 @@ end
 function M.newRecord(S,name,id)
   M.prepare(S)
   local base=S.data[name];local template=base[name=="pokemon" and "BULBASAUR" or name=="moves" and "TACKLE" or "POTION"]
-  local rec=copy(template or {});local max=0
+  -- 412 is Egg and 413..439 are reserved native Unown artwork slots.
+  local rec=copy(template or {});local max=name=="pokemon" and 439 or 0
   for _,bag in ipairs({base,S.project[name]}) do for _,v in pairs(bag) do max=math.max(max,tonumber(v.index) or 0) end end
   rec.id,rec.name,rec.index,rec._isNew=id,id,max+1,true
-  if name=="pokemon" then rec.dex=max+1 end
+  if name=="pokemon" then
+    rec.dex=max+1
+    rec.spriteShinyFront=require("Gen3Forms").spritePath(template,false,true)
+    rec.spriteShinyBack=require("Gen3Forms").spritePath(template,true,true)
+  end
   return rec
 end
 return M

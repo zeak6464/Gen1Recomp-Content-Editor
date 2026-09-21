@@ -80,8 +80,8 @@ function M.pokemon(S,mon,mutate,App,x,y,w,fh,s)
         onPick=function(id) mon=mutate();local a={unpack(mon.eggGroups or {})};a[slot]=tonumber(id);mon.eggGroups=a;App.markDirty() end})
     end)
   end
-  for _,side in ipairs({"Front","Back"}) do
-    F.row(side.." sprite",function(xx,yy,ww)
+  for _,side in ipairs({"Front","Back","ShinyFront","ShinyBack"}) do
+    F.row(side:gsub("Shiny", "Shiny ").." sprite",function(xx,yy,ww)
       if Kit.button(xx,yy,ww,fh,"Import 64 × 64 PNG",{}) then
         local species=mon.id
         App.pickFile("Import battle sprite","PNG|*.png",function(path)
@@ -96,6 +96,12 @@ function M.pokemon(S,mon,mutate,App,x,y,w,fh,s)
       end
     end)
   end
+  F.row(S.pokemonShinyPreview and "Shiny party icon" or "Normal party icon",function(xx,yy,ww)
+    require("Gen3PokemonIcons").drawControls(S,mon.index,App,xx,yy,ww,fh,s,S.pokemonShinyPreview)
+  end)
+  F.row("Icon PNG size",function(xx,yy)
+    Kit.text("micro","32 × 32, or 32 × 64 (two stacked frames)",xx,yy+6*s,PAL.faint)
+  end)
   return F.finish()
 end
 function M.dex(S,mon,mutate,App,x,y,w,fh,s)

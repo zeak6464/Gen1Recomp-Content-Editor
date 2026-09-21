@@ -630,7 +630,7 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
       },
     })
   end
-  Preview.drawPokemonIcon(S, mon, iconX, fy, iconSize, iconSize, sid, iconPal)
+  Preview.drawPokemonIcon(S, mon, iconX, fy, iconSize, iconSize, sid, iconPal, shinyPrev)
   if not gen2 and Kit.press(iconX, fy, iconSize, iconSize) then openMonPal() end
   local frontX = formX + formW - prevSize * 2 - gap
   local formId = selectedFormId(S, mon)
@@ -638,7 +638,7 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
   local playAnim = anim and (S.pokemonAnimPreview ~= false)
   local frontPath = formSpritePath(S, mon, "spriteFront", formId)
   local backPath = formSpritePath(S, mon, "spriteBack", formId)
-  if gen3 and shinyPrev then frontPath="gen3-shiny/front/"..mon.index;backPath="gen3-shiny/back/"..mon.index end
+  if gen3 and shinyPrev then frontPath=require("Gen3Forms").spritePath(mon,false,true,S);backPath=require("Gen3Forms").spritePath(mon,true,true,S) end
   if not (playAnim and drawAnimPreview(S, anim, frontX, fy, prevSize, drawPal)) then
     Preview.draw(S, frontPath, frontX, fy, prevSize, prevSize, drawPal)
   end

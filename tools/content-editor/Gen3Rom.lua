@@ -16,31 +16,30 @@ end
 local function u16(b,p) local a,c=b:byte(p+1,p+2);return a+c*256 end
 local function u32(b,p) return u16(b,p)+u16(b,p+2)*65536 end
 function M.shiny(S,species,back)
-  local b,err=M.open(S);if not b then return nil,err end
-  local V=require("src.import.gba.versions")
-  local tableOffset=back and (V.MON_BACK_PIC_TABLE or 0x23654c) or (V.MON_FRONT_PIC_TABLE or 0x2350ac)
-  local lz=require("src.import.gba.lz77")
-  local function get(i) return assert(b:byte(i+1),"ROM bounds") end
-  local pixels=lz.decompress(get,u32(b,tableOffset+species*8)-0x8000000)
-  local palette=lz.decompress(get,u32(b,0x2380cc+species*8)-0x8000000)
-  local colors={}
-  for i=0,15 do local c=palette[i*2+1]+palette[i*2+2]*256;colors[i]={c%32/31,math.floor(c/32)%32/31,math.floor(c/1024)%32/31,i==0 and 0 or 1} end
-  local image=love.image.newImageData(64,64)
-  for y=0,63 do for x=0,63 do
-    local off=(math.floor(y/8)*8+math.floor(x/8))*32+(y%8)*4+math.floor(x%8/2)+1
-    local byte=pixels[off];local index=x%2==0 and byte%16 or math.floor(byte/16)
-    image:setPixel(x,y,unpack(colors[index]))
-  end end
-  return image
+  return M.formPicture(S,species,back,0,0,true)
 end
 -- A 64x64 form frame; Castform also uses one palette bank per frame.
-function M.formPicture(S,species,back,frame,paletteFrame,shiny)
-  local b,err=M.open(S);if not b then return nil,err end
-  local function get(i) return assert(b:byte(i+1),"ROM bounds") end
-  local lz=require("src.import.gba.lz77")
-  local pixels=lz.decompress(get,u32(b,(back and 0x23654c or 0x2350ac)+species*8)-0x8000000)
-  local pal=lz.decompress(get,u32(b,(shiny and 0x2380cc or 0x23730c)+species*8)-0x8000000)
+local function formPicture(S,species,back,frame,paletteFrame,shiny)
+  assert(type(species)=="number" and species%1==0 and species>=0 and species<=439,
+    "This species has no native FireRed ROM artwork")
   frame=frame or 0;paletteFrame=paletteFrame or 0
+  assert(type(frame)=="number" and frame>=0 and frame%1==0
+    and type(paletteFrame)=="number" and paletteFrame>=0 and paletteFrame%1==0,
+    "Invalid FireRed artwork frame")
+  local b,err=M.open(S);if not b then return nil,err end
+  local function get(i)
+    assert(i>=0 and i<#b,"Artwork read outside ROM")
+    return b:byte(i+1)
+  end
+  local function pointer(at)
+    assert(at>=0 and at+4<=#b,"Artwork table outside ROM")
+    local offset=u32(b,at)-0x8000000
+    assert(offset>=0 and offset+4<=#b,"Artwork pointer outside ROM")
+    return offset
+  end
+  local lz=require("src.import.gba.lz77")
+  local pixels=lz.decompress(get,pointer((back and 0x23654c or 0x2350ac)+species*8))
+  local pal=lz.decompress(get,pointer((shiny and 0x2380cc or 0x23730c)+species*8))
   assert(#pixels>=(frame+1)*2048 and #pal>=(paletteFrame+1)*32,"This form is not present in the FireRed ROM")
   local colors={}
   for i=0,15 do local at=paletteFrame*32+i*2+1;local c=pal[at]+pal[at+1]*256;colors[i]={c%32/31,math.floor(c/32)%32/31,math.floor(c/1024)%32/31,i==0 and 0 or 1} end
@@ -51,6 +50,12 @@ function M.formPicture(S,species,back,frame,paletteFrame,shiny)
     image:setPixel(x,y,unpack(colors[index]))
   end end
   return image
+end
+-- Preview failures must not escape into the editor draw callback.
+function M.formPicture(S,species,back,frame,paletteFrame,shiny)
+  local ok,image,err=pcall(formPicture,S,species,back,frame,paletteFrame,shiny)
+  if not ok then return nil,"FireRed artwork unavailable: "..tostring(image) end
+  return image,err
 end
 function M.trades(S)
   if S.data._g3RomTrades then return S.data._g3RomTrades end
