@@ -270,9 +270,10 @@ local function drawCart(S, x, y, w, h, skin)
     sendFinish(shader, sparkle and FINISH_SPARKLE or FINISH_NONE, st.spin)
   end
 
-  local capH = h * 3 / 65
+  local gba = skin.base == "firered"
+  local capH = h * (gba and 0.10 or 3 / 65)
   local mainTop = -halfH + capH
-  local capRight = halfW - w * 5 / 57
+  local capRight = gba and halfW or halfW - w * 5 / 57
   local mainFront = quad(proj, -halfW, mainTop, w, h - capH, depth)
   local mainBack = quad(proj, -halfW, mainTop, w, h - capH, -depth)
   local capFront = quad(proj, -halfW, -halfH, capRight + halfW, capH, depth)
@@ -329,15 +330,20 @@ local function drawCart(S, x, y, w, h, skin)
 
   if frontFacing then
     local faceZ = depth + 0.8
-    local grooveW = w * 0.115
+    local grooveW = w * (gba and 0.045 or 0.115)
     local grooveH = math.max(1, h * 0.009)
     local grooveScale = { 1.22, 1.10, 1.00, 1.00, 1.10, 1.22 }
     local grooveInset = w * 0.02
-    for i = 0, 5 do
+    for i = 0, (gba and 3 or 5) do
       local ry = mainTop + h * 0.014 + i * h * 0.021
       local gw = grooveW * grooveScale[i + 1]
       polygon(quad(proj, -halfW + grooveInset, ry, gw, grooveH, faceZ), side, 0.7)
       polygon(quad(proj, halfW - gw - grooveInset, ry, gw, grooveH, faceZ), side, 0.7)
+    end
+    if gba then
+      -- The full-width raised grip distinguishes the short GBA shell.
+      polygon(quad(proj, -halfW, -halfH + capH * 0.65,
+        w, capH * 0.18, faceZ), side, 0.65)
     end
     local pillX, pillW = -halfW + w * 0.19, w * 0.62
     local pillY, pillH = mainTop + h * 0.015, h * 0.115
@@ -351,6 +357,10 @@ local function drawCart(S, x, y, w, h, skin)
 
     local labelX, labelY = -w * 0.33, -h * 0.20
     local labelW, labelH = w * 0.66, h * 0.55
+    if gba then
+      labelX, labelY = -w * 0.40, -h * 0.19
+      labelW, labelH = w * 0.80, h * 0.56
+    end
     polygon(quad(proj, labelX - 2, labelY - 2, labelW + 4, labelH + 4, faceZ + 0.8),
       side, 0.95)
     local labelPoints = quad(proj, labelX, labelY, labelW, labelH, faceZ + 1.2)
@@ -407,15 +417,17 @@ function CartPreview.draw(S, x, y, w, h, info)
   local areaH = h - headH - footH
   if areaW < 8 or areaH < 8 then return end
 
-  local cartW = math.min(areaW, areaH * 0.72)
-  local cartH = cartW / 0.72
+  local aspect = info.base == "firered" and (60 / 35) or 0.72
+  local cartW = math.min(areaW, areaH * aspect)
+  local cartH = cartW / aspect
   if cartH > areaH then
     cartH = areaH
-    cartW = cartH * 0.72
+    cartW = cartH * aspect
   end
   local cartX = areaX + (areaW - cartW) / 2
   local cartY = areaY + (areaH - cartH) / 2
   drawCart(S, cartX, cartY, cartW, cartH, {
+    base = info.base,
     color = CartPreview.parseShell(info.shell) or st.lastColor or { 139, 26, 26 },
     finish = info.finish,
     label = st.label,
