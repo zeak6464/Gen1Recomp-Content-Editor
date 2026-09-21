@@ -1073,6 +1073,7 @@ local function drawGen2Palettes(S, x, y, w, h, App, modeY)
 end
 
 function Gfx.draw(S, x, y, w, h, App)
+  if require("Generation").isGen3(S) then return require("Gen3GfxWorkspace").draw(S,x,y,w,h,App) end
   local s = Kit.scale
   if not S.project then
     Kit.emptyBox(x, y, w, h, "Open a mod on the Project tab first")

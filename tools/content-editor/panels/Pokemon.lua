@@ -67,6 +67,7 @@ local function iconNameOf(mon)
 end
 
 local function growthList(S)
+  if Generation.isGen3(S) then return {"MEDIUM_FAST","ERRATIC","FLUCTUATING","MEDIUM_SLOW","FAST","SLOW"} end
   return Generation.isGen2(S) and GROWTH_GEN2 or GROWTH
 end
 
@@ -320,6 +321,7 @@ local function nextOverflowDex(S)
 end
 
 local function defaultMon(id, S)
+  if Generation.isGen3(S) then return require("Gen3ContentAdapter").newRecord(S,"pokemon",id) end
   if Generation.isGen2(S) then
     local dex = nextOverflowDex(S)
     return {
@@ -585,7 +587,8 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
   local gen2 = Generation.isGen2(S)
   local sid = S.pokemonId or mon.id
   local palName = Preview.monPaletteName(S, mon, sid)
-  local shinyPrev = gen2 and S.pokemonShinyPreview and true or false
+  local gen3=Generation.isGen3(S)
+  local shinyPrev = (gen2 or gen3) and S.pokemonShinyPreview and true or false
   -- false = skip SGB remap. Gold uses GBC species palettes (normal/shiny).
   local drawPal = false
   local iconPal = false
@@ -601,7 +604,7 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
     if Preview.pokemonIconTrueColor(S, mon, sid) then iconPal = false end
   end
   local function openMonPal()
-    if gen2 or mon.trueColor then return end
+    if gen2 or gen3 or mon.trueColor then return end
     local eid = sid
     PalettePicker.open(S, {
       current = mon.palette,
@@ -635,6 +638,7 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
   local playAnim = anim and (S.pokemonAnimPreview ~= false)
   local frontPath = formSpritePath(S, mon, "spriteFront", formId)
   local backPath = formSpritePath(S, mon, "spriteBack", formId)
+  if gen3 and shinyPrev then frontPath="gen3-shiny/front/"..mon.index;backPath="gen3-shiny/back/"..mon.index end
   if not (playAnim and drawAnimPreview(S, anim, frontX, fy, prevSize, drawPal)) then
     Preview.draw(S, frontPath, frontX, fy, prevSize, prevSize, drawPal)
   end
@@ -643,7 +647,7 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
   if not gen2 and Kit.press(frontX, fy, prevSize * 2 + gap, prevSize) then
     openMonPal()
   end
-  if gen2 then
+  if gen2 or gen3 then
     local chipY = fy + prevSize + 2 * s
     local nw = Kit.textWidth("micro", "Normal") + 12 * s
     local sw = Kit.textWidth("micro", "Shiny") + 12 * s
@@ -664,7 +668,7 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
       end
       cx = cx + aw + 4 * s
     end
-    if Kit.button(cx, chipY, 70 * s, 16 * s, "GFX", {
+    if gen2 and Kit.button(cx, chipY, 70 * s, 16 * s, "GFX", {
         kind = "ghost", font = "micro",
         tooltip = "Edit normal/shiny colors on GFX → Palettes → Pokemon",
       }) then
@@ -676,7 +680,7 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
     if gen2Colors then
       Preview.drawSwatches(gen2Colors, frontX, chipY + 18 * s,
         prevSize * 2 + gap, 10 * s)
-    else
+    elseif gen2 then
       Kit.text("micro", "missing palettes.lua (re-import Gold/Silver ROM)",
         frontX, chipY + 18 * s, PAL.danger or PAL.yellow)
     end
@@ -692,9 +696,9 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
   end
   Kit.text("micro", "icon", iconX + 4 * s, fy + iconSize + 2 * s, PAL.faint)
   Kit.text("micro", playAnim and "front (anim)" or "front", frontX + 4 * s,
-    fy + prevSize + (gen2 and 34 * s or 14 * s), PAL.faint)
+    fy + prevSize + ((gen2 or gen3) and 34 * s or 14 * s), PAL.faint)
   Kit.text("micro", "back", formX + formW - prevSize + 4 * s,
-    fy + prevSize + (gen2 and 34 * s or 14 * s), PAL.faint)
+    fy + prevSize + ((gen2 or gen3) and 34 * s or 14 * s), PAL.faint)
 
   local fieldW = formW - labelW - prevSize * 2 - gap - iconSize - gap - 24 * s
   if fieldW < 160 * s then fieldW = formW - labelW - 20 * s end
@@ -705,6 +709,9 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
   end
 
   row("ID", function(fx, fy_, fw, fh_)
+    if Generation.isGen3(S) and not mon._isNew then
+      Kit.text("small",mon.id,fx,fy_+6*s,PAL.muted);return
+    end
     local v = field(S, App, "pk_id", fx, fy_, fw, fh_, mon.id, "SPECIES_ID")
     if v ~= mon.id and v:match("^[%w_]+$")
        and not S.project.pokemon[v]
@@ -801,10 +808,10 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
   Kit.text("small", "Stats", formX, fy + 6 * s, PAL.caption)
   mon.baseStats = mon.baseStats or {}
   local sx = formX + labelW
-  local statKeys = Generation.isGen2(S)
+  local statKeys = (Generation.isGen2(S) or Generation.isGen3(S))
     and { "hp", "attack", "defense", "speed", "specialAttack", "specialDefense" }
     or { "hp", "attack", "defense", "speed", "special" }
-  local sw = Generation.isGen2(S) and (58 * s) or (70 * s)
+  local sw = (Generation.isGen2(S) or Generation.isGen3(S)) and (58 * s) or (70 * s)
   for _, key in ipairs(statKeys) do
     local lab = key == "specialAttack" and "SPA"
       or key == "specialDefense" and "SPD"
@@ -858,6 +865,9 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
       end,
     })
   end)
+  if Generation.isGen3(S) then
+    return require("Gen3ContentForms").pokemon(S,mon,mutate,App,formX,fy,formW,fh,s)
+  end
   row(Generation.isGen2(S) and "Pic size" or "Front size", function(fx, fy_, fw, fh_)
     local cur = Generation.isGen2(S)
       and (mon.picSize or mon.frontSize or 5)
@@ -1476,10 +1486,9 @@ local function drawLearnset(S, mon, mutate, App, formX, fy, formW, fh, s)
     local lvl = row.level or 1
     local mv = row.move or "TACKLE"
     local vLvl = numField(S, App, "pk_ls_l_" .. i, formX, fy, 60 * s, fh, lvl)
-    local vMv = field(S, App, "pk_ls_m_" .. i, formX + 70 * s, fy,
-      formW - 160 * s, fh, mv, "MOVE",
-      function() return Autocomplete.moveIds(S) end)
-    vMv = vMv:upper():gsub("%s+", "_")
+    local vMv=mv
+    ChoicePicker.field(S,{x=formX+70*s,y=fy,w=formW-160*s,h=fh,current=mv,ids=Autocomplete.moveIds(S),title="Level-up move",
+      onPick=function(id) local updated=mutate();updated[key][i]={level=math.max(1,math.min(100,vLvl)),move=id};App.markDirty() end})
     if vLvl ~= lvl or vMv ~= mv then
       mon = mutate()
       mon[key][i] = { level = math.max(1, math.min(100, vLvl)), move = vMv }
@@ -1526,6 +1535,7 @@ end
 local function drawEvolutions(S, mon, mutate, App, formX, fy, formW, fh, s)
   local gen2 = Generation.isGen2(S)
   local methods = gen2 and EVO_METHODS_GEN2 or EVO_METHODS
+  if Generation.isGen3(S) then methods=require("src.mods.Schemas").gen3View.EVOLUTIONS end
   local intoKey = gen2 and "into" or "species"
   Kit.text("micro",
     gen2
@@ -1569,7 +1579,7 @@ local function drawEvolutions(S, mon, mutate, App, formX, fy, formW, fh, s)
     })
     local paramX = formX + methodW + 150 * s
     local paramW = math.max(80 * s, formW - (paramX - formX) - 78 * s)
-    if method == "LEVEL" or method == "EVOLVE_LEVEL"
+    if (Generation.isGen3(S) and method:match("^EVO_LEVEL")) or method == "LEVEL" or method == "EVOLVE_LEVEL"
         or method == "STAT" or method == "EVOLVE_STAT" then
       local lvl = numField(S, App, "pk_ev_lv_" .. i, paramX, fy,
         60 * s, fh, evo.level or 16)
@@ -1592,7 +1602,7 @@ local function drawEvolutions(S, mon, mutate, App, formX, fy, formW, fh, s)
           end,
         })
       end
-    elseif method == "ITEM" or method == "EVOLVE_ITEM" then
+    elseif method == "ITEM" or method == "EVOLVE_ITEM" or method=="EVO_ITEM" or method=="EVO_TRADE_ITEM" then
       ItemPicker.field(S, {
         x = paramX, y = fy, w = paramW, h = fh,
         current = evo.item or "",
@@ -1606,6 +1616,9 @@ local function drawEvolutions(S, mon, mutate, App, formX, fy, formW, fh, s)
           App.markDirty()
         end,
       })
+    elseif Generation.isGen3(S) and method=="EVO_BEAUTY" then
+      local value=numField(S,App,"pk_ev_beauty_"..i,paramX,fy,80*s,fh,evo.param or 0)
+      if value~=(evo.param or 0) then mon=mutate();mon.evolutions[i].param=math.max(0,value) end
     elseif gen2 and method == "EVOLVE_HAPPINESS" then
       ChoicePicker.field(S, {
         x = paramX, y = fy, w = math.min(paramW, 130 * s), h = fh,
@@ -1637,6 +1650,7 @@ local function drawEvolutions(S, mon, mutate, App, formX, fy, formW, fh, s)
     local row = gen2
       and { method = "EVOLVE_LEVEL", level = 16, into = "BAYLEEF" }
       or { method = "LEVEL", level = 16, species = "ABRA" }
+    if Generation.isGen3(S) then row.method="EVO_LEVEL" end
     mon.evolutions[#mon.evolutions + 1] = row
     App.markDirty()
   end
@@ -1666,6 +1680,10 @@ local function tmhmCatalog(S)
     byMove[move] = byMove[move] or label or "TM/HM"
   end
   local list = S.data and S.data.pokemon and S.data.pokemon.tmhmMoves
+  if Generation.isGen3(S) then
+    local byIndex={};for id,rec in pairs(S.data.moves or {}) do byIndex[rec.index]=id end
+    list={};for slot,index in pairs((S.data.gen3Pokemon.tmhm or {}).machines or {}) do list[slot+1]=byIndex[index] end
+  end
   if type(list) == "table" then
     for i, move in ipairs(list) do
       if type(move) == "string" then add(move, tmhmSlotLabel(S, i)) end
@@ -1713,10 +1731,10 @@ local function drawTmhm(S, mon, mutate, App, formX, fy, formW, fh, s)
     mv = tostring(mv or "")
     local tag = labels[mv] or "TM/HM"
     Kit.text("micro", tag, formX, fy + 8 * s, PAL.caption)
-    local vMv = field(S, App, "pk_tm_" .. i, formX + 70 * s, fy,
-      formW - 160 * s, fh, mv, "MOVE",
-      function() return suggest end)
-    vMv = vMv:upper():gsub("%s+", "_")
+    local vMv=mv;local machineLabels={}
+    for _,id in ipairs(suggest) do machineLabels[id]=(labels[id] or "TM/HM").." - "..id:gsub("_"," ") end
+    ChoicePicker.field(S,{x=formX+70*s,y=fy,w=formW-160*s,h=fh,current=mv,ids=suggest,labels=machineLabels,title="TM/HM move",
+      onPick=function(id) local updated=mutate();updated.tmhm[i]=id;App.markDirty() end})
     if vMv ~= mv then
       mon = mutate()
       mon.tmhm[i] = vMv
@@ -1769,6 +1787,7 @@ local function ensureDexOwned(S, id, App)
 end
 
 local function drawDex(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
+  if Generation.isGen3(S) then return require("Gen3ContentForms").dex(S,mon,mutate,App,formX,fy,formW,fh,s) end
   local fieldW = formW - labelW - 20 * s
   local function row(label, body)
     Kit.text("small", label, formX, fy + 6 * s, PAL.caption)
@@ -1883,6 +1902,7 @@ local function drawDex(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
 end
 
 function Pokemon.draw(S, x, y, w, h, App)
+  if Generation.isGen3(S) then require("Gen3ContentAdapter").prepare(S) end
   local s = Kit.scale
   if not S.project then
     Kit.emptyBox(x, y, w, h, "Open a mod on the Project tab first")
@@ -1999,7 +2019,9 @@ function Pokemon.draw(S, x, y, w, h, App)
   local secY = y + 22 * s
   local sx = formX
   S.pokemonSection = S.pokemonSection or "basics"
-  for _, sec in ipairs(SECTIONS) do
+  local sections=SECTIONS
+  if Generation.isGen3(S) then sections={};for _,v in ipairs(SECTIONS) do sections[#sections+1]=v end;sections[#sections+1]={id="forms",label="Forms"} end
+  for _, sec in ipairs(sections) do
     local on = S.pokemonSection == sec.id
     local bw = Kit.textWidth("micro", sec.label) + 18 * s
     if Kit.chip(sx, secY, bw, 26 * s, sec.label, on, PAL.green) then
@@ -2025,6 +2047,8 @@ function Pokemon.draw(S, x, y, w, h, App)
 
   if S.pokemonSection == "basics" then
     fy, mon = drawBasics(S, mon, mutate, App, viewX, fy, viewW, labelW, fh, s)
+  elseif S.pokemonSection == "forms" and Generation.isGen3(S) then
+    fy=require("Gen3Forms").draw(S,mon,viewX,fy,viewW,App)
   elseif S.pokemonSection == "learnset" then
     fy, mon = drawLearnset(S, mon, mutate, App, viewX, fy, viewW, fh, s)
   elseif S.pokemonSection == "evolutions" then
@@ -2049,10 +2073,10 @@ function Pokemon.draw(S, x, y, w, h, App)
     bx = bx + 128 * s
   end
   if Kit.button(bx, btnY, 120 * s, 32 * s,
-      "Delete", { kind = "danger",
+      Generation.isGen3(S) and "Remove edit" or "Delete", { kind = "danger",
         tooltip = "Remove from this mod (Save emits content:remove)" }) then
-    State.markDeleted(S.project, "pokemon", mon.id, mon,
-      S.data and S.data.pokemon)
+    if Generation.isGen3(S) then S.project.pokemon[mon.id]=nil
+    else State.markDeleted(S.project, "pokemon", mon.id, mon,S.data and S.data.pokemon) end
     if S.project.pokedex then S.project.pokedex[mon.id] = nil end
     local ids = allSpeciesIds(S)
     S.pokemonId = ids[1]

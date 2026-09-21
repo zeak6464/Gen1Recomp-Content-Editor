@@ -118,6 +118,14 @@ local TABS = {
     tip = "Talk scripts, std/phone/scene scripts, flags, save-flag tester" },
 }
 
+local function activeTabs()
+  if not require("Generation").isGen3(S) then return TABS end
+  local extra={trades=true,effects=true,rules=true,ai=true,breeding=true,shops=true,types=true,project=true,manifest=true,cart=true,code=true,player=true,ui=true,anims=true,audio=true,gfx=true}
+  local result={}
+  for _,tab in ipairs(TABS) do if extra[tab.id] or require("Gen3").tabs[tab.id] then result[#result+1]=tab end end
+  return result
+end
+
 local PANELS = {
   project = Project,
   manifest = Manifest,
@@ -208,8 +216,15 @@ local function refreshModsAndEvents()
   snapshotVanillaCatalog()
   local ModLoader = require("src.mods.Loader")
   local mods = ModLoader.new()
-  mods:load(Data)
+  if require("Generation").isGen3(S) then
+    if S.path and Data._editorGen3 and next(Data.gen3Pokemon or {}) then
+      local ok, loaded, err = pcall(require("Gen3Mod").load, Data, S.path, {baseOnly=true})
+      S.gen3ModError = not ok and tostring(loaded) or (not loaded and tostring(err) or nil)
+      if ok and loaded then mods = loaded end
+    end
+  else mods:load(Data) end
   S.data = Data
+  if require("Generation").isGen3(S) then require("Gen3Workspace").prepare(S) end
   S.mods = mods
   require("Generation").restoreUnownedLiveMaps(S)
   local okCat, Catalog = pcall(require, "Catalog")
@@ -238,6 +253,8 @@ function App.reloadData(opts)
   version = (prefs and prefs.lastVersion) or version or "red"
   S.version = version
   App.dataVersion = version
+  S._gen3Catalog = nil
+  S._g3Identity = nil
   S.dataSource = source
   S.dataPrefs = prefs
   if prefs and prefs.useGbcPalettes ~= nil then
@@ -383,6 +400,8 @@ function App.load(modPath, opts)
   local source, prefs, status = DataSource.apply({ version = version })
   S.version = (prefs and prefs.lastVersion) or version
   App.dataVersion = S.version
+  S._gen3Catalog = nil
+  S._g3Identity = nil
   S.dataSource = source
   S.dataPrefs = prefs
   S.useGbcPalettes = (prefs and prefs.useGbcPalettes ~= nil)
@@ -554,6 +573,8 @@ function App.openMod(path)
   end
   S.path = path
   S.project = State.ensureProjectFields(project)
+  local manifest = require("src.link.Json").decode(ModIO.readText(path .. "/manifest.json") or "{}")
+  ModIO.registerExternalMod(manifest and manifest.id or project.id, path)
   S.dirty = false
   local game = ModIO.authoringGame(S.project, path)
   if game then
@@ -562,8 +583,12 @@ function App.openMod(path)
       App.setGameVersion(game)
     end
   end
+  if require("Generation").isGen3(S) then
+    S.project.game = S.version
+    App.reloadData({version=S.version})
+  end
   S._liveTilesets = nil
-  S.browseModId = path:match("[/\\]([^/\\]+)$") or S.browseModId
+  S.browseModId = (manifest and manifest.id) or path:match("[/\\]([^/\\]+)$") or S.browseModId
   S._manifestFor = nil
   S._codeFor = nil
   S.manifestDirty = false
@@ -766,7 +791,8 @@ end
 local function linkedRecompRoot()
   local persisted = DataSource.loadPrefs()
   local prefs = (S and S.dataPrefs) or persisted
-  local recomp = (DataSource.mountedRecompRoot and DataSource.mountedRecompRoot())
+  local recomp = os.getenv("POKEPORT_RECOMP")
+    or (DataSource.mountedRecompRoot and DataSource.mountedRecompRoot())
     or (prefs and prefs.recompRoot)
     or (persisted and persisted.recompRoot)
   if recomp and recomp ~= "" and DataSource.isValidRecompRoot(recomp) then
@@ -1224,7 +1250,7 @@ local TAB_GAP = 6
 local function measureTabs(s)
   local widths, total = {}, 0
   local gap = TAB_GAP * s
-  for i, t in ipairs(TABS) do
+  for i, t in ipairs(activeTabs()) do
     local tw = math.max(72 * s, Kit.textWidth("micro", t.label) + 18 * s)
     widths[i] = tw
     total = total + tw + (i > 1 and gap or 0)
@@ -1245,7 +1271,7 @@ local function ensureTabVisible(s, viewW)
   local widths, contentW, gap = measureTabs(s)
   local maxOff = math.max(0, contentW - viewW)
   local idx = 1
-  for i, t in ipairs(TABS) do
+  for i, t in ipairs(activeTabs()) do
     if t.id == S.tab then idx = i; break end
   end
   local left = tabOffsetOf(widths, gap, idx)
@@ -1309,13 +1335,14 @@ local function tabHScrollbar(x, y, w, h, offset, contentW, viewW, hitY, hitH)
 end
 
 local function cycleTab(delta)
+  local tabs=activeTabs()
   local idx = 1
-  for i, t in ipairs(TABS) do
+  for i, t in ipairs(tabs) do
     if t.id == S.tab then idx = i; break end
   end
-  idx = ((idx - 1 + delta) % #TABS) + 1
+  idx = ((idx - 1 + delta) % #tabs) + 1
   local prev = S.tab
-  S.tab = TABS[idx].id
+  S.tab = tabs[idx].id
   if prev == "audio" and S.tab ~= "audio" then
     pcall(function() Audio.stopPreview(S) end)
   end
@@ -1327,7 +1354,7 @@ local function cycleTab(delta)
     pcall(function() UiPreview.stop(S) end)
   end
   S._tabBarNeedsReveal = true
-  say("Tab: " .. TABS[idx].label)
+  say("Tab: " .. tabs[idx].label)
 end
 
 -- Queue a native file dialog.  Must not run inside love.draw: on Windows the
@@ -1398,6 +1425,10 @@ end
 
 function App.update(dt)
   if not S then return end
+  if S.g3AnimPreview then require("Gen3AnimPreview").update(S,dt) end
+  if S.g3IntroPreview then require("Gen3IntroPreview").update(S,dt) end
+  if type(S.g3MinigamePreview)=="table" then require("Gen3MinigamePreview").update(S,dt) end
+  if S._g3AudioBake or S._g3AudioSource then require("Gen3Audio").update(S) end
   if Kit.scrollUpdate then
     pcall(function() Kit.scrollUpdate(dt or 0) end)
   end
@@ -1470,7 +1501,7 @@ function App.update(dt)
     cb = req.cb,
     hint = req.kind == "folder"
       and "Paste the Gen1Recomp folder path, then OK"
-      or "Paste the full .gb / file path, then OK",
+      or "Paste the full .gb / .gbc / .gba / file path, then OK",
   }
   if osName == "Linux" and status == "unavailable" then
     say("No file dialog — paste a path below (or: sudo apt install zenity)")
@@ -1624,7 +1655,7 @@ function App.draw()
 
   Kit.pushClip(tabViewX, tabY, tabViewW, tabH)
   local tx = tabViewX - (S.tabBarScroll or 0)
-  for i, t in ipairs(TABS) do
+  for i, t in ipairs(activeTabs()) do
     local tw = widths[i]
     local on = S.tab == t.id
     if Kit.chip(tx, tabY, tw, tabH, t.label, on, PAL.green, PAL.steel, t.tip) then
@@ -1667,6 +1698,18 @@ function App.draw()
   end
   RegList.clearNav(S)
   local panel = PANELS[S.tab]
+  if require("Generation").isGen3(S) and S.tab ~= "project" and S.tab ~= "manifest"
+      and S.tab ~= "code" and S.tab ~= "cart" then
+    panel = (S.tab == "pokemon" or S.tab == "items" or S.tab == "moves" or S.tab == "trainers" or S.tab == "encounters" or S.tab == "dialog" or S.tab == "shops" or S.tab == "types" or S.tab == "breeding" or S.tab == "rules" or S.tab == "ai" or S.tab == "effects" or S.tab == "trades") and PANELS[S.tab]
+      or S.tab == "events" and require("Gen3Events")
+      or S.tab == "maps" and MapsWorkspace
+      or S.tab == "gfx" and PANELS.gfx
+      or S.tab == "anims" and BattleAnims
+      or S.tab == "audio" and Audio
+      or S.tab == "ui" and PANELS.ui
+      or S.tab == "player" and PANELS.player
+      or require("Gen3Records")
+  end
   if panel and panel.draw then
     panel.draw(S, 20 * s, contentY, W - 40 * s, contentH, App)
   end
@@ -1760,7 +1803,7 @@ function App.keypressed(key)
   if ColorWheel.isOpen(S) and ColorWheel.keypressed(S, key) then return end
   -- Autocomplete claims Up/Down/Enter/Tab/Esc before the textfield.
   if Autocomplete.keypressed(S, key) then return end
-  if EventScriptEditor.keypressed(S, key, App) then return end
+  if not require("Generation").isGen3(S) and EventScriptEditor.keypressed(S, key, App) then return end
   if Kit.keypressed(key) then return end
   if key == "escape" then
     if PalettePicker.keypressed(S, key) then return end
@@ -1802,7 +1845,7 @@ function App.keypressed(key)
   if RegList.keypressed(S, key) then return end
   if S.tab == "maps" and MapsWorkspace.keypressed then
     MapsWorkspace.keypressed(S, key, App)
-  elseif S.tab == "events" and Events.keypressed then
+  elseif S.tab == "events" and not require("Generation").isGen3(S) and Events.keypressed then
     Events.keypressed(S, key, App)
   elseif S.tab == "code" and Code.keypressed then
     Code.keypressed(S, key)
@@ -1849,6 +1892,10 @@ function App.filedropped(file)
   if not (file and S) then return end
   local path = file.getFilename and file:getFilename() or nil
   if not path then return end
+  if path:lower():match("%.tmx$") and require("Generation").isGen3(S) then
+    say("TMX terrain import is not available for Gen 3 yet")
+    return
+  end
   if path:lower():match("%.tmx$") then
     S.tab = "maps"
     S.builderPane = "details"

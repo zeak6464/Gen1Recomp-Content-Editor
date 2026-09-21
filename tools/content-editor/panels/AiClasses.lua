@@ -182,6 +182,10 @@ local function cloneRecord(S, rec)
 end
 
 function AiClasses.draw(S, x, y, w, h, App)
+  if Generation.isGen3(S) then
+    S.trainerSection="ai"
+    return require("Trainers").draw(S,x,y,w,h,App)
+  end
   local s = Kit.scale
   if not S.project then
     Kit.emptyBox(x, y, w, h, "Open a mod on the Project tab first")

@@ -146,7 +146,8 @@ function RegList.drawList(S, App, x, y, w, h, title, ids, opts)
   elseif q ~= "" then
     local filtered, ql = {}, q:lower()
     for _, id in ipairs(ids) do
-      if id:lower():find(ql, 1, true) then filtered[#filtered + 1] = id end
+        local label=opts.label and opts.label(id) or id
+        if (id.." "..label):lower():find(ql, 1, true) then filtered[#filtered + 1] = id end
     end
     ids = filtered
   end
@@ -178,7 +179,7 @@ function RegList.drawList(S, App, x, y, w, h, title, ids, opts)
       S[selKey] = id
       if opts.onSelect then opts.onSelect(id) end
     end
-    Kit.text("mono", Kit.ellipsize("mono", id, math.max(8, rowW - 16 * s)),
+    Kit.text("mono", Kit.ellipsize("mono", opts.label and opts.label(id) or id, math.max(8, rowW - 16 * s)),
       x + 16 * s, ry + (rowH - Kit.textHeight("mono")) / 2,
       owned and PAL.text or PAL.muted)
     ry = ry + rowH + 4 * s

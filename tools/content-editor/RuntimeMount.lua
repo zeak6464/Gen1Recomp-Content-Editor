@@ -228,6 +228,28 @@ local function tryMount(fs, candidates, fns)
   return false
 end
 
+-- Recent runtimes no longer expose CacheFs.mountExternal. Keep data linking
+-- independent of that private helper, using the same desktop mount boundary.
+function RuntimeMount.mountData(path)
+  for _,mount in ipairs(physfsMountFns()) do if mount(path) then return true end end
+  return false
+end
+
+function RuntimeMount.unmountData(path)
+  if love.filesystem.unmountFullPath then return love.filesystem.unmountFullPath(path) end
+  local ok,ffi=pcall(require,"ffi")
+  if not ok then return false end
+  pcall(ffi.cdef,"int PHYSFS_unmount(const char *oldDir);")
+  for _,name in ipairs(loveDllCandidates()) do
+    local loaded,lib=pcall(ffi.load,name)
+    if loaded then
+      local called,result=pcall(function() return lib.PHYSFS_unmount(path) end)
+      if called and result~=0 then return true end
+    end
+  end
+  return false
+end
+
 function RuntimeMount.mount()
   local fs = assert(love and love.filesystem, "LÖVE filesystem unavailable")
   if runtimeComplete(fs) then return true end
@@ -246,6 +268,7 @@ function RuntimeMount.mount()
     end
     candidates[#candidates + 1] = path
   end
+  add(linkedRecompPath())
   if fileExists(archive) then add(archive) end
   if fileExists(fused) then add(fused) end
   if looksLikeRecomp(directory) then add(directory) end

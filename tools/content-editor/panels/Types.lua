@@ -31,7 +31,7 @@ local function dataTypes(S)
 end
 
 local function isVanillaType(S, id)
-  if Generation.isGen2(S) then
+  if Generation.isGen2(S) or Generation.isGen3(S) then
     local types = dataTypes(S)
     return types and types[id] ~= nil
   end
@@ -48,7 +48,7 @@ local function typeRecord(S, id)
     return S.project.types[id], true
   end
   -- Gold: prefer extracted type_chart.types (index + Gold categories).
-  if Generation.isGen2(S) then
+  if Generation.isGen2(S) or Generation.isGen3(S) then
     local types = dataTypes(S)
     if types and types[id] then return types[id], false end
   end
@@ -156,6 +156,7 @@ local function foresightKeys(S)
 end
 
 function Types.draw(S, x, y, w, h, App)
+  if Generation.isGen3(S) and S.project then require("Gen3Workbench").prepare(S) end
   local s = Kit.scale
   if not S.project then
     Kit.emptyBox(x, y, w, h, "Open a mod on the Project tab first")
@@ -206,7 +207,7 @@ function Types.draw(S, x, y, w, h, App)
   S.typeListOffset = Kit.scrollbar(scrollX, scrollY, scrollW, scrollH,
     S.typeListOffset or 0, #ids, perPage)
 
-  if Kit.button(x, y + h - 36 * s, listW, 32 * s, "+ New type",
+  if not Generation.isGen3(S) and Kit.button(x, y + h - 36 * s, listW, 32 * s, "+ New type",
       { kind = "good" }) then
     local nid = "NEW_TYPE"
     local n = 1
@@ -253,6 +254,7 @@ function Types.draw(S, x, y, w, h, App)
   end
 
   row("ID", function(fx, fy_, fw, fh_)
+    if Generation.isGen3(S) then Kit.caption(fx,fy_,id);return end
     local v = field(App, "ty_id", fx, fy_, fw, fh_, id, "TYPE_ID")
     if v ~= id and v:match("^[%w_]+$") and not (S.project.types and S.project.types[v]) then
       local taken = false

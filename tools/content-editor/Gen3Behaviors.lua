@@ -1,0 +1,149 @@
+local M={}
+local copy=require("src.mods.Merge").deepCopy
+local stats={attack="Attack",defense="Defense",speed="Speed",spAtk="Special Attack",spDef="Special Defense",accuracy="Accuracy",evasion="Evasion"}
+function M.new(S,kind)
+  S.project.gen3Behaviors=S.project.gen3Behaviors or {};local records=S.project.gen3Behaviors
+  local index=78
+  if kind=="ability" then
+    local used={};for _,r in pairs(records) do if r.kind=="ability" then used[r.index]=true end end
+    for id in pairs((S.data.gen3Pokemon or {}).abilityNames or {}) do used[tonumber(id)]=true end
+    while used[index] and index<=255 do index=index+1 end
+    assert(index<=255,"No free ability number")
+  end
+  local n=1;while records["CUSTOM_"..n] do n=n+1 end;local id="CUSTOM_"..n
+  records[id]={kind=kind,index=kind=="ability" and index or nil,name=(kind=="ability" and "Custom Ability " or "Custom Effect ")..n,
+    trigger="endTurn",target="self",chance=100,actions={{kind="heal",amount=6}}}
+  return id
+end
+function M.assignMove(S,id,moveId)
+  local rec=assert(S.project.gen3Behaviors[id]);assert(rec.kind=="move")
+  local base=assert(S.project.moves[moveId] or S.data.moves[moveId],"Choose a move")
+  for other,r in pairs(S.project.gen3Behaviors) do assert(other==id or r.moveId~=moveId,"This move already has a custom behavior") end
+  if rec.moveId~=moveId then
+    if rec.moveId and rec.originalMoveFields then
+      local previous=S.project.moves[rec.moveId]
+      if previous then
+        for _,field in ipairs({"power","effect","category","target"}) do previous[field]=rec.originalMoveFields[field] end
+      end
+    end
+    rec.originalMoveFields={power=base.power,effect=base.effect,category=base.category,target=base.target}
+  end
+  local move=copy(base);move.effect=0
+  if rec.mode=="damage" then
+    move.power=rec.power or 40;move.category=(rec.originalMoveFields or {}).category
+    if move.category=="status" then move.category=nil end
+    move.target=0
+  else move.power=0;move.category="status";move.target=rec.target=="self" and 16 or 0 end
+  S.project.moves[moveId]=move;rec.moveId=moveId;rec.moveIndex=move.index
+end
+function M.validate(records)
+  local names,indices,moves={},{},{}
+  for _,r in pairs(records or {}) do
+    assert(type(r.name)=="string" and #r.name>0 and #r.name<=40 and r.name:match("^[%w _%-]+$"),"Use a name of 1-40 letters, numbers, spaces or hyphens")
+    assert(r.kind=="ability" or r.kind=="move","Unknown behavior type")
+    assert(r.mode==nil or r.mode=="status" or r.mode=="damage","Unknown move behavior mode")
+    if r.mode=="damage" then assert(r.kind=="move" and type(r.power)=="number" and r.power%1==0 and r.power>=1 and r.power<=255,"Power must be 1-255") end
+    assert(r.target=="self" or r.kind=="move" and r.target=="opponent","Invalid behavior target")
+    assert(type(r.chance)=="number" and r.chance%1==0 and r.chance>=1 and r.chance<=100,"Chance must be 1-100")
+    if r.kind=="ability" then
+      assert(r.index and r.index%1==0 and r.index>=78 and r.index<=255 and not indices[r.index],"Invalid or duplicate ability number")
+      local name=r.name:upper():gsub("%s+","_")
+      assert(not names[name],"Custom ability names must be unique");names[name]=true;indices[r.index]=true
+      for _,native in pairs(require("src.core.game3.battle.adapter").ABILITY_BY_ID) do assert(name~=native,"Choose a name different from an original ability") end
+      assert(r.trigger=="endTurn" or r.trigger=="switchIn","Invalid ability trigger")
+    elseif r.moveIndex then assert(not moves[r.moveIndex],"Two effects use the same move");moves[r.moveIndex]=true end
+    assert(type(r.actions)=="table" and #r.actions>=1 and #r.actions<=8,"Choose 1-8 actions")
+    for _,a in ipairs(r.actions) do
+      if a.kind=="heal" then assert(type(a.amount)=="number" and a.amount>=1 and a.amount<=100,"Healing must be 1-100 percent")
+      elseif a.kind=="stat" then assert(stats[a.stat] and type(a.amount)=="number" and a.amount%1==0 and a.amount~=0 and a.amount>=-6 and a.amount<=6,"Choose a stat change from -6 to +6")
+      elseif a.kind=="weather" then assert(({SUN=true,RAIN=true,SANDSTORM=true,HAIL=true})[a.weather] and a.turns and a.turns%1==0 and a.turns>=1 and a.turns<=20,"Choose weather for 1-20 turns")
+      else assert(a.kind=="cure","Unknown behavior action") end
+    end
+  end
+end
+function M.draw(S,x,y,w,h,App)
+  local K,L,P=require("Kit"),require("RegList"),require("ChoicePicker");local s=K.scale
+  local records=S.project.gen3Behaviors or {};local ids=L.sortedKeys(records)
+  local fx,fw=L.drawList(S,App,x,y,w,h,"CUSTOM BEHAVIORS",ids,{selKey="g3BehaviorId",queryKey="g3BehaviorQuery",offsetKey="g3BehaviorOffset",label=function(id) return records[id].name end})
+  local yy=y
+  for _,kind in ipairs({"ability","move"}) do
+    if K.button(fx,yy,210*s,28*s,kind=="ability" and "New ability" or "New move behavior",{kind="good"}) then
+      local ok,id=pcall(M.new,S,kind);if ok then S.g3BehaviorId=id;App.markDirty() else S.status=tostring(id) end
+    end;yy=yy+36*s
+  end
+  local r=records[S.g3BehaviorId];if not r then K.caption(fx,yy,"Create a behavior, choose actions, then assign it.");return end
+  local top,view=require("FormPane").begin(S,"g3BehaviorForm",fx,yy,fw,h-(yy-y));yy=top;fw=view.contentW
+  local function caption(label) K.caption(fx,yy,label);yy=yy+24*s end
+  local function choice(label,current,options,onPick)
+    caption(label);local ids={};for id in pairs(options) do ids[#ids+1]=id end;table.sort(ids)
+    P.field(S,{x=fx,y=yy,w=fw,h=28*s,ids=ids,labels=options,current=current,onPick=function(id) onPick(id);App.markDirty() end});yy=yy+36*s
+  end
+  caption("Name")
+  local name=K.textfield("g3_behavior_name",fx,yy,fw,28*s,r.name,"");if name~=r.name then r.name=name;App.markDirty() end;yy=yy+36*s
+  if r.kind=="move" then
+    choice("Move behavior",r.mode or "status",{status="Status move (actions only)",damage="Damage, then extra actions"},function(v)
+      r.mode=v;r.power=r.power or math.max(1,tonumber((r.originalMoveFields or {}).power) or 40)
+      if r.moveId then M.assignMove(S,S.g3BehaviorId,r.moveId) end
+    end)
+    if r.mode=="damage" then
+      caption("Attack power (accuracy, type and PP are set in Moves)")
+      local power=math.floor(math.max(1,math.min(255,L.num(App,"g3_behavior_power",fx,yy,120*s,28*s,r.power or 40))))
+      if power~=r.power then r.power=power;if r.moveId then M.assignMove(S,S.g3BehaviorId,r.moveId) end;App.markDirty() end
+      yy=yy+36*s
+    end
+  end
+  if r.kind=="ability" then choice("When it happens",r.trigger,{switchIn="When entering battle",endTurn="At the end of each turn"},function(v) r.trigger=v end)
+  else choice(r.mode=="damage" and "Who receives the extra actions" or "Who it affects",r.target,{self="The user",opponent="The selected opponent"},function(v) r.target=v;if r.moveId then M.assignMove(S,S.g3BehaviorId,r.moveId) end end) end
+  caption("Chance to activate (%)")
+  local chance=math.floor(math.max(1,math.min(100,L.num(App,"g3_behavior_chance",fx,yy,120*s,28*s,r.chance))))
+  if chance~=r.chance then r.chance=chance;App.markDirty() end;yy=yy+36*s
+  for i,a in ipairs(r.actions) do
+    choice("Action "..i,a.kind,{heal="Restore HP (%)",stat="Change a stat",weather="Change weather",cure="Cure status condition"},function(v)
+      r.actions[i]={kind=v,amount=v=="stat" and 1 or 25,stat="attack",weather="RAIN",turns=5}
+    end)
+    if a.kind=="stat" then choice("Stat",a.stat,stats,function(v) a.stat=v end) end
+    if a.kind=="heal" or a.kind=="stat" then
+      local lo,hi=a.kind=="heal" and 1 or -6,a.kind=="heal" and 100 or 6
+      caption(a.kind=="heal" and "Percent of maximum HP" or "Stages (-6 to +6; zero is invalid)")
+      local n=math.floor(math.max(lo,math.min(hi,L.num(App,"g3_action_amount_"..i,fx,yy,120*s,28*s,a.amount))))
+      if n~=a.amount then a.amount=n;App.markDirty() end;yy=yy+36*s
+    elseif a.kind=="weather" then
+      choice("Weather",a.weather,{SUN="Sun",RAIN="Rain",SANDSTORM="Sandstorm",HAIL="Hail"},function(v) a.weather=v end)
+      caption("Duration in turns")
+      local n=math.floor(math.max(1,math.min(20,L.num(App,"g3_action_turns_"..i,fx,yy,120*s,28*s,a.turns))))
+      if n~=a.turns then a.turns=n;App.markDirty() end;yy=yy+36*s
+    end
+    if #r.actions>1 and K.button(fx,yy,170*s,28*s,"Remove action "..i,{}) then table.remove(r.actions,i);App.markDirty();break end
+    yy=yy+36*s
+  end
+  if #r.actions<8 and K.button(fx,yy,180*s,28*s,"Add another action",{}) then r.actions[#r.actions+1]={kind="heal",amount=25};App.markDirty() end;yy=yy+40*s
+  if r.kind=="ability" then
+    caption("Assign to a Pokemon")
+    require("SpeciesPicker").field(S,{x=fx,y=yy,w=fw,h=28*s,current=S.g3CustomAbilitySpecies,onPick=function(v) S.g3CustomAbilitySpecies=v end});yy=yy+36*s
+    choice("Ability slot",S.g3CustomAbilitySlot or "1",{["1"]="First ability",["2"]="Second ability"},function(v) S.g3CustomAbilitySlot=v end)
+    if K.button(fx,yy,210*s,28*s,"Assign custom ability",{kind="good"}) then
+      local species=S.g3CustomAbilitySpecies;local base=S.project.pokemon[species] or S.data.pokemon[species]
+      if base then local mon=copy(base);mon.abilities=mon.abilities or {};mon.abilities[tonumber(S.g3CustomAbilitySlot or "1")]=r.index;S.project.pokemon[species]=mon;App.markDirty();S.status="Custom ability assigned. Save your mod." else S.status="Choose a Pokemon first." end
+    end
+  else
+    caption(r.mode=="damage" and "Assign to a move (replaces its original effect)" or "Assign to a move (sets power to zero and uses these actions)")
+    P.field(S,{x=fx,y=yy,w=fw,h=28*s,ids=L.mergeIds(S.project.moves,S.data.moves),current=r.moveId,onPick=function(v)
+      local ok,err=pcall(M.assignMove,S,S.g3BehaviorId,v);if ok then App.markDirty() else S.status=tostring(err) end
+    end})
+  end
+  yy=yy+42*s
+  local ok,err=pcall(M.validate,records);if not ok then caption(tostring(err):match("[^:]+$") or tostring(err)) end
+  require("FormPane").finish(S,"g3BehaviorForm",top,yy,view)
+end
+function M.emit(p,encode,out)
+  local records=p.gen3Behaviors or {};if not next(records) then return end
+  M.validate(records)
+  for _,r in pairs(records) do if r.kind=="move" and r.moveId then
+    local move=(p.moves or {})[r.moveId];assert(move and move.index==r.moveIndex and move.power==(r.mode=="damage" and r.power or 0),"Move power changed; reassign it in the behavior builder")
+  end end
+  local assignments={}
+  for _,mon in pairs(p.pokemon or {}) do if mon.abilities and tonumber(mon.index) then assignments[tonumber(mon.index)]=mon.abilities end end
+  local source=assert(love.filesystem.read("tools/content-editor/Gen3BehaviorRuntime.lua"))
+  out[#out+1]="  local behaviors=(function()\n"..source.."\nend)()("..encode(records)..",mod,"..encode(assignments)..")\n  behaviors.install()"
+end
+return M

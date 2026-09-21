@@ -349,3 +349,26 @@ Outputs:
 - `dist/macos/gen1recomp-content-editor-macos-universal.tar.gz`
 
 Editor + LÖVE runtime + fixtures + sample mods, **no ROM cache**.
+
+
+FireRed Fly destinations: open **UI → Town Map → Fly destinations**, then choose
+**Set up FireRed Fly destinations**. The starter list contains Kanto's 13 outdoor
+arrival points. Add or rename destinations, choose a landing map, set the zero-based
+landing tile and Town Map marker, and choose **After visiting**, **Always available**,
+or a named story flag. Save the mod to activate these settings. In-game, choose Fly
+from a Pokémon's menu, use the direction buttons to select a destination, and press
+A to travel or B to cancel. Normal Fly badge and outdoor-use checks still apply.
+Visit tracking starts when the mod is enabled; existing saves can use Always available
+or an existing story flag. Arrival uses the map's normal loading behavior, without a
+Fly takeoff/landing animation.
+
+
+### FireRed end credits and area previews
+
+UI → **End credits** reads all 42 original credit text pages plus the closing page from the verified FireRed USA 1.0 ROM. Edit headings and credit lines, choose original artwork or import a 240 × 160 PNG, set duration, and add/delete/reorder pages. The default **Original cinematic sequence** follows the original scene order with scrolling maps, animated player/rival sprites, four Pokémon pose transitions, white-circle and Poké Ball backgrounds, credits music, cries, and closing artwork. **Simple timed pages** remains available as an alternative. Play preview uses the same sequence player as the exported mod. Enable in game and Save to play it after Hall of Fame, before its normal completion callback.
+
+The cinematic presentation uses baked map images, so water, weather, and map objects do not animate. Transition timing and text layout approximate the cartridge presentation; this is not a frame-exact emulation. Edited credit text, page durations, replacement images, and additional pages are retained when building the cinematic sequence.
+
+UI → **Area previews** contains all 21 original area illustrations, composed from their ROM tiles, palettes, and tilemaps. Choose the arrival map, area name, duration, and first-arrival/every-arrival/disabled behavior. Import a 240 × 160 replacement or export the preview. The first-arrival history is stored per mod in the save; it starts when this feature is enabled and does not reconstruct visits from older saves. Loading an existing save inside an area does not itself trigger a preview. A, B, or Start advances/skips a screen. Disable in game preserves the editor's settings and artwork.
+
+Both features export their data and images into the mod; the game does not need access to the source ROM. Restart the editor after updating its code, enable the desired sequence, Save, and relaunch playtest.

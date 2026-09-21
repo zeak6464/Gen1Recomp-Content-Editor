@@ -202,6 +202,7 @@ local function writeMachine(item, kind, move, number)
 end
 
 local function effectSummary(S, def)
+  if Generation.isGen3(S) then return (def.pocket or "").." · "..tostring(def.price or 0) end
   if type(def) ~= "table" then return "" end
   local tmpl = inferTemplate(S, def)
   if tmpl == "heal" then
@@ -404,6 +405,7 @@ local function toggleCure(cures, st)
 end
 
 function Items.draw(S, x, y, w, h, App)
+  if Generation.isGen3(S) then require("Gen3ContentAdapter").prepare(S) end
   local s = Kit.scale
   if not S.project then
     Kit.emptyBox(x, y, w, h, "Open a mod on the Project tab first")
@@ -475,15 +477,17 @@ function Items.draw(S, x, y, w, h, App)
 
   if Kit.button(x, y + h - 36 * s, listW, 32 * s, "+ New item",
       { kind = "good" }) then
+    if Generation.isGen3(S) then require("Gen3Create").open(S,"items",App) else
     local nid = "NEW_ITEM"
     local n = 1
     while S.project.items[nid] or (S.data.items and S.data.items[nid]) do
       n = n + 1
       nid = "NEW_ITEM_" .. n
     end
-    S.project.items[nid] = defaultItem(nid)
+    S.project.items[nid] = Generation.isGen3(S) and require("Gen3ContentAdapter").newRecord(S,"items",nid) or defaultItem(nid)
     S.itemId = nid
     App.markDirty()
+    end
   end
 
   local item, owned = resolveItem(S, S.itemId)
@@ -522,6 +526,9 @@ function Items.draw(S, x, y, w, h, App)
   local labelW = 120 * s
   local fh = 28 * s
 
+  if Generation.isGen3(S) then
+    fy,item=require("Gen3ContentForms").items(S,item,mutate,App,formX,fy,formW,fh,s)
+  else
   local prevSize = 72 * s
   local gen2 = Generation.isGen2(S)
   local itemPal = (not gen2) and Preview.itemPaletteName(S, item) or nil
@@ -1010,6 +1017,7 @@ function Items.draw(S, x, y, w, h, App)
       or "List shows effect summary. First edit clones into the mod (Save = patch + effect).",
     formX, fy + 4 * s, PAL.faint)
   fy = fy + 28 * s
+  end
   FormPane.finish(S, "itemFormScroll", contentTop, fy, view)
 
   local btnY = cardListY + cardListH - 40 * s
@@ -1023,10 +1031,10 @@ function Items.draw(S, x, y, w, h, App)
     bx = bx + 128 * s
   end
   if Kit.button(bx, btnY, 120 * s, 32 * s,
-      "Delete", { kind = "danger",
+      Generation.isGen3(S) and "Remove edit" or "Delete", { kind = "danger",
         tooltip = "Remove from this mod (Save emits content:remove)" }) then
-    State.markDeleted(S.project, "items", item.id, item,
-      S.data and S.data.items)
+    if Generation.isGen3(S) then S.project.items[item.id]=nil
+    else State.markDeleted(S.project, "items", item.id, item,S.data and S.data.items) end
     local ids = allItemIds(S)
     S.itemId = ids[1]
     App.markDirty()

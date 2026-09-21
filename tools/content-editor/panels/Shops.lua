@@ -195,6 +195,7 @@ local function collectGen1Shops(S)
 end
 
 local function collectShops(S)
+  if Generation.isGen3(S) then return require("Gen3Workbench").shops(S) end
   if Generation.isGen2(S) then return collectGen2Shops(S) end
   return collectGen1Shops(S)
 end
@@ -218,6 +219,15 @@ local function ensureGen1Shop(S, label, textId, App)
 end
 
 local function ensureGen2Shop(S, key, App)
+  if Generation.isGen3(S) then
+    S.project.marts=S.project.marts or {}
+    if not S.project.marts[key] then
+      local _,rows=require("Gen3Workbench").shops(S)
+      S.project.marts[key]=cloneItemList(rows[key] and rows[key].base)
+    end
+    if App then App.markDirty() end
+    return S.project.marts[key]
+  end
   State.ensureProjectFields(S.project)
   S.project.marts = S.project.marts or {}
   if type(S.project.marts[key]) ~= "table" then
@@ -249,7 +259,7 @@ local function drawGen2Form(S, App, formX, listY, formW, listH, key, rec, items)
     "shopsFormScroll", key, rec.owned and 44 * s or 12 * s)
   local contentTop = fy
 
-  local idLine = rec.key
+  local idLine = rec.label or rec.key
   if rec.martId ~= nil then
     idLine = string.format("%s  ·  id %d", rec.key, rec.martId)
   end
@@ -257,11 +267,11 @@ local function drawGen2Form(S, App, formX, listY, formW, listH, key, rec, items)
   fy = fy + 18 * s
   if rec.kind == "bargain" then
     Kit.text("micro",
-      string.format("%d row(s)  |  Save: marts:override BARGAIN", #(rec.mart or {})),
+      string.format("%d row(s)  |  Save: shop stock override BARGAIN", #(rec.mart or {})),
       viewX, fy, PAL.detail)
   else
     Kit.text("micro",
-      string.format("%d item(s)  |  %d script ref(s)  |  Save: marts:override",
+      string.format("%d item(s)  |  %d script ref(s)  |  Save: shop stock override",
         #(rec.mart or {}), rec.uses or 0),
       viewX, fy, PAL.detail)
   end
@@ -390,13 +400,14 @@ function Shops.draw(S, x, y, w, h, App)
 
   local keys, byKey = collectShops(S)
   local items = allItemIds(S)
-  local gen2 = Generation.isGen2(S)
+  local gen2 = Generation.isGen2(S) or Generation.isGen3(S)
 
   local formX, formW, listY, listH, shown = RegList.drawList(S, App, x, y, w, h,
     "SHOPS", keys, {
       queryKey = "shopsQuery",
       offsetKey = "shopsListOffset",
       selKey = "shopKey",
+      label = function(key) return byKey[key] and byKey[key].label or key end,
       accent = PAL.blue,
       isOwned = function(key)
         local rec = byKey[key]
@@ -407,6 +418,7 @@ function Shops.draw(S, x, y, w, h, App)
         local rec = byKey[key]
         local ql = q:lower()
         if key:lower():find(ql, 1, true) then return true end
+        if rec and tostring(rec.label):lower():find(ql,1,true) then return true end
         if rec and tostring(rec.textId):lower():find(ql, 1, true) then
           return true
         end

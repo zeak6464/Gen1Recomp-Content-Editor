@@ -27,6 +27,8 @@ local GEN2_PLAYER_PRESETS = {
 }
 
 local function modesFor(S)
+  if Generation.isGen3(S) then return {{id="start",label="New game"},{id="starters",label="Starters & gifts"},
+    {id="overworld",label="Overworld"},{id="pics",label="Trainer pictures"}} end
   local start = { id = "start", label = "New game",
     tip = "Spawn, money, bag, and PC items" }
   local advanced = { id = "advanced", label = "Advanced",
@@ -699,6 +701,12 @@ end
 -- Crystal/Gold ignore Data.field.boot (still Red's house). New game uses
 -- landmarks.spawns.SPAWN_HOME, 3000 money, empty bag/PC.
 function Player.vanillaBoot(S)
+  if Generation.isGen3(S) then
+    local start=require("src.core.game3.map_ids").NEW_GAME_START
+    return {startMap=start.map,startX=start.x,startY=start.y,startFacing=start.facing or "down",startMoney=3000,
+      lastHeal={map=start.healMap or start.map,x=start.healX or start.x,y=start.healY or start.y},
+      playerName="RED",rivalName="BLUE",startItems={},startPcItems={{id="POTION",count=1}},namePresets={}}
+  end
   if Generation.isGen2(S) then
     local lm = S.data and (S.data.gen2Landmarks or S.data.landmarks)
     local spot = lm and lm.spawns and lm.spawns.SPAWN_HOME
@@ -971,6 +979,7 @@ local function drawStart(S, x, y, w, h, App)
     App.markDirty()
   end
 
+  if not Generation.isGen3(S) then
   bootRow("Player names", function(fx, fy_, fw, fh_)
     local cur = joinCsvIds(namePresetList("player"))
     local v = RegList.field(App, "pl_boot_pnames", fx, fy_, fw, fh_, cur,
@@ -984,6 +993,7 @@ local function drawStart(S, x, y, w, h, App)
     if v ~= cur then setNamePresets("rival", parseCsvIds(v)) end
   end)
 
+  end
   fy = fy + 8 * s
   fy = drawBootItemList(S, App, "startItems", "Bag items",
     viewX, fy, viewW, fh, s)
@@ -1351,10 +1361,17 @@ function Player.draw(S, x, y, w, h, App)
   end
   State.ensureProjectFields(S.project)
 
+  if Generation.isGen3(S) then require("Gen3Workbench").prepare(S) end
   local modeY = RegList.modeChips(S, "playerMode", modesFor(S), x, y, s)
   local mode = S.playerMode or "start"
   local bodyH = h - (modeY - y)
-  if mode == "pics" then
+  if Generation.isGen3(S) and mode=="starters" then
+    require("Gen3StartersPanel").draw(S,x,modeY,w,bodyH,App)
+  elseif Generation.isGen3(S) and (mode=="pics" or mode=="overworld") then
+    require("Gen3Assets").draw(S,x,modeY,w,bodyH,App,function(path)
+      return mode=="pics" and path:find("/trainers/",1,true) or mode=="overworld" and path:find("/ow/",1,true)
+    end)
+  elseif mode == "pics" then
     drawPics(S, x, modeY, w, bodyH, App)
   elseif mode == "overworld" then
     drawOverworld(S, x, modeY, w, bodyH, App)

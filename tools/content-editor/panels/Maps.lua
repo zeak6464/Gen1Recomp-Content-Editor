@@ -584,7 +584,7 @@ local function resolveMapDef(S, mapId)
     local live = Generation.dataMaps(S)[mapId]
     if live then return live, true end
   end
-  local bak = S._vanillaMapBackup and S._vanillaMapBackup[mapId]
+  local bak = not Generation.isGen3(S) and S._vanillaMapBackup and S._vanillaMapBackup[mapId]
   if type(bak) == "table" then return bak, false end
   local live = Generation.dataMaps(S)[mapId]
   if live then return live, false end
@@ -644,6 +644,10 @@ local function deepCloneMap(def)
 end
 
 local function ensureOwned(S, mapId)
+  if Generation.isGen3(S) then
+    local source=require("Gen3Workspace").convert(S,mapId)
+    return source and S.project.maps[mapId]
+  end
   local def, owned = resolveMapDef(S, mapId)
   if not def then return nil end
   if owned then return def end
@@ -1141,7 +1145,7 @@ local function pasteMapEventClip(S, App)
   else
     return false, "unknown clipboard kind"
   end
-  if S.data and S.data.maps then S.data.maps[map.id or S.mapId] = map end
+  if S.data and S.data.maps and not Generation.isGen3(S) then S.data.maps[map.id or S.mapId] = map end
   MapLoader.invalidate(map.id or S.mapId)
   if App and App.markDirty then App.markDirty() end
   return true, string.format("Pasted %s at (%d,%d) on %s",
@@ -1956,6 +1960,7 @@ end
 -- Gate on the map record (TILESET_*), not the session: leftover Gold tables
 -- must not blank Pallet Town's SGB remap.
 local function mapPreviewPalette(S, mapDef, renderer)
+  if Generation.isGen3(S) then return nil end
   mapDef = mapDef or resolveMapDef(S, S.mapId)
   -- Gold atlases are baked true-color via tilePalettes × EnvironmentColors.
   if Generation.mapLooksGen2(mapDef) then return nil end
@@ -2335,7 +2340,7 @@ local prepareLiveMap
 local WORLD_BLOCK = 32
 
 local function worldConnDelta(dir, offset, curDef, destDef)
-  local off = (offset or 0) * WORLD_BLOCK
+  local off = (offset or 0) * (curDef._gen3Native and 16 or WORLD_BLOCK)
   if dir == "north" then
     return off, -destDef.height * WORLD_BLOCK
   elseif dir == "south" then
@@ -2348,7 +2353,7 @@ end
 
 -- Place `other` when `other.connections[dir]` points at `cur`.
 local function worldReverseDelta(dir, offset, curDef, otherDef)
-  local off = (offset or 0) * WORLD_BLOCK
+  local off = (offset or 0) * (curDef._gen3Native and 16 or WORLD_BLOCK)
   if dir == "north" then
     return -off, curDef.height * WORLD_BLOCK
   elseif dir == "south" then
@@ -2702,6 +2707,8 @@ local function drawWorldView(S, App, vx, vy, vw, vh, propW)
       local vconn = bak and bak.connections and bak.connections[dir]
       val = connMapId(vconn, S) or val
     end
+    Kit.text("micro",dir:upper(),px+10*s,y,PAL.caption)
+    y=y+16*s
     local v = field(App, "mp_wc_" .. dir, px + 10 * s, y, propW - 20 * s, fh,
       val, dir)
     local wantMap = (v == "") and nil or v:upper():gsub("%s+", "_")
@@ -2908,6 +2915,7 @@ end
 
 prepareLiveMap = function(S, mapId, def)
   if not (S.data and mapId and def) then return end
+  if Generation.isGen3(S) then return end
   S.data.tilesets = S.data.tilesets or {}
   S.data.maps = S.data.maps or {}
   for tid, ts in pairs(S.project.tilesets or {}) do
@@ -2953,6 +2961,13 @@ end
 
 function Maps.loadEditorMap(S, mapId)
   if not mapId then return false, "no map" end
+  if Generation.isGen3(S) then
+    local source,err=require("Gen3Workspace").source(S,mapId)
+    if not source then return false,err end
+    local def=resolveMapDef(S,mapId)
+    return true,{id=mapId,def=def,widthCells=source.cellWidth,heightCells=source.cellHeight,
+      renderer=require("LayeredMap").previewRenderer(S,source,mapId)}
+  end
   local def = select(1, resolveMapDef(S, mapId))
   local daytimeHint = def and (Preview.gen2PreviewDaytime(S, def) or "DAY") or ""
   local liveSig = tostring(mapId) .. "|" .. tostring(def and def.tileset)
@@ -3720,7 +3735,10 @@ local function drawObjectSprites(S, mapDef, opts)
     if not obj.hidden then
       local sr = getSpriteRenderer(S, obj.sprite)
       local px, py = (obj.x or 0) * CELL, (obj.y or 0) * CELL
-      if sr then
+      local nativeDrawn = Generation.isGen3(S) and require("Gen3MapSprites").draw(S,obj,px-camX,py-camY)
+      if nativeDrawn then
+        -- Native frame drawn; selection outlines are added below.
+      elseif sr then
         local ok = pcall(sr.draw, sr, px, py, camX, camY,
           facingFromRange(obj.range), 0, false)
         if not ok then
@@ -4313,7 +4331,9 @@ local function drawMapPreview(S, mapDef, x, y, w, h, App)
 
   local swH = 12 * s
   local swX, swY = vx + 6 * s, vy + vh - 34 * s
-  if Generation.isGen2(S) then
+  if Generation.isGen3(S) then
+    Kit.text("micro", "FireRed native colors", swX, swY, PAL.faint)
+  elseif Generation.isGen2(S) then
     local bgSet, tod = Preview.gen2MapBgSet(S, mapDef)
     local cell = 8 * s
     if bgSet then
@@ -8537,6 +8557,7 @@ end
 
 -- Event editing on the 16x16 map canvas.
 function Maps.applyEventAtCell(S, tool, cx, cy, App)
+  if Generation.isGen3(S) and require("Gen3MapEvents").place(S,tool,cx,cy,App) then return true end
   acS = S
   local map = resolveMapDef(S, S.mapId)
   if not map then return false end
@@ -8577,7 +8598,7 @@ function Maps.moveEvent(S, kind, index, cx, cy, App)
       LM.moveWarpAt(S.project, map.id or S.mapId, oldX, oldY, cx, cy)
     end
   end
-  if S.data and S.data.maps then S.data.maps[map.id or S.mapId] = map end
+  if S.data and S.data.maps and not Generation.isGen3(S) then S.data.maps[map.id or S.mapId] = map end
   MapLoader.invalidate(map.id or S.mapId)
   App.markDirty()
   S.status = string.format("Moved %s #%d to (%d,%d)", kind, index, cx, cy)
@@ -8768,6 +8789,7 @@ end
 
 -- Map/event settings drawer used beside the canvas.
 function Maps.drawDetails(S, x, y, w, h, App)
+  if Generation.isGen3(S) then return require("Gen3MapEvents").draw(S,x,y,w,h,App) end
   acS = S
   local s, pad = Kit.scale, 8 * Kit.scale
   local map, owned = resolveMapDef(S, S.mapId)
@@ -9107,6 +9129,7 @@ function Maps.triggerAt(S, cx, cy)
 end
 
 function Maps.placeTriggerCell(S, cx, cy, App)
+  if Generation.isGen3(S) then return require("Gen3MapEvents").place(S,"trigger",cx,cy,App) end
   State.ensureProjectFields(S.project)
   local mapId = S.mapId
   if not mapId then return false end

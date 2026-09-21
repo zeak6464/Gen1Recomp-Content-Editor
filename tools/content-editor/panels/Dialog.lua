@@ -88,6 +88,7 @@ local function allMapIds(S)
     if not seen[id] then seen[id] = true; ids[#ids + 1] = id end
   end
   table.sort(ids)
+  if Generation.isGen3(S) then table.insert(ids,1,"ALL DIALOG") end
   return ids
 end
 
@@ -109,7 +110,7 @@ end
 -- Resolve pin id → string id. Gen1: TEXT_* via text_pointers. Gold: id IS the key.
 local function resolveStringId(S, mapId, textId)
   if not textId then return nil end
-  if Generation.isGen2(S) then
+  if Generation.isGen2(S) or Generation.isGen3(S) then
     return textId, State.mapLabel(S, mapId), false
   end
   local label = State.mapLabel(S, mapId)
@@ -126,6 +127,10 @@ local function resolveStringId(S, mapId, textId)
 end
 
 local function resolveBody(S, strId)
+  if Generation.isGen3(S) then
+    local edited=S.project.text[strId]
+    return require("Gen3Dialog").display(edited or S.data.text[strId]),edited~=nil
+  end
   if not strId then return "" end
   if S.project.text and S.project.text[strId] ~= nil then
     return S.project.text[strId], true
@@ -137,6 +142,7 @@ local function resolveBody(S, strId)
 end
 
 local function collectPins(S, mapId)
+  if Generation.isGen3(S) then return require("Gen3Dialog").pins(S,mapId) end
   local map = mapRecord(S, mapId)
   local pins, seen = {}, {}
   -- Dedupe by kind+index+textId so two NPCs never collapse into one pin.
@@ -269,6 +275,7 @@ end
 local function ensureEditable(S, mapId, textId, App)
   State.ensureProjectFields(S.project)
   local strId, label = resolveStringId(S, mapId, textId)
+  if Generation.isGen3(S) then return strId end
   if Generation.isGen2(S) then
     -- Gold: text ids are bank:addr keys; Save emits text:override only.
     if strId and S.project.text[strId] == nil then
@@ -323,6 +330,7 @@ function Dialog.draw(S, x, y, w, h, App)
     return
   end
   State.ensureProjectFields(S.project)
+  if Generation.isGen3(S) then require("Gen3ContentAdapter").prepare(S) end
 
   local col1 = math.min(200 * s, w * 0.22)
   local col2 = math.min(260 * s, w * 0.30)
@@ -337,7 +345,7 @@ function Dialog.draw(S, x, y, w, h, App)
   local listY = qy + qh + 6 * s
   local listH = math.max(40 * s, h - (listY - y))
   Kit.card(x, listY, col1, listH, 12 * s)
-  local maps = Search.filterIds(allMapIds(S), mapQ)
+  local maps = Search.filterIds(allMapIds(S), Generation.isGen3(S) and mapQ:gsub(" ","_") or mapQ)
   if not S.dialogMapId then S.dialogMapId = S.mapId or maps[1] end
   local rowH = 26 * s
   local perMap = math.max(1, math.floor((listH - 16 * s) / (rowH + 2 * s)))
@@ -366,7 +374,7 @@ function Dialog.draw(S, x, y, w, h, App)
     end
     local textMax = math.max(8, mapRowW - 12 * s)
     Kit.pushClip(mapScrollX, ry, mapRowW, rowH)
-    Kit.text("micro", Kit.ellipsize("micro", id, textMax),
+    Kit.text("micro", Kit.ellipsize("micro", Generation.isGen3(S) and require("Gen3Names").map(id) or id, textMax),
       mapScrollX + 6 * s, ry + 6 * s, PAL.text)
     Kit.popClip()
     ry = ry + rowH + 2 * s
@@ -441,8 +449,10 @@ function Dialog.draw(S, x, y, w, h, App)
   for _, p in ipairs(pins) do
     if p.textId == S.dialogTextId then selPin = p; break end
   end
-  Kit.text("small", tostring(S.dialogTextId or ""), ex + 12 * s, listY + 12 * s, PAL.caption)
-  if Generation.isGen2(S) then
+  Kit.text("small", Kit.ellipsize("small", Generation.isGen3(S) and (selPin and selPin.label or require("Gen3Names").dialog(strId,body)) or tostring(S.dialogTextId or ""), col3-24*s), ex + 12 * s, listY + 12 * s, PAL.caption)
+  if Generation.isGen3(S) then
+    Kit.text("micro", require("Gen3Names").map(S.dialogMapId)..(ownedText and " | Edited" or " | Original").." | ID: "..tostring(strId), ex+12*s,listY+32*s,PAL.faint)
+  elseif Generation.isGen2(S) then
     Kit.text("micro", string.format("%s%s%s",
         ownedText and "mod override" or "vanilla",
         selPin and selPin.scriptKey and ("  |  script " .. selPin.scriptKey) or "",
@@ -467,7 +477,7 @@ function Dialog.draw(S, x, y, w, h, App)
     local decoded = edited:gsub("\\n", "\n"):gsub("\\f", "\f"):gsub("\\v", "\v")
     if decoded ~= body then
       strId = ensureEditable(S, S.dialogMapId, S.dialogTextId, App)
-      S.project.text[strId] = decoded
+      S.project.text[strId] = Generation.isGen3(S) and require("Gen3Dialog").encode(decoded,S.project.text[strId] or S.data.text[strId]) or decoded
       App.markDirty()
       body = decoded
       ownedText = true
@@ -519,7 +529,9 @@ function Dialog.draw(S, x, y, w, h, App)
   if Kit.button(ex + 12 * s, by, 160 * s, 30 * s, "Insert {PLAYER}",
       { kind = "accent" }) then
     strId = ensureEditable(S, S.dialogMapId, S.dialogTextId, App)
-    S.project.text[strId] = (S.project.text[strId] or body or "") .. "{PLAYER}"
+    if Generation.isGen3(S) then
+      S.project.text[strId]=require("Gen3Dialog").encode(body.."{PLAYER}",S.project.text[strId] or S.data.text[strId])
+    else S.project.text[strId] = (S.project.text[strId] or body or "") .. "{PLAYER}" end
     App.markDirty()
   end
   if Kit.button(ex + 184 * s, by, 140 * s, 30 * s, "Open in Events",
@@ -528,7 +540,10 @@ function Dialog.draw(S, x, y, w, h, App)
     S.tab = "events"
     S.eventsMode = "scripts"
     S.eventMapId = S.dialogMapId
-    if Generation.isGen2(S) then
+    if Generation.isGen3(S) then
+      S.g3EventMode="scripts"
+      S.gen3Id=selPin and selPin.scriptKey
+    elseif Generation.isGen2(S) then
       local sk = (selPin and selPin.scriptKey) or S.dialogScriptKey
       S.dialogScriptKey = sk
       S.eventScriptKey = (S.dialogMapId or "") .. "/"
@@ -540,7 +555,7 @@ function Dialog.draw(S, x, y, w, h, App)
   if ownedText and Kit.button(ex + 12 * s, by + 38 * s, 120 * s, 28 * s, "Revert",
       { kind = "danger" }) then
     if strId then S.project.text[strId] = nil end
-    if not Generation.isGen2(S) then
+    if not Generation.isGen2(S) and not Generation.isGen3(S) then
       local lbl = State.mapLabel(S, S.dialogMapId)
       if S.project.text_pointers[lbl] then
         S.project.text_pointers[lbl][S.dialogTextId] = nil
@@ -554,7 +569,7 @@ function Dialog.draw(S, x, y, w, h, App)
 
   -- Mart / shop stock on this TEXT_* (Gen1 only; Gold marts are script-driven).
   local ptrEntry = nil
-  if not Generation.isGen2(S) then
+  if not Generation.isGen2(S) and not Generation.isGen3(S) then
     local lbl = State.mapLabel(S, S.dialogMapId)
     local proj = S.project.text_pointers and S.project.text_pointers[lbl]
     if proj and proj[S.dialogTextId] then
@@ -566,7 +581,9 @@ function Dialog.draw(S, x, y, w, h, App)
   end
   local martY = by + 72 * s
   local isShop = ptrEntry and type(ptrEntry.mart) == "table"
-  if Generation.isGen2(S) then
+  if Generation.isGen3(S) then
+    Kit.text("micro","Native text controls are preserved as {CONTROL:number}.",ex+12*s,martY,PAL.faint)
+  elseif Generation.isGen2(S) then
     Kit.text("micro",
       "Gold: text:override for this key. Shop stock → SHOPS tab (MART_*).",
       ex + 12 * s, martY, PAL.faint)
@@ -656,7 +673,7 @@ end
 
 -- Maps → Dialog: first writetext key for a Gen2 scriptKey (or nil).
 function Dialog.firstTextForScript(S, scriptKey)
-  if not Generation.isGen2(S) then return nil end
+  if not Generation.isGen2(S) and not Generation.isGen3(S) then return nil end
   local keys = collectGen2TextKeys(S, scriptKey)
   return keys[1]
 end

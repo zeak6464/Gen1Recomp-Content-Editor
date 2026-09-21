@@ -122,6 +122,7 @@ local function ensureOwned(S, id)
 end
 
 local function defaultMove(S, id)
+  if Generation.isGen3(S) then return require("Gen3ContentAdapter").newRecord(S,"moves",id) end
   if Generation.isGen2(S) then
     return {
       id = id,
@@ -173,6 +174,7 @@ local function cycle(list, cur)
 end
 
 function Moves.draw(S, x, y, w, h, App)
+  if Generation.isGen3(S) then require("Gen3ContentAdapter").prepare(S) end
   local s = Kit.scale
   if not S.project then
     Kit.emptyBox(x, y, w, h, "Open a mod on the Project tab first")
@@ -236,6 +238,7 @@ function Moves.draw(S, x, y, w, h, App)
 
   if Kit.button(x, y + h - 36 * s, listW, 32 * s, "+ New move",
       { kind = "good" }) then
+    if Generation.isGen3(S) then require("Gen3Create").open(S,"moves",App) else
     local nid = "NEW_MOVE"
     local n = 1
     while S.project.moves[nid] or (S.data.moves and S.data.moves[nid]) do
@@ -245,6 +248,7 @@ function Moves.draw(S, x, y, w, h, App)
     S.project.moves[nid] = defaultMove(S, nid)
     S.moveId = nid
     App.markDirty()
+    end
   end
 
   local move, owned = resolveMove(S, S.moveId)
@@ -286,6 +290,9 @@ function Moves.draw(S, x, y, w, h, App)
   end
 
   row("ID", function(fx, fy_, fw, fh_)
+    if Generation.isGen3(S) and not move._isNew then
+      Kit.text("small",move.id,fx,fy_+6*s,PAL.muted);return
+    end
     local v = field(App, "mv_id", fx, fy_, fw, fh_, move.id, "MOVE_ID")
     if v ~= move.id and v:match("^[%w_]+$")
        and not S.project.moves[v]
@@ -306,11 +313,7 @@ function Moves.draw(S, x, y, w, h, App)
     end
   end)
   row("Type", function(fx, fy_, fw, fh_)
-    if Kit.button(fx, fy_, 140 * s, fh_, move.type or "NORMAL", { kind = "accent" }) then
-      move = mutate()
-      move.type = TypeIds.cycle(S, move.type or "NORMAL")
-      App.markDirty()
-    end
+    require("ChoicePicker").field(S,{x=fx,y=fy_,w=fw,h=fh_,current=move.type or "NORMAL",ids=TypeIds.list(S),title="Move type",onPick=function(id) move=mutate();move.type=id;App.markDirty() end})
   end)
   row("Power", function(fx, fy_, fw, fh_)
     local v = numField(App, "mv_pow", fx, fy_, 80 * s, fh_, move.power or 0)
@@ -334,10 +337,13 @@ function Moves.draw(S, x, y, w, h, App)
   end)
   row("PP", function(fx, fy_, fw, fh_)
     local v = numField(App, "mv_pp", fx, fy_, 80 * s, fh_, move.pp or 20)
-    v = math.max(1, math.min(64, v))
+    v = math.max(Generation.isGen3(S) and 0 or 1, math.min(64, v))
     if v ~= (move.pp or 20) then move = mutate(); move.pp = v end
   end)
   local gen2 = Generation.isGen2(S)
+  if Generation.isGen3(S) then
+    fy,move=require("Gen3ContentForms").moves(S,move,mutate,App,viewX,fy,viewW,fh,s)
+  else
   local defEff = defaultEffectId(S)
   row("Effect", function(fx, fy_, fw, fh_)
     local cur = move.effect or defEff
@@ -570,6 +576,7 @@ function Moves.draw(S, x, y, w, h, App)
     fy = BattleAnimPreview.draw(S, move.id, viewX, fy, viewW, s)
   end
 
+  end
   Kit.text("micro",
     gen2
       and "Gold: EFFECT_*, effect chance, description, animation#. Gen1 flags hidden."

@@ -64,7 +64,7 @@ end
 
 local function evoLabel(evo)
   local m = tostring((evo and evo.method) or "")
-  m = m:gsub("^EVOLVE_", "")
+  m = m:gsub("^EVOLVE_", ""):gsub("^EVO_", "")
   if m == "LEVEL" then
     return evo.level and ("Lv" .. tostring(evo.level)) or "Level"
   elseif m == "STAT" then

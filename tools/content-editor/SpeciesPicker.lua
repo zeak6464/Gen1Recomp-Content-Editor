@@ -6,6 +6,12 @@ local Preview = require("Preview")
 local PAL = Theme.PAL
 
 local SpeciesPicker = {}
+function SpeciesPicker.displayName(S,id)
+  for parent,family in pairs((S.project or {}).gen3Forms or {}) do
+    for _,row in ipairs(family.forms or {}) do if row.species==id then return parent:gsub("_"," ").." - "..row.name end end
+  end
+  return tostring(id or "")
+end
 
 function SpeciesPicker.isOpen(S)
   return S and S.speciesPicker ~= nil
@@ -116,9 +122,9 @@ function SpeciesPicker.field(S, opts)
   local bx = x + thumb + 6 * s
   local bw = math.max(40 * s, w - thumb - 6 * s)
   local label = opts.label
-    or ((cur ~= "" and cur ~= 0) and tostring(cur))
+    or ((cur ~= "" and cur ~= 0) and SpeciesPicker.displayName(S,cur))
     or (opts.emptyLabel or "(pick)")
-  if Kit.button(bx, y, bw, h, Kit.ellipsize("small", label, bw - 8 * s), {
+  if Kit.button(bx, y, bw, h, Kit.ellipsize("small", label, bw - 30 * s), {
       kind = "accent",
       tooltip = opts.tooltip or "Pick a species",
     }) then
@@ -128,6 +134,7 @@ function SpeciesPicker.field(S, opts)
       onPick = opts.onPick,
     })
   end
+  require("PickerArrow").draw(bx,y,bw,h)
 end
 
 function SpeciesPicker.draw(S, x, y, w, h)
@@ -182,7 +189,7 @@ function SpeciesPicker.draw(S, x, y, w, h)
     for _, id in ipairs(list) do
       local def = speciesDef(S, id)
       local name = def and tostring(def.name or ""):lower() or ""
-      if id:lower():find(ql, 1, true) or name:find(ql, 1, true) then
+      if id:lower():find(ql, 1, true) or name:find(ql, 1, true) or SpeciesPicker.displayName(S,id):lower():find(ql,1,true) then
         filtered[#filtered + 1] = id
       end
     end
@@ -228,7 +235,7 @@ function SpeciesPicker.draw(S, x, y, w, h)
       end
       local owned = S.project and S.project.pokemon and S.project.pokemon[id]
       Kit.text("mono",
-        Kit.ellipsize("mono", id, math.max(8, innerW - 36 * s)),
+        Kit.ellipsize("mono", SpeciesPicker.displayName(S,id), math.max(8, innerW - 36 * s)),
         cx + 32 * s, ry + 8 * s,
         on and PAL.heading or (owned and PAL.text or PAL.muted))
       ry = ry + rowH + 3 * s
@@ -238,7 +245,7 @@ function SpeciesPicker.draw(S, x, y, w, h)
   p.offset = Kit.scrollbar(cx, listY, listW, listH, p.offset or 0, #list, perPage)
 
   local focusId = p.focus or p.current or list[1]
-  Kit.text("micro", Kit.ellipsize("micro", tostring(focusId or ""), prevW),
+  Kit.text("micro", Kit.ellipsize("micro", SpeciesPicker.displayName(S,focusId), prevW),
     prevX, listY, PAL.caption)
   local def = speciesDef(S, focusId)
   local big = math.min(prevW, 120 * s)

@@ -12,6 +12,7 @@
 portable.txt
 *.gb
 *.gbc
+*.gba
 
 # Local content projects; keep only the bundled starter under version control
 /mods/*/
@@ -22,3 +23,10 @@ __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
+gen3-rom-path.txt
+/tests/content-editor/gen3-smoke/roamers-project/
+
+/tests/content-editor/gen3-smoke/fame-project/
+/tests/content-editor/gen3-smoke/intro-assets-project/
+
+/tests/content-editor/gen3-smoke/screens-project/

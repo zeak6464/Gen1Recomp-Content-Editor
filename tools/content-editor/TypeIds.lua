@@ -14,6 +14,10 @@ local FALLBACK_GEN2 = {
 }
 
 function TypeIds.list(S)
+  if require("Generation").isGen3(S) then
+    local ids={};for _,id in pairs(require("src.mods.Schemas").gen3View.TYPES) do ids[#ids+1]=id end
+    table.sort(ids);return ids
+  end
   local seen, ids = {}, {}
   local function add(id)
     if id and not seen[id] then

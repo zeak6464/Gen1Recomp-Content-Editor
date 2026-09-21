@@ -67,6 +67,11 @@ end
 
 function Preview.resolve(S, path)
   if type(path) ~= "string" or path == "" then return nil end
+  -- Runtime records from an externally opened mod use mods/<id>/asset paths.
+  if S and S.path then
+    local owner,rel = path:match("^mods/([^/]+)/(.+)$")
+    if rel and S.project and owner==S.project.id and existsFs(join(S.path, rel)) then return join(S.path, rel), "disk" end
+  end
   -- mod-relative first
   if S and S.path then
     local modPath = join(S.path, path)
@@ -192,7 +197,27 @@ function Preview.installAssetCacheFallback()
 end
 
 function Preview.image(S, path)
+  local side,index=tostring(path):match("^gen3%-shiny/(%a+)/(%d+)$")
+  if side then
+    S.data._g3ShinyImages=S.data._g3ShinyImages or {}
+    if not S.data._g3ShinyImages[path] then
+      local data,err=require("Gen3Rom").shiny(S,tonumber(index),side=="back")
+      if not data then S.status=err;return nil end
+      local img=love.graphics.newImage(data);img:setFilter("nearest","nearest");S.data._g3ShinyImages[path]=img
+    end
+    return S.data._g3ShinyImages[path]
+  end
   if type(path) ~= "string" or path == "" then return nil end
+  if S and S.data and S.data._gen3Read and (path:match("/pokemon/[^/]+/%d+%.rgba$") or path:match("/trainers/front/%d+%.rgba$")) then
+    local override=S.project and (S.project.gen3Assets or {})[path]
+    local key=cacheKey(S,path)..tostring(override or "")
+    if cache[key] then return cache[key] end
+    local bytes=override and require("ModIO").readText(S.path.."/"..override.file) or S.data._gen3Read(path)
+    if bytes and #bytes==64*64*4 then
+      local img=love.graphics.newImage(love.image.newImageData(64,64,"rgba8",bytes))
+      img:setFilter("nearest","nearest");cache[key]=img;return img
+    end
+  end
   local key = cacheKey(S, path)
   if cache[key] ~= nil then
     return cache[key] or nil
@@ -1145,6 +1170,7 @@ end
 
 -- Value for Preview.draw: Gen2 color row, else SGB palette name.
 function Preview.trainerPalette(S, tr)
+  if require("Generation").isGen3(S) then return false end
   if tr and tr.trueColor then return false end
   if isGen2Session(S) then
     if tr and type(tr.paletteSource) == "string" and tr.paletteSource ~= "" then
@@ -1451,6 +1477,7 @@ Preview.drawWithPalette = Preview.draw
 -- the trainers.lua record (schema gen2Fields has no `pic`).
 function Preview.trainerPicPath(S, tr)
   if not tr then return nil end
+  if require("Generation").isGen3(S) then return "data/generated/gba/trainers/front/"..tostring(tr.pic or 0)..".rgba" end
   if type(tr.pic) == "string" and tr.pic ~= "" then return tr.pic end
   if isGen2Session(S) then
     local classId = tr.id or tr.classId or tr.class
@@ -1662,6 +1689,27 @@ end
 
 -- paletteName: nil = item default; false = no remap (trueColor); string = id.
 function Preview.drawItemIcon(S, item, x, y, maxW, maxH, paletteName)
+  if S and S.data and S.data._editorGen3 then
+    local index=item and item.index
+    if not index then return end
+    local path="data/generated/gba/items/bag/icons/"..index..".rgba"
+    local override=((S.project or {}).gen3Assets or {})[path]
+    local key=path..tostring(override)
+    S.data._g3ItemIcons=S.data._g3ItemIcons or {}
+    local img=S.data._g3ItemIcons[key]
+    if not img then
+      local bytes=override and require("ModIO").readText(S.path.."/"..override.file) or S.data._gen3Read(path)
+      if bytes and #bytes==24*24*4 then
+        img=love.graphics.newImage(love.image.newImageData(24,24,"rgba8",bytes))
+        img:setFilter("nearest","nearest");S.data._g3ItemIcons[key]=img
+      end
+    end
+    if img then
+      local scale=math.min((maxW or 24)/24,(maxH or 24)/24)
+      love.graphics.setColor(1,1,1,1);love.graphics.draw(img,x,y,0,scale,scale)
+    end
+    return
+  end
   if isGen2Session(S) then
     return drawGen2ItemPocketIcon(S, item, x, y, maxW, maxH)
   end
@@ -1772,6 +1820,27 @@ end
 -- directly through the palette when one is provided.
 -- paletteName: nil = species default; false = no remap (trueColor); string = that id.
 function Preview.drawPokemonIcon(S, mon, x, y, maxW, maxH, speciesId, paletteName)
+  if S and S.data and S.data._editorGen3 then
+    local rec=mon or (S.data.pokemon or {})[speciesId]
+    local index=rec and rec.index
+    if index then
+      local key="g3icon:"..index
+      S.data._g3IconImages=S.data._g3IconImages or {}
+      local img=S.data._g3IconImages[key]
+      if not img then
+        local bytes=S.data._gen3Read("data/generated/gba/pokemon/icons/"..index..".rgba")
+        if bytes and #bytes>=32*32*4 and #bytes%(32*4)==0 then
+          img=love.graphics.newImage(love.image.newImageData(32,#bytes/(32*4),"rgba8",bytes))
+          img:setFilter("nearest","nearest");S.data._g3IconImages[key]=img
+        end
+      end
+      if img then
+        local scale=math.min((maxW or 24)/32,(maxH or 24)/32)
+        local q=love.graphics.newQuad(0,0,32,32,img:getDimensions())
+        love.graphics.setColor(1,1,1,1);love.graphics.draw(img,q,x,y,0,scale,scale);return
+      end
+    end
+  end
   local s = 1
   local KitOk, Kit = pcall(require, "Kit")
   if KitOk and Kit.scale then s = Kit.scale end

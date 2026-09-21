@@ -4680,6 +4680,7 @@ end
 -- opts: page (1-based), lineStart (1-based scroll within page)
 -- Returns height consumed, info { page, pageCount, lineStart, canPrev, canNext, hasMore }.
 function UiPreview.drawTextBoxPreview(S, text, x, y, maxW, opts)
+  if require("Generation").isGen3(S) then return require("Gen3Dialog").preview(S,text,x,y,maxW,opts or {}) end
   opts = opts or {}
   local s = Kit.scale
   local eng = applyTheme(S)
@@ -4780,6 +4781,7 @@ end
 -- Step preview navigation within paginated dialog text.
 -- dir: -1 prev, +1 next. Returns new page, lineStart.
 function UiPreview.stepTextBoxPreview(S, text, page, lineStart, dir)
+  if require("Generation").isGen3(S) then return require("Gen3Dialog").step(text,page,dir) end
   local eng = applyTheme(S)
   local tb = eng.textBox or THEME_DEFAULTS.textBox
   local maxCols = tonumber(tb.maxCols) or 18

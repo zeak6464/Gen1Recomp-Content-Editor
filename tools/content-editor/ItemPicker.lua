@@ -119,7 +119,7 @@ function ItemPicker.field(S, opts)
   local bx = x + thumb + 6 * s
   local bw = math.max(40 * s, w - thumb - 6 * s)
   local label = cur ~= "" and cur or (opts.emptyLabel or "(pick)")
-  if Kit.button(bx, y, bw, h, Kit.ellipsize("small", label, bw - 8 * s), {
+  if Kit.button(bx, y, bw, h, Kit.ellipsize("small", label, bw - 30 * s), {
       kind = "accent",
       tooltip = opts.tooltip or "Pick an item",
     }) then
@@ -131,6 +131,7 @@ function ItemPicker.field(S, opts)
       onPick = opts.onPick,
     })
   end
+  require("PickerArrow").draw(bx,y,bw,h)
 end
 
 function ItemPicker.draw(S, x, y, w, h)

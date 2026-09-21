@@ -1,0 +1,207 @@
+{
+  "assets": {
+    "slots/bg": {
+      "width": 128,
+      "height": 72,
+      "pal": 4610352,
+      "paletteBytes": 160,
+      "gfx": null
+    },
+    "slots/button_pressed": {
+      "width": 16,
+      "height": 16,
+      "pal": 4610352,
+      "paletteBytes": 32,
+      "gfx": 4613436
+    },
+    "slots/clefairy": {
+      "width": 32,
+      "height": 192,
+      "pal": 4608076,
+      "paletteBytes": 32,
+      "gfx": 4608108
+    },
+    "slots/combos_window": {
+      "width": 112,
+      "height": 40,
+      "pal": 4613568,
+      "paletteBytes": 96,
+      "gfx": null
+    },
+    "slots/reel_icons": {
+      "width": 32,
+      "height": 224,
+      "pal": 4606324,
+      "paletteBytes": 160,
+      "gfx": 4606484
+    },
+    "crush/crusher": {
+      "width": 128,
+      "height": 128,
+      "pal": 15400608,
+      "paletteBytes": 288,
+      "gfx": 15400896
+    },
+    "crush/crusher_base": {
+      "width": 64,
+      "height": 64,
+      "pal": 4646000,
+      "paletteBytes": 32,
+      "gfx": 4646096
+    },
+    "crush/impact": {
+      "width": 32,
+      "height": 224,
+      "pal": 4646032,
+      "paletteBytes": 32,
+      "gfx": 4646908
+    },
+    "crush/sparkle": {
+      "width": 16,
+      "height": 224,
+      "pal": 4646032,
+      "paletteBytes": 32,
+      "gfx": 4647800
+    },
+    "crush/timer_digits": {
+      "width": 8,
+      "height": 176,
+      "pal": 4646064,
+      "paletteBytes": 32,
+      "gfx": 4648132
+    },
+    "jump/bg": {
+      "width": 104,
+      "height": 40,
+      "pal": 4634548,
+      "paletteBytes": 32,
+      "gfx": null
+    },
+    "jump/bonuses": {
+      "width": 80,
+      "height": 136,
+      "pal": 4638936,
+      "paletteBytes": 32,
+      "gfx": 4638968
+    },
+    "jump/star": {
+      "width": 16,
+      "height": 64,
+      "pal": 4643300,
+      "paletteBytes": 32,
+      "gfx": 4644676
+    },
+    "jump/venusaur": {
+      "width": 64,
+      "height": 128,
+      "pal": 4635568,
+      "paletteBytes": 32,
+      "gfx": 4635600
+    },
+    "jump/vine1": {
+      "width": 16,
+      "height": 192,
+      "pal": 4643300,
+      "paletteBytes": 32,
+      "gfx": 4643364
+    },
+    "jump/vine2": {
+      "width": 32,
+      "height": 192,
+      "pal": 4643300,
+      "paletteBytes": 32,
+      "gfx": 4643652
+    },
+    "jump/vine3": {
+      "width": 32,
+      "height": 96,
+      "pal": 4643300,
+      "paletteBytes": 32,
+      "gfx": 4644120
+    },
+    "jump/vine4": {
+      "width": 32,
+      "height": 96,
+      "pal": 4643300,
+      "paletteBytes": 32,
+      "gfx": 4644424
+    },
+    "dodrio/berries": {
+      "width": 16,
+      "height": 144,
+      "pal": 4661740,
+      "paletteBytes": 32,
+      "gfx": 4675944
+    },
+    "dodrio/bg": {
+      "width": 128,
+      "height": 64,
+      "pal": 4661612,
+      "paletteBytes": 32,
+      "gfx": 4676412
+    },
+    "dodrio/cloud": {
+      "width": 64,
+      "height": 32,
+      "pal": 4662208,
+      "paletteBytes": 32,
+      "gfx": 4682284
+    },
+    "dodrio/dodrio": {
+      "width": 64,
+      "height": 384,
+      "pal": 4661644,
+      "paletteBytes": 32,
+      "gfx": 4682612
+    },
+    "dodrio/status": {
+      "width": 16,
+      "height": 48,
+      "pal": 4661708,
+      "paletteBytes": 32,
+      "gfx": 4682136
+    },
+    "dodrio/tree_border": {
+      "width": 128,
+      "height": 104,
+      "pal": 4661580,
+      "paletteBytes": 32,
+      "gfx": 4678604
+    }
+  },
+  "found": {
+    "slots/reel_icons": 4606484,
+    "slots/clefairy": 4608108,
+    "slots/bg/map": 4612564,
+    "slots/button_pressed": 4613436,
+    "slots/combos_window/map": 4614552,
+    "jump/bg/map": 4635136,
+    "jump/venusaur": 4635600,
+    "jump/venusaur/map": 4637984,
+    "jump/bonuses": 4638968,
+    "jump/bonuses/map": 4641704,
+    "jump/vine1": 4643364,
+    "jump/vine2": 4643652,
+    "jump/vine3": 4644120,
+    "jump/vine4": 4644424,
+    "jump/star": 4644676,
+    "crush/crusher_base": 4646096,
+    "crush/impact": 4646908,
+    "crush/sparkle": 4647800,
+    "crush/timer_digits": 4648132,
+    "crush/crusher_top/map": 4648336,
+    "crush/container_cap/map": 4648640,
+    "crush/bg/map": 4649048,
+    "dodrio/berries": 4675944,
+    "dodrio/bg": 4676412,
+    "dodrio/tree_border": 4678604,
+    "dodrio/status": 4682136,
+    "dodrio/cloud": 4682284,
+    "dodrio/dodrio": 4682612,
+    "dodrio/bg/map": 4687248,
+    "dodrio/tree_border_right/map": 4687868,
+    "dodrio/tree_border_left/map": 4688460,
+    "crush/crusher": 15400896,
+    "crush/text_windows/map": 15403740
+  }
+}

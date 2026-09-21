@@ -143,6 +143,10 @@ function LayeredMap.borderCellTile(map, cellX, cellY)
       return map._borderTile
     end
   end
+  if map._gen3Border then
+    local b=map._gen3Border
+    return b.mids[(cy%b.height)*b.width+(cx%b.width)+1] or 0
+  end
   return (tonumber(map.borderBlock) or 0) * 4 + (cy % 2) * 2 + (cx % 2)
 end
 
@@ -290,6 +294,8 @@ end
 
 function LayeredMap.createMap(S, wantedId, cellWidth, cellHeight, tilesetId)
   local project = ensureProject(assert(S.project, "no project"))
+  local gen3=require("Generation").isGen3(S)
+  if gen3 and not tostring(wantedId):match("^FR_") then wantedId="FR_"..tostring(wantedId or "NEW_MAP") end
   local id = uniqueMapId(S, wantedId)
   local width = math.max(2, math.floor(tonumber(cellWidth) or 20))
   local height = math.max(2, math.floor(tonumber(cellHeight) or 18))
@@ -301,7 +307,8 @@ function LayeredMap.createMap(S, wantedId, cellWidth, cellHeight, tilesetId)
   for y = 0, height - 1 do
     for x = 0, width - 1 do
       local index = y * width + x + 1
-      cells[index] = defaultRuntimeRef(tilesetId, x, y, 0)
+      cells[index] = gen3 and {source=LayeredMap.runtimeSourceId(tilesetId),tile=0}
+        or defaultRuntimeRef(tilesetId, x, y, 0)
       collision[index] = "walk"
     end
   end
@@ -320,6 +327,7 @@ function LayeredMap.createMap(S, wantedId, cellWidth, cellHeight, tilesetId)
     collision = collision,
   }
   project.layeredMaps[id] = source
+  if gen3 then source.gen3Collision={};source.gen3Elevation={} end
 
   local environment = defaultEnvironment(tilesetId)
   local blockWidth, blockHeight = width / 2, height / 2
@@ -532,6 +540,7 @@ function LayeredMap.syncMapWarps(S, map)
 end
 
 function LayeredMap.convertMap(S, mapId)
+  if require("Generation").isGen3(S) then return require("Gen3Workspace").convert(S,mapId) end
   local project = ensureProject(assert(S.project, "no project"))
   if project.layeredMaps[mapId] then return project.layeredMaps[mapId] end
   local map = ownedMap(S, mapId)
@@ -599,7 +608,7 @@ function LayeredMap.resize(source, newWidth, newHeight)
   if type(source) ~= "table" then return false, "no layered map" end
   local width = math.max(2, math.floor(tonumber(newWidth) or source.cellWidth))
   local height = math.max(2, math.floor(tonumber(newHeight) or source.cellHeight))
-  if width % 2 ~= 0 or height % 2 ~= 0 then
+  if not source.gen3Collision and (width % 2 ~= 0 or height % 2 ~= 0) then
     return false, "map size must use even 16x16-cell dimensions"
   end
   if width == source.cellWidth and height == source.cellHeight then return true end
@@ -611,8 +620,9 @@ function LayeredMap.resize(source, newWidth, newHeight)
         if x < oldWidth and y < oldHeight then
           cells[y * width + x + 1] = layer.cells[y * oldWidth + x + 1]
         elseif layerIndex == 1 then
-          cells[y * width + x + 1] =
-            defaultRuntimeRef(source.baseTileset, x, y, 0)
+          cells[y * width + x + 1] = source.gen3Collision
+            and {source=LayeredMap.runtimeSourceId(source.baseTileset),tile=0}
+            or defaultRuntimeRef(source.baseTileset, x, y, 0)
         end
       end
     end
@@ -624,6 +634,15 @@ function LayeredMap.resize(source, newWidth, newHeight)
       collision[y * width + x + 1] =
         (x < oldWidth and y < oldHeight)
           and source.collision[y * oldWidth + x + 1] or "solid"
+    end
+  end
+  for _,key in ipairs({"gen3Elevation","gen3Collision"}) do
+    if source[key] then
+      local values={}
+      for y=0,height-1 do for x=0,width-1 do
+        if x<oldWidth and y<oldHeight then values[y*width+x+1]=source[key][y*oldWidth+x+1] end
+      end end
+      source[key]=values
     end
   end
   source.collision = collision
@@ -829,6 +848,9 @@ function LayeredMap.applyPngAsMap(S, mapId, imagePath, pixelWidth, pixelHeight)
 end
 
 function LayeredMap.sourceDescriptor(S, sourceId)
+  if require("Generation").isGen3(S) and LayeredMap.isRuntimeSource(sourceId) then
+    return require("Gen3Workspace").descriptor(S,LayeredMap.runtimeTilesetId(sourceId))
+  end
   if LayeredMap.isRuntimeSource(sourceId) then
     local tilesetId = LayeredMap.runtimeTilesetId(sourceId)
     local tileset = resolveTileset(S, tilesetId)
@@ -2705,6 +2727,7 @@ end
 
 function LayeredMap.compileProject(S)
   if not (S and S.project and S.path) then return false, "no open mod" end
+  if require("Generation").isGen3(S) and S.project.gen3Workspace then return require("Gen3Workspace").compile(S) end
   local project = ensureProject(S.project)
   local okTilesets, tilesetErr = LayeredMap.ensureMissingMapTilesets(S, project)
   if not okTilesets then return false, tilesetErr end
@@ -2889,6 +2912,10 @@ end
 -- First-seen unique 16x16 tiles (skips identical copies on the sheet).
 function LayeredMap.uniqueTiles(S, source)
   if not source then return {} end
+  if source.nativePair then
+    local ts=require("Gen3Map").tileset(S.data,source.nativePair)
+    local result={};for id in pairs(ts and ts.midToSlot or {}) do result[#result+1]=id end;table.sort(result);return result
+  end
   local count = math.max(0, tonumber(source.count) or 0)
   local sig = tostring(source.image) .. ":" .. tostring(count) .. ":"
     .. tostring(source.runtimeTileset or "")
@@ -2927,6 +2954,9 @@ local function animationTile(source, tile)
 end
 
 function LayeredMap.drawSourceTile(S, source, tile, x, y, size, alpha, mapId)
+  if source and source.nativePair then
+    return require("Gen3Workspace").drawTile(S,source,animationTile(source,tile),x,y,size,alpha)
+  end
   if not source or not source.image then return false end
   local image = Preview.image(S, source.image)
   if not image then return false end

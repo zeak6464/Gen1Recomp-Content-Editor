@@ -59,7 +59,7 @@ function ChoicePicker.field(S, opts)
   local cur = opts.current or ""
   local shown = (opts.labels and opts.labels[cur]) or cur
   local label = shown ~= "" and shown or (opts.emptyLabel or "(pick)")
-  if Kit.button(x, y, w, h, Kit.ellipsize("small", label, w - 10 * s), {
+  if Kit.button(x, y, w, h, Kit.ellipsize("small", label, w - 30 * s), {
       kind = opts.kind or "accent",
       tooltip = opts.tooltip or "Pick from list",
     }) then
@@ -73,6 +73,7 @@ function ChoicePicker.field(S, opts)
       onPick = opts.onPick,
     })
   end
+  require("PickerArrow").draw(x,y,w,h)
 end
 
 function ChoicePicker.songField(S, opts)
@@ -147,13 +148,13 @@ function ChoicePicker.draw(S, x, y, w, h)
   local labels = p.labels or {}
   local list = {}
   for _, id in ipairs(p.ids or {}) do
-    if type(id) == "string" and id ~= "" then list[#list + 1] = id end
+    if (type(id) == "string" and id ~= "") or type(id) == "number" then list[#list + 1] = id end
   end
   if (p.query or "") ~= "" then
     local filtered, ql = {}, p.query:lower()
     for _, id in ipairs(list) do
       local shown = tostring(labels[id] or id)
-      if id:lower():find(ql, 1, true) or shown:lower():find(ql, 1, true) then
+      if tostring(id):lower():find(ql, 1, true) or shown:lower():find(ql, 1, true) then
         filtered[#filtered + 1] = id
       end
     end

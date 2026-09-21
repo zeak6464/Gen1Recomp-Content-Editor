@@ -154,11 +154,17 @@ function Breeding.draw(S, x, y, w, h, App)
     Kit.emptyBox(x, y, w, h, "Open a mod on the Project tab first")
     return
   end
-  if not Generation.isGen2(S) then
+  if Generation.isGen3(S) then require("Gen3ContentAdapter").prepare(S) end
+  if not Generation.isGen2(S) and not Generation.isGen3(S) then
     Kit.emptyBox(x, y, w, h, "Breeding is Gold-only (Day-Care / eggs)")
     return
   end
   State.ensureProjectFields(S.project)
+  if Generation.isGen3(S) then
+    local top=RegList.modeChips(S,"g3BreedingMode",{{id="species",label="Species and egg moves"},{id="daycare",label="Day-Care service"}},x,y,s)
+    h=h-(top-y);y=top
+    if S.g3BreedingMode=="daycare" then return require("Gen3Breeding").draw(S,x,y,w,h,App) end
+  end
 
   local listW = math.min(220 * s, w * 0.28)
   local formX = x + listW + 16 * s
@@ -261,19 +267,40 @@ function Breeding.draw(S, x, y, w, h, App)
     viewX, fy, PAL.muted)
   fy = fy + 20 * s
 
-  row("Gender %", function(fx, fy_, fw, fh_)
+  row("Gender", function(fx, fy_, fw, fh_)
     local cur = mon.genderRatio
     if cur == nil then cur = 31 end
+    if Generation.isGen3(S) then
+      local labels={["0"]="Male only",["31"]="Female 12.5% / Male 87.5%",["63"]="Female 25% / Male 75%",
+        ["127"]="Female 50% / Male 50%",["191"]="Female 75% / Male 25%",["254"]="Female only",["255"]="Genderless"}
+      local ids={"0","31","63","127","191","254","255"}
+      if not labels[tostring(cur)] then ids[#ids+1]=tostring(cur);labels[tostring(cur)]="Custom ratio ("..cur..")" end
+      require("ChoicePicker").field(S,{x=fx,y=fy_,w=fw,h=fh_,current=tostring(cur),ids=ids,labels=labels,title="Gender distribution",
+        onPick=function(id) mon=mutate();mon.genderRatio=tonumber(id);App.markDirty() end})
+      return
+    end
     local v = numField(S, App, "br_gender", fx, fy_, 80 * s, fh_, cur)
     v = math.max(0, math.min(255, v))
     if v ~= cur then mon = mutate(); mon.genderRatio = v end
   end)
-  row("Egg steps", function(fx, fy_, fw, fh_)
-    local cur = mon.eggSteps or 20
+  row(Generation.isGen3(S) and "Egg cycles" or "Egg steps", function(fx, fy_, fw, fh_)
+    local key=Generation.isGen3(S) and "eggCycles" or "eggSteps"
+    local cur = mon[key] or 20
     local v = numField(S, App, "br_eggs", fx, fy_, 80 * s, fh_, cur)
-    if v ~= cur then mon = mutate(); mon.eggSteps = v end
+    v=math.max(0,math.min(255,math.floor(v)))
+    if v ~= cur then mon = mutate(); mon[key] = v end
   end)
   row("Egg groups", function(fx, fy_, fw, fh_)
+    if Generation.isGen3(S) then
+      for i=1,2 do
+        local cur=(mon.eggGroups or {})[i] or 0
+        local names={"Monster","Water 1","Bug","Flying","Field","Fairy","Grass","Human-like","Water 3","Mineral","Amorphous","Water 2","Ditto","Dragon","Cannot breed"}
+        local ids,labels={"0"},{["0"]="Not specified"};for n,label in ipairs(names) do ids[#ids+1]=tostring(n);labels[tostring(n)]=label end
+        require("ChoicePicker").field(S,{x=fx+(i-1)*fw/2,y=fy_,w=fw/2-4*s,h=fh_,current=tostring(cur),ids=ids,labels=labels,
+          onPick=function(id) mon=mutate();mon.eggGroups=mon.eggGroups or {};mon.eggGroups[i]=tonumber(id:match("^%d+"));App.markDirty() end})
+      end
+      return
+    end
     mon.eggGroups = mon.eggGroups or { "EGG_GROUND", "EGG_GROUND" }
     local g1 = mon.eggGroups[1] or "EGG_GROUND"
     local g2 = mon.eggGroups[2] or g1
@@ -290,6 +317,14 @@ function Breeding.draw(S, x, y, w, h, App)
       App.markDirty()
     end
   end)
+  if Generation.isGen3(S) then
+    Kit.caption(viewX,fy,"Hatching takes about "..tostring((mon.eggCycles or 20)*256).." steps at this setting.")
+    fy=fy+32*s
+    Kit.caption(viewX,fy,"Parents normally need a shared egg group; Ditto is the special pairing group.");fy=fy+32*s
+    fy=require("Gen3Breeding").eggFields(S,mon,viewX,fy,viewW,App)
+    FormPane.finish(S,"breedingFormScroll",contentTop,fy,view)
+    return
+  end
   row("Egg moves", function(fx, fy_, fw, fh_)
     local joined = table.concat(mon.eggMoves or {}, ",")
     local v = field(S, App, "br_eggm", fx, fy_, fw, fh_, joined, "CHARM,FLAIL")

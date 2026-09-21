@@ -5,6 +5,11 @@ local State = require("State")
 local Json = require("src.link.Json")
 
 local ModIO = {}
+local externalMods = {}
+
+function ModIO.registerExternalMod(id, path)
+  if id and path then externalMods[id] = path end
+end
 
 local MAP_BUILDER_TRANSFORM = "mapbuilder_transforms.lua"
 local FILESYSTEM_PERMISSION = "filesystem"
@@ -324,7 +329,14 @@ function ModIO.create(id, name, version)
 end
 
 local function mainLooksHandWritten(modDir)
-  local mainPath = join(modDir, "main.lua")
+  local entry = "main.lua"
+  local mfFile = io.open(join(modDir,"manifest.json"),"rb")
+  if mfFile then
+    local mf = Json.decode(mfFile:read("*a")); mfFile:close()
+    if mf and type(mf.entry) == "string" then entry = mf.entry end
+  end
+  if entry == "editor_entry.lua" then return true end
+  local mainPath = join(modDir, entry)
   local f = io.open(mainPath, "rb")
   if not f then return false end
   local body = f:read("*a") or ""
@@ -341,7 +353,8 @@ function ModIO.load(modDir)
   local path = ModIO.projectPath(modDir)
   if not ModIO.exists(path) then
     local id = modDir:match("[/\\]([^/\\]+)$") or "mod"
-    local project = State.blankProject(id, id)
+    local mf=Json.decode(ModIO.readText(join(modDir,"manifest.json")) or "{}")
+    local project = State.blankProject(mf and mf.id or id, mf and mf.name or id)
     if mainLooksHandWritten(modDir) then
       project._protectMain = true
       return project,
@@ -414,12 +427,29 @@ function ModIO.authoringGame(project, modDir)
       onlyGen2 = false
     end
   end
+  local current = valid(GameVersion.get())
+  local targetsOK, Targets = pcall(require, "src.mods.ModTargets")
+  if targetsOK and Targets.expand then
+    for _, token in ipairs(mf.games) do
+      for _, id in ipairs(Targets.expand(token) or {}) do
+        if id == current then return current end
+      end
+    end
+    if #mf.games == 1 and mf.games[1] == "gen3" then return "firered" end
+  end
   if #pinned == 1 then return pinned[1] end
   if any and onlyGen2 then return pinned[1] or "gold" end
   return nil
 end
 
 function ModIO.save(modDir, project, version)
+  local Gen3 = require("Gen3")
+  local problem = Gen3.projectError(project)
+  if problem then return false, problem end
+  if require("Generation").isGen3({version=project.game or project.version}) then
+    local ok, err = pcall(Gen3.emit, project, ModWriter.encodeLua)
+    if not ok then return false, tostring(err) end
+  end
   -- Persist trainer_headers seeded from map trainer objects / special battles.
   ModWriter.ensureTrainerHeaders(project)
   -- Drop flag-name typing partials before writing editor_project / main.lua.
@@ -428,6 +458,33 @@ function ModIO.save(modDir, project, version)
   local keepMain = project._protectMain == true
     or mainLooksHandWritten(modDir)
   if keepMain then project._protectMain = true end
+  local gen3Wrapper
+  if keepMain and require("Generation").isGen3({version=project.game}) then
+    local mf = Json.decode(ModIO.readText(join(modDir, "manifest.json")) or "{}")
+    if not mf then return false, "Invalid manifest" end
+    local original = project._originalEntry or mf.entry or "main.lua"
+    if original == "editor_entry.lua" then return false, "Original mod entry is missing from the editor project" end
+    if original:find("%.%.") or original:match("^[/\\]") or original:find(":",1,true) then
+      return false, "Mod entry must be a relative path"
+    end
+    local existing = ModIO.readText(join(modDir, "editor_entry.lua"))
+    if existing and not existing:find("generated editor entry wrapper",1,true) then
+      return false, "editor_entry.lua is already used by this mod"
+    end
+    project._originalEntry = original
+    gen3Wrapper = table.concat({
+      "-- generated editor entry wrapper: original mod stays intact",
+      "return function(mod)",
+      "  local function run(path)",
+      "    local body = assert(mod:read(path))",
+      "    local entry = assert(loadstring(body, '@' .. mod.path .. '/' .. path))()",
+      "    if type(entry) == 'function' then entry(mod) end",
+      "  end",
+      "  run(" .. string.format("%q", original) .. ")",
+      '  run("editor_apply.lua")',
+      "end", "",
+    }, "\n")
+  end
 
   local body = ModWriter.serializeProject(project)
   local path = ModIO.projectPath(modDir)
@@ -465,6 +522,10 @@ function ModIO.save(modDir, project, version)
     if not af then return false, aerr end
     af:write(generated)
     af:close()
+    if gen3Wrapper then
+      local okW, errW = ModIO.writeText(join(modDir, "editor_entry.lua"), gen3Wrapper)
+      if not okW then return false, errW end
+    end
   else
     local mainPath = join(modDir, "main.lua")
     local mf, merr = io.open(mainPath, "wb")
@@ -497,6 +558,14 @@ function ModIO.save(modDir, project, version)
       local manifest, decodeErr = Json.decode(text)
       if not manifest then return false, decodeErr end
       if project.name then manifest.name = project.name end
+      if gen3Wrapper then manifest.entry = "editor_entry.lua" end
+      if require("Generation").isGen3({version=project.game}) and
+          (next(project.gen3Terrain or {}) or next((project.gen3 or {}).maps or {}) or next(project.gen3MapLayouts or {}) or require("Gen3Native").used(project)) then
+        manifest.permissions=manifest.permissions or {}
+        local present=false
+        for _,permission in ipairs(manifest.permissions) do if permission=="engine_internals" then present=true end end
+        if not present then manifest.permissions[#manifest.permissions+1]="engine_internals" end
+      end
       local mw, manifestErr = io.open(manifestPath, "wb")
       if not mw then return false, manifestErr end
       mw:write(ModIO.encodeManifest(manifest))
@@ -732,6 +801,11 @@ function ModIO.listMods()
       out[#out + 1] = line
     end
   end
+  for id in pairs(externalMods) do
+    local found = false
+    for _, existing in ipairs(out) do if existing == id then found = true end end
+    if not found then out[#out+1] = id end
+  end
   table.sort(out)
   return out
 end
@@ -761,7 +835,24 @@ function ModIO.listSubdirs(root)
   return out
 end
 
+function ModIO.directoryNames(path)
+  local out = ModIO.listSubdirs(path)
+  local files = windowsNames(path, false)
+  if files then
+    for _, name in ipairs(files) do out[#out+1] = name end
+  else
+    local pipe = io.popen("ls -1 " .. shellQuote(path) .. " 2>/dev/null", "r")
+    if pipe then
+      out = {}
+      for name in pipe:lines() do out[#out+1] = name end
+      pipe:close()
+    end
+  end
+  return out
+end
+
 function ModIO.modDir(id)
+  if externalMods[id] then return externalMods[id] end
   if not id or id == "" then return nil end
   return join(ModIO.modsRoot(), id)
 end

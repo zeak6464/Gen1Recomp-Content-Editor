@@ -1526,6 +1526,7 @@ local function drawGen2(S, x, y, w, h, App)
 end
 
 function BattleAnims.draw(S, x, y, w, h, App)
+  if Generation.isGen3(S) then return require("Gen3Animations").draw(S,x,y,w,h,App) end
   if not S.project then
     Kit.emptyBox(x, y, w, h, "Open a mod on the Project tab first")
     return

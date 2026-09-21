@@ -49,6 +49,8 @@ local function isModAssetPath(path)
   if path:sub(1, #"assets/generated/") == "assets/generated/" then
     return false
   end
+  -- Immutable rotated graphics must remain available to redo snapshots.
+  if path:sub(1, #"assets/mapbuilder/rotations/") == "assets/mapbuilder/rotations/" then return false end
   return path:sub(1, #"assets/") == "assets/"
     or path:sub(1, #"tilesets/") == "tilesets/"
 end

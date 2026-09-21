@@ -2390,6 +2390,14 @@ local function drawToolbar(S, source, x, y, w, App)
         nudgeSelection(S, source, move[2], move[3], App)
       end
     end
+    for _,direction in ipairs({-1,1}) do
+      bx,by=slot(100*s)
+      if Kit.button(bx,by,100*s,24*s,direction==-1 and "Rotate left" or "Rotate right",{enabled=count>0,
+          tooltip="Turn each selected tile on the active map layer by 90 degrees"}) then
+        local ok,err=pcall(require("TileRotation").rotateSelection,S,source,direction,App)
+        if not ok then S.status=tostring(err) end
+      end
+    end
     bx, by = slot(78 * s)
     if Kit.button(bx, by, 78 * s, 24 * s,
         "Clear tiles", { kind = "danger", enabled = count > 0,

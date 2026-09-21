@@ -26,6 +26,7 @@ local SHELL_PRESETS = {
   { "G", { 218, 145, 32 }, "Gold" },
   { "S", PAL.railSilver, "Silver" },
   { "C", PAL.railCrystal, "Crystal" },
+  { "FR", { 222, 73, 26 }, "FireRed" },
 }
 
 local function join(a, b)
@@ -171,6 +172,7 @@ local function loadDraft(S, dir)
   local data, err = Cartkit.readCart(dir)
   if not data then
     S.cartDraft = defaultDraft(dir:match("[^/\\]+$"))
+    S.cartDraft.base = S.version or "red"
     S.cartLoadError = tostring(err)
     S.cartDirty = false
     CartPreview.invalidate(S)
@@ -505,12 +507,10 @@ function Cart.draw(S, x, y, w, h, App)
       "One-line blurb on the launcher")
   end)
   row("base", function(fx, fy, fw, fh_)
-    if Kit.button(fx, fy, fw, fh_, tostring(d.base or "red"), {
-        kind = "ghost", tooltip = "Which game this cart plays as (click to cycle)",
-      }) then
-      d.base = cycle(BASES, d.base or "red")
-      markDirty(S)
-    end
+    require("ChoicePicker").field(S,{x=fx,y=fy,w=fw,h=fh_,current=d.base or S.version or "red",ids=BASES,
+      labels={red="Red",blue="Blue",yellow="Yellow",gold="Gold",silver="Silver",crystal="Crystal",firered="FireRed"},
+      title="Game for this cartridge",tooltip="Choose the original game this cartridge uses.",
+      onPick=function(id) d.base=id;markDirty(S) end})
   end)
   row("seal", function(fx, fy, fw, fh_)
     if Kit.button(fx, fy, fw, fh_, tostring(d.seal or "sealed"), {

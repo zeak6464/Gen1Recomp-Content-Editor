@@ -6,7 +6,7 @@ local DataSource = require("DataSource")
 
 local Cartkit = {}
 
-Cartkit.BASES = { "red", "blue", "yellow", "gold", "silver", "crystal" }
+Cartkit.BASES = { "red", "blue", "yellow", "gold", "silver", "crystal", "firered" }
 Cartkit.SEALS = { "sealed", "sealed+", "open" }
 Cartkit.FINISHES = { "", "sparkle", "holo", "sparkle+holo" }
 
@@ -256,7 +256,8 @@ function Cartkit.run(S, argv)
     return false, "Link a Gen1Recomp folder that includes tools/cartkit.py"
   end
   local function cmdFor(py)
-    local parts = { py, quote(script), "--repo", quote(root) }
+    local bridge = join(ModIO.repoRoot(), "tools/content-editor/cartkit_bridge.py")
+    local parts = { py, quote(bridge), quote(script), "--repo", quote(root) }
     for i = 1, #argv do
       parts[#parts + 1] = quote(argv[i])
     end

@@ -1,0 +1,31 @@
+return {
+  cart = {
+    author = "TODO your handle",
+    base = "firered",
+    engine = ">=0.0.0-dev <1.0.0",
+    id = "firered_cart_check",
+    label = "label.png",
+    load_order = {
+      [1] = "firered_cart_test",
+    },
+    mods = {
+      [1] = {
+        id = "firered_cart_test",
+        source = "local",
+        version = "1.0.0",
+      },
+    },
+    seal = "sealed",
+    shell = "#8b1a1a",
+    title = "Firered Cart Check",
+    version = "0.1.0",
+  },
+  format = "g1rcart",
+  formatVersion = 1,
+  labelArt = {
+    bytes = 330,
+    data = "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAABEUlEQVR42u3bsQ2DQAxAUQagoWWZ7JGVMhtjsAddlCppzubsPMkNUqoncpgvsTzW1XyZBQEgQIAmAnrt+58PIECAAAECBAgQIECAsoDO43jPc9s+L3/OzL8fD9RJZzxQM53BQP10RgK11Ak5gzrp3ANU617LBir3T0wFqnhO5QEVPcWTgOo+4zKASm8A4UDV96NYoAbbYyBQj906CqjNm4cepAfpQXqQHqQH6UF6kB6kB+lBepAepAfpQXqQHqQH6UF6kB6kB+lBepAepAfpQXqQHqQH6UF6kB6kB+lBepAepAfpQXrQ1D3IR72AAAECBAgQIECAAAECBAgQIECAAAECBAgQIEDVgAwgQIAATQR0AfIGuJ5nafKvAAAAAElFTkSuQmCC",
+    encoding = "base64",
+    name = "label.png",
+  },
+}

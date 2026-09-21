@@ -16,6 +16,7 @@ function Generation.num(S)
     if gok and type(n) == "number" then return n end
   end
   local id = Generation.id(S)
+  if id == "firered" then return 3 end
   return (id == "gold" or id == "silver" or id == "crystal") and 2 or 1
 end
 
@@ -26,6 +27,7 @@ function Generation.engine(S)
     if eok and type(engine) == "string" and engine ~= "" then return engine end
   end
   local id = Generation.id(S)
+  if id == "firered" then return "game3" end
   if id == "crystal" then return "crystal" end
   if id == "gold" or id == "silver" then return "gs" end
   return "gen1"
@@ -60,7 +62,12 @@ function Generation.dataLooksGen2(data)
   return false
 end
 
+function Generation.isGen3(S)
+  return Generation.num(S) == 3
+end
+
 function Generation.isGen2(S)
+  if Generation.isGen3(S) then return false end
   if Generation.num(S) == 2 then return true end
   return Generation.dataLooksGen2(S and S.data)
 end
@@ -75,6 +82,7 @@ end
 -- Latest Recomp gates mods per version (`games: ["red"]` will not load on
 -- Blue). New editor mods target every game this engine supports.
 function Generation.manifestGames(_S)
+  if Generation.isGen3(_S) then return { Generation.id(_S) } end
   return { "all" }
 end
 
@@ -111,11 +119,13 @@ end
 
 function Generation.maps(data)
   if type(data) ~= "table" then return {} end
+  if data._editorGen3 and data._editorMaps then return data._editorMaps end
   return overlayRecords(data.maps, data.gen2Maps)
 end
 
 function Generation.tilesets(data)
   if type(data) ~= "table" then return {} end
+  if data._editorGen3 and data._editorTilesets then return data._editorTilesets end
   return overlayRecords(data.tilesets, data.gen2Tilesets)
 end
 

@@ -2292,6 +2292,13 @@ function ModWriter.emitCustomUi(out, project, gen2)
 end
 
 function ModWriter.emitMain(project, baseData, derivedModId)
+  if project.gen3 and next(project.gen3) then
+    assert(Generation.isGen3({ version = project.game or project.version }),
+      "Select FireRed to export this project's Gen 3 edits")
+  end
+  if Generation.isGen3({ version = project.game or project.version }) then
+    return require("Gen3").emit(project, ModWriter.encodeLua)
+  end
   baseData = baseData or {}
   emitProjectId = tostring(derivedModId or (project and project.id) or "")
   local gen2 = Generation.isGen2({

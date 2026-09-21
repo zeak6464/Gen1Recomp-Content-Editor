@@ -283,6 +283,7 @@ local function numField(App, id, x, y, w, h, value)
 end
 
 function MoveEffects.draw(S, x, y, w, h, App)
+  if Generation.isGen3(S) then return require("Gen3Effects").draw(S,x,y,w,h,App) end
   local s = Kit.scale
   if not S.project then
     Kit.emptyBox(x, y, w, h, "Open a mod on the Project tab first")

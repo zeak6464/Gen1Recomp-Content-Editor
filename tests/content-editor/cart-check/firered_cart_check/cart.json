@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "id": "firered_cart_check",
+  "title": "Firered Cart Check",
+  "version": "0.1.0",
+  "author": "TODO your handle",
+  "shell": "#8b1a1a",
+  "label": "label.png",
+  "base": "firered",
+  "engine": ">=0.0.0-dev <1.0.0",
+  "seal": "sealed",
+  "mods": [
+    {
+      "id": "example-mod",
+      "source": "github",
+      "repo": "owner/example-mod",
+      "version": "0.1.0",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}

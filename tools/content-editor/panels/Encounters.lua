@@ -388,6 +388,7 @@ local function drawSpecial(S, App, x, y, w, h)
 end
 
 function Encounters.draw(S, x, y, w, h, App)
+  if Generation.isGen3(S) and S.project then return require("Gen3EncounterForms").draw(S,x,y,w,h,App) end
   local s = Kit.scale
   if not S.project then
     Kit.emptyBox(x, y, w, h, "Open a mod on the Project tab first")

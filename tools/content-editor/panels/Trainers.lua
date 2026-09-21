@@ -394,7 +394,7 @@ local function allTrainerIds(S)
       end
     end
   end
-  table.sort(ids)
+  table.sort(ids, Generation.isGen3(S) and require("Gen3Labels").natural or nil)
   return ids
 end
 
@@ -455,7 +455,7 @@ local function ensureOwned(S, id, App)
   local tr, owned = getTrainer(S, id)
   if not tr then return nil end
   if owned then return tr end
-  local copy = deepCloneTrainer(tr, id)
+  local copy = Generation.isGen3(S) and require("src.mods.Merge").deepCopy(tr) or deepCloneTrainer(tr, id)
   S.project.trainers[id] = copy
   if App then App.markDirty() end
   return copy
@@ -524,6 +524,7 @@ end
 function Trainers.draw(S, x, y, w, h, App)
   local s = Kit.scale
   acS = S
+  if Generation.isGen3(S) then require("Gen3ContentAdapter").prepare(S) end
   if not S.project then
     Kit.emptyBox(x, y, w, h, "Open a mod on the Project tab first")
     return
@@ -541,6 +542,7 @@ function Trainers.draw(S, x, y, w, h, App)
   Kit.card(x, listY, listW, listH, 12 * s)
 
   local ids = allTrainerIds(S)
+  if Generation.isGen3(S) then table.sort(ids,require("Gen3Labels").natural) end
   if q ~= "" then
     local filtered, ql = {}, q:lower()
     for _, id in ipairs(ids) do
@@ -585,7 +587,7 @@ function Trainers.draw(S, x, y, w, h, App)
       x + 10 * s, ry + (rowH - thumb) / 2, thumb, thumb, rowPal)
     local textX = x + 14 * s + thumb
     Kit.text("micro",
-      Kit.ellipsize("micro", id, math.max(8, rowW - (textX - scrollX) - 6 * s)),
+      Kit.ellipsize("micro", Generation.isGen3(S) and (id.." "..tostring(rowTr and rowTr.name or "")) or id, math.max(8, rowW - (textX - scrollX) - 6 * s)),
       textX, ry + 7 * s, owned and PAL.text or PAL.muted)
     ry = ry + rowH + 2 * s
   end
@@ -602,7 +604,15 @@ function Trainers.draw(S, x, y, w, h, App)
       nid = (Generation.isGen2(S) and "NEW_TRAINER_" or "OPP_NEW_TRAINER_") .. n
     end
     local party = { { level = 5, species = "PIDGEY" } }
-    if Generation.isGen2(S) then
+    if Generation.isGen3(S) then
+      local maximum=0
+      for _,bucket in ipairs({root or {},S.project.trainers}) do
+        for id in pairs(bucket) do maximum=math.max(maximum,tonumber(id) or 0) end
+      end
+      nid=tostring(maximum+1)
+      S.project.trainers[nid]={id=nid,name="TRAINER",class=0,pic=0,gender=0,aiFlags=1,
+        doubleBattle=false,items={0,0,0,0},party=party,_isNew=true}
+    elseif Generation.isGen2(S) then
       S.project.trainers[nid] = {
         id = nid, name = "YOUNGSTER", baseMoney = 20,
         trainers = {
@@ -642,7 +652,8 @@ function Trainers.draw(S, x, y, w, h, App)
   local secY = y + 22 * s
   local sx = formX
   S.trainerSection = S.trainerSection or "basics"
-  for _, sec in ipairs(SECTIONS) do
+  local sections=Generation.isGen3(S) and {{id="basics",label="Basics"},{id="parties",label="Party"},{id="ai",label="AI"}} or SECTIONS
+  for _, sec in ipairs(sections) do
     local on = S.trainerSection == sec.id
     local bw = Kit.textWidth("micro", sec.label) + 18 * s
     if Kit.chip(sx, secY, bw, 26 * s, sec.label, on, PAL.red) then
@@ -689,7 +700,9 @@ function Trainers.draw(S, x, y, w, h, App)
     fy = fy + fh + 8 * s
   end
 
-  if S.trainerSection == "basics" then
+  if Generation.isGen3(S) then
+    fy=require("Gen3TrainerForms").draw(S,tr,mutate,App,viewX,fy,viewW,S.trainerSection)
+  elseif S.trainerSection == "basics" then
     local prevW = 112 * s
     -- false = skip remap (trueColor); string = SGB id; table = Gen2 colors.
     local trPal = Preview.trainerPalette(S, tr)
@@ -1982,10 +1995,10 @@ function Trainers.draw(S, x, y, w, h, App)
     bx = bx + 128 * s
   end
   if Kit.button(bx, btnY, 120 * s, 28 * s,
-      "Delete", { kind = "danger",
+      Generation.isGen3(S) and "Remove edit" or "Delete", { kind = "danger",
         tooltip = "Remove from this mod (Save emits content:remove)" }) then
-    State.markDeleted(S.project, "trainers", S.trainerId, tr,
-      trainersRoot(S))
+    if Generation.isGen3(S) then S.project.trainers[S.trainerId]=nil
+    else State.markDeleted(S.project, "trainers", S.trainerId, tr, trainersRoot(S)) end
     local ids = allTrainerIds(S)
     S.trainerId = ids[1]
     App.markDirty()

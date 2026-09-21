@@ -1,0 +1,20 @@
+{
+  "id": "FireRed-Test",
+  "name": "Firered Test",
+  "version": "0.1.0",
+  "api": 2,
+  "entry": "main.lua",
+  "profile": "content",
+  "game_version": ">=0.0.0-dev+3b359ae7e76b <1.0.0",
+  "games": ["firered"],
+  "gen2compat": false,
+  "category": "GAMEPLAY",
+  "priority": 100,
+  "permissions": ["engine_internals"],
+  "dependencies": [],
+  "optional_dependencies": [],
+  "conflicts": [],
+  "incompatible": [],
+  "experimental": false,
+  "description": "Authored with the Gen1Recomp content editor"
+}

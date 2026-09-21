@@ -208,6 +208,8 @@ function DataSource.unmountLinked()
   if mountedRecomp then
     if type(CacheFs.unmountExternal) == "function" then
       pcall(CacheFs.unmountExternal, mountedRecomp)
+    else
+      pcall(require("RuntimeMount").unmountData,mountedRecomp)
     end
     mountedRecomp = nil
   end
@@ -221,7 +223,8 @@ function DataSource.mountRecomp(path)
   DataSource.unmountLinked()
   -- Prepend so linked cache wins over missing local generated files.
   if type(CacheFs.mountExternal) ~= "function" then
-    return false, "CacheFs.mountExternal unavailable"
+    if not require("RuntimeMount").mountData(path) then return false,"Could not mount linked cache" end
+    mountedRecomp=path;return true
   end
   local ok, mounted = pcall(CacheFs.mountExternal, path, false)
   if not ok or not mounted then
@@ -335,6 +338,21 @@ end
 local function finishLoad(version)
   local ok, err = pcall(function() Data:load() end)
   if not ok then return false, err end
+  if require("src.core.GameVersion").generation(version) == 3 then
+    local loaded, detail = pcall(require("Gen3").load, Data, function(path)
+      return love.filesystem.read(require("src.core.GameVersion").cachePrefix(version) .. path)
+    end, function(path)
+      local root=require("src.core.GameVersion").cachePrefix(version)..path
+      local result={}
+      for _,name in ipairs(love.filesystem.getDirectoryItems(root)) do
+        local info=love.filesystem.getInfo(root.."/"..name)
+        result[#result+1]={name=name,type=info and info.type}
+      end
+      return result
+    end)
+    if not loaded then return false, detail end
+    return true
+  end
   if not loadedDataMatches(version) then
     if Data._pristineKeys then pcall(function() Data:unloadGenerated() end) end
     return false, "cache does not match " .. tostring(version)
@@ -357,6 +375,16 @@ local GEN2_SHELL = {
   "landmarks", "menu_gfx", "diploma", "events", "initial_events", "std_scripts",
   "title", "intro", "field", "text_pointers", "trainer_headers",
 }
+
+local function loadEmptyGen3(version)
+  remountVersion(version)
+  if Data._pristineKeys then Data:unloadGenerated() end
+  Data:load()
+  for _, key in ipairs({ "gen3Pokemon", "gen3Moves", "gen3Items", "gen3Trainers",
+      "gen3Encounters", "gen3Text", "gen3Scripts" }) do Data[key] = {} end
+  Data._editorGen3 = true
+  return true
+end
 
 local function loadEmptyGen2(version)
   remountVersion(version or "gold")
@@ -394,10 +422,17 @@ end
 
 local function tryRecomp(prefs, version)
   if not prefs.recompRoot then return false, "no linked folder" end
-  if not DataSource.recompHasVersion(prefs.recompRoot, version) then
+  local cacheRoot=prefs.recompRoot
+  if version=="firered" and not DataSource.recompHasVersion(cacheRoot,version) then
+    local appdata=os.getenv("APPDATA")
+    local save=love.filesystem.getSaveDirectory()
+    local shared=appdata and join(appdata,"LOVE/pokemon-love2d") or (save:match("^(.*)[/\\][^/\\]+$") or save).."/pokemon-love2d"
+    if DataSource.recompHasVersion(shared,version) then cacheRoot=shared end
+  end
+  if not DataSource.recompHasVersion(cacheRoot, version) then
     return false, "linked folder has no " .. tostring(version) .. " cache"
   end
-  local mok, merr = DataSource.mountRecomp(prefs.recompRoot)
+  local mok, merr = DataSource.mountRecomp(cacheRoot)
   if not mok then return false, merr end
   remountVersion(version)
   local ok, err = finishLoad(version)
@@ -420,6 +455,8 @@ end
 function DataSource.apply(opts)
   opts = opts or {}
   local prefs = DataSource.loadPrefs()
+  local runtime=os.getenv("POKEPORT_RECOMP")
+  if runtime and DataSource.isValidRecompRoot(runtime) then prefs.recompRoot=runtime end
   local version = opts.version or prefs.lastVersion or "red"
   local GameVersion = require("src.core.GameVersion")
   if not (GameVersion.VERSIONS and GameVersion.VERSIONS[version]) then
@@ -437,10 +474,11 @@ function DataSource.apply(opts)
 
   if mode == "fixtures" then
     remountVersion(version)
-    if GameVersion.generation(version) == 2 then
-      local okEmpty, emptyErr = loadEmptyGen2(version)
+    if GameVersion.generation(version) >= 2 then
+      local shell = GameVersion.generation(version) == 3 and loadEmptyGen3 or loadEmptyGen2
+      local okEmpty, emptyErr = shell(version)
       if not okEmpty then
-        error("content editor Gen 2 shell failed:\n" .. tostring(emptyErr))
+        error("content editor generation shell failed:\n" .. tostring(emptyErr))
       end
       return "empty", prefs,
         "No " .. verLabel .. " fixtures — Import a " .. verLabel
@@ -494,8 +532,9 @@ function DataSource.apply(opts)
   end
 
   remountVersion(version)
-  if GameVersion.generation(version) == 2 then
-    local okEmpty, emptyErr = loadEmptyGen2(version)
+  if GameVersion.generation(version) >= 2 then
+    local shell = GameVersion.generation(version) == 3 and loadEmptyGen3 or loadEmptyGen2
+    local okEmpty, emptyErr = shell(version)
     if not okEmpty then
       error("content editor needs a " .. verLabel
         .. " cache (Import a " .. verLabel .. " ROM or Link a Recomp with "

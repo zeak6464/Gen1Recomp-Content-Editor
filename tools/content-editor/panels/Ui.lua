@@ -3158,6 +3158,7 @@ end
 -- ---- shell ----
 
 function Ui.draw(S, x, y, w, h, App)
+  if Generation.isGen3(S) then return require("Gen3UiWorkspace").draw(S,x,y,w,h,App) end
   local s = Kit.scale
   if not S.project then
     Kit.emptyBox(x, y, w, h, "Open a mod on the Project tab first")

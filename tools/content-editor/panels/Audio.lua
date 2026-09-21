@@ -71,6 +71,7 @@ local function sourceFromPath(S, path, mode)
 end
 
 function Audio.stopPreview(S)
+  if S and Generation.isGen3(S) then require("Gen3Audio").stop(S) end
   if not S then return end
   local p = S.audioPreview
   if p and p.src then pcall(p.src.stop, p.src) end
@@ -81,6 +82,7 @@ function Audio.stopPreview(S)
 end
 
 function Audio.isPreviewPlaying(S)
+  if S and Generation.isGen3(S) and (S._g3AudioBake or (S._g3AudioSource and S._g3AudioSource:isPlaying())) then return true end
   local p = S and S.audioPreview
   if not p then return false end
   if p.src then
@@ -310,6 +312,7 @@ local function resolve(S, mode, id)
 end
 
 local function defaultMapSong(S)
+  if Generation.isGen3(S) then return "300" end
   return Generation.isGen2(S) and "Music_NewBarkTown" or "Music_PalletTown"
 end
 
@@ -337,6 +340,15 @@ function Audio.playPreview(S, mode, id)
   if not (S and id) then return false end
   State.ensureProjectFields(S.project)
   local rec = select(1, resolve(S, mode, id))
+  if Generation.isGen3(S) then
+    if mode=="map_songs" then
+      id=tostring(rec or 0);mode="music";rec=select(1,resolve(S,mode,id)) or {nativeId=tonumber(id)}
+    end
+    if not (type(rec)=="table" and rec.file and rec.file~="") then
+      Audio.stopPreview(S)
+      return require("Gen3AudioAdapter").play(S,mode,id,rec)
+    end
+  end
   local ok, err
 
   if mode == "map_songs" then
@@ -412,6 +424,7 @@ local function summarize(rec, mode)
 end
 
 function Audio.draw(S, x, y, w, h, App)
+  if Generation.isGen3(S) then require("Gen3AudioAdapter").prepare(S) end
   local s = Kit.scale
   if not S.project then
     Kit.emptyBox(x, y, w, h, "Open a mod on the Project tab first")
@@ -442,20 +455,23 @@ function Audio.draw(S, x, y, w, h, App)
   end
 
   local selKey = "audioId_" .. mode
+  if Generation.isGen3(S) then table.sort(ids,require("Gen3Labels").natural) end
   local formX, formW, listY, listH, shown = RegList.drawList(S, App, x, modeY, w, h - (modeY - y),
     mode:upper():gsub("_", " "), ids, {
       queryKey = "audioQuery",
       offsetKey = "audioListOffset",
       selKey = selKey,
+      label = Generation.isGen3(S) and function(id) return require("Gen3AudioAdapter").label(S,mode,id) end or nil,
       accent = PAL.blue,
       isOwned = function(id) return proj[id] ~= nil end,
       filter = function(id, q)
         local ql = q:lower()
         if id:lower():find(ql, 1, true) then return true end
+        if Generation.isGen3(S) and require("Gen3AudioAdapter").label(S,mode,id):lower():find(ql,1,true) then return true end
         local rec = select(1, resolve(S, mode, id))
         return tostring(summarize(rec, mode)):lower():find(ql, 1, true) ~= nil
       end,
-      footerLabel = mode == "map_songs" and nil or "+ New",
+      footerLabel = (mode ~= "map_songs" and not Generation.isGen3(S)) and "+ New" or nil,
       onFooter = function()
         local nid = "MOD_" .. mode:upper() .. "_1"
         local n = 1
@@ -562,6 +578,16 @@ function Audio.draw(S, x, y, w, h, App)
     end)
   else
     local r = type(rec) == "table" and rec or {}
+    if Generation.isGen3(S) then
+      row("Native ID",function(fx,fy_,fw,fh_)
+        local cur=tonumber(r.nativeId) or tonumber(id) or 0
+        local value=RegList.num(App,"au_native",fx,fy_,120*s,fh_,cur)
+        if value~=cur and value>=0 and value%1==0 then
+          local e=ensure();e.nativeId=value;e.file=nil
+          App.markDirty()
+        end
+      end)
+    end
     row("File", function(fx, fy_, fw, fh_)
       local path = (owned and type(proj[id]) == "table" and proj[id].file)
         or r.file or (type(rec) == "string" and rec) or ""
@@ -587,7 +613,7 @@ function Audio.draw(S, x, y, w, h, App)
           end)
       end
     end)
-    if mode == "cries" then
+    if mode == "cries" and not Generation.isGen3(S) then
       local pitchHint = gen2 and "0-65535" or "0-255"
       row("Pitch", function(fx, fy_, fw, fh_)
         local e = owned and proj[id] or r

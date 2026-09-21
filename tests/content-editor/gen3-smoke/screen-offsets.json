@@ -1,0 +1,350 @@
+{
+  "assets": {
+    "credits/blastoise_1": {
+      "width": 80,
+      "height": 80,
+      "pal": -1,
+      "paletteBytes": 32,
+      "gfx": 4256320
+    },
+    "credits/blastoise_2": {
+      "width": 80,
+      "height": 96,
+      "pal": -1,
+      "paletteBytes": 32,
+      "gfx": 4258116
+    },
+    "credits/charizard_1": {
+      "width": 80,
+      "height": 80,
+      "pal": -1,
+      "paletteBytes": 32,
+      "gfx": 4246412
+    },
+    "credits/charizard_2": {
+      "width": 96,
+      "height": 104,
+      "pal": -1,
+      "paletteBytes": 32,
+      "gfx": 4248104
+    },
+    "credits/copyright": {
+      "width": 88,
+      "height": 56,
+      "pal": 4203104,
+      "paletteBytes": 32,
+      "gfx": 15394120
+    },
+    "credits/ground_city": {
+      "width": 64,
+      "height": 256,
+      "pal": 4275608,
+      "paletteBytes": 32,
+      "gfx": 4275640
+    },
+    "credits/ground_dirt": {
+      "width": 64,
+      "height": 256,
+      "pal": 4274260,
+      "paletteBytes": 32,
+      "gfx": 4274292
+    },
+    "credits/ground_grass": {
+      "width": 64,
+      "height": 256,
+      "pal": 4272920,
+      "paletteBytes": 32,
+      "gfx": 4272952
+    },
+    "credits/pikachu_1": {
+      "width": 80,
+      "height": 80,
+      "pal": -1,
+      "paletteBytes": 32,
+      "gfx": 4260248
+    },
+    "credits/pikachu_2": {
+      "width": 96,
+      "height": 96,
+      "pal": -1,
+      "paletteBytes": 32,
+      "gfx": 4261300
+    },
+    "credits/player_female": {
+      "width": 64,
+      "height": 384,
+      "pal": 4263440,
+      "paletteBytes": 32,
+      "gfx": 4267032
+    },
+    "credits/player_male": {
+      "width": 64,
+      "height": 384,
+      "pal": 4263440,
+      "paletteBytes": 32,
+      "gfx": 4263472
+    },
+    "credits/pokeball": {
+      "width": 128,
+      "height": 128,
+      "pal": 15379224,
+      "paletteBytes": 32,
+      "gfx": 15379352
+    },
+    "credits/rival": {
+      "width": 64,
+      "height": 384,
+      "pal": 4270496,
+      "paletteBytes": 32,
+      "gfx": 4270528
+    },
+    "credits/the_end": {
+      "width": 112,
+      "height": 8,
+      "pal": 4203104,
+      "paletteBytes": 32,
+      "gfx": 4262688
+    },
+    "credits/venusaur_1": {
+      "width": 80,
+      "height": 80,
+      "pal": -1,
+      "paletteBytes": 32,
+      "gfx": 4251992
+    },
+    "credits/venusaur_2": {
+      "width": 96,
+      "height": 80,
+      "pal": -1,
+      "paletteBytes": 32,
+      "gfx": 4253956
+    },
+    "credits/venusaur_unused": {
+      "width": 64,
+      "height": 64,
+      "pal": -1,
+      "paletteBytes": 32,
+      "gfx": 4250636
+    },
+    "credits/white_circle": {
+      "width": 64,
+      "height": 128,
+      "pal": 15379224,
+      "paletteBytes": 512,
+      "gfx": null
+    },
+    "areas/altering_cave/tiles": {
+      "width": 120,
+      "height": 216,
+      "pal": 4444964,
+      "paletteBytes": 64,
+      "gfx": 4445028
+    },
+    "areas/berry_forest/tiles": {
+      "width": 112,
+      "height": 232,
+      "pal": 4430296,
+      "paletteBytes": 64,
+      "gfx": 4430360
+    },
+    "areas/cerulean_cave/tiles": {
+      "width": 120,
+      "height": 216,
+      "pal": 4411400,
+      "paletteBytes": 64,
+      "gfx": 4411464
+    },
+    "areas/digletts_cave/tiles": {
+      "width": 120,
+      "height": 216,
+      "pal": 4417556,
+      "paletteBytes": 64,
+      "gfx": 4417620
+    },
+    "areas/dotted_hole/tiles": {
+      "width": 120,
+      "height": 176,
+      "pal": 4405796,
+      "paletteBytes": 64,
+      "gfx": 4405860
+    },
+    "areas/icefall_cave/tiles": {
+      "width": 120,
+      "height": 216,
+      "pal": 4438020,
+      "paletteBytes": 64,
+      "gfx": 4438084
+    },
+    "areas/lost_cave/tiles": {
+      "width": 120,
+      "height": 216,
+      "pal": 4424548,
+      "paletteBytes": 64,
+      "gfx": 4424612
+    },
+    "areas/monean_chamber/tiles": {
+      "width": 120,
+      "height": 176,
+      "pal": 4399564,
+      "paletteBytes": 64,
+      "gfx": 4399628
+    },
+    "areas/mt_ember/tiles": {
+      "width": 120,
+      "height": 192,
+      "pal": 4386460,
+      "paletteBytes": 64,
+      "gfx": 4386524
+    },
+    "areas/mt_moon/tiles": {
+      "width": 120,
+      "height": 200,
+      "pal": 4362492,
+      "paletteBytes": 64,
+      "gfx": 4362556
+    },
+    "areas/pokemon_mansion/tiles": {
+      "width": 120,
+      "height": 208,
+      "pal": 4344708,
+      "paletteBytes": 64,
+      "gfx": 4344772
+    },
+    "areas/pokemon_tower/tiles": {
+      "width": 120,
+      "height": 160,
+      "pal": 4352168,
+      "paletteBytes": 64,
+      "gfx": 4352232
+    },
+    "areas/power_plant/tiles": {
+      "width": 120,
+      "height": 200,
+      "pal": 4339128,
+      "paletteBytes": 64,
+      "gfx": 4339192
+    },
+    "areas/rocket_hideout/tiles": {
+      "width": 120,
+      "height": 104,
+      "pal": 4336452,
+      "paletteBytes": 64,
+      "gfx": 4336516
+    },
+    "areas/rocket_warehouse/tiles": {
+      "width": 120,
+      "height": 128,
+      "pal": 4376416,
+      "paletteBytes": 64,
+      "gfx": 4376480
+    },
+    "areas/rock_tunnel/tiles": {
+      "width": 120,
+      "height": 224,
+      "pal": 4329840,
+      "paletteBytes": 64,
+      "gfx": 4329904
+    },
+    "areas/safari_zone/tiles": {
+      "width": 120,
+      "height": 176,
+      "pal": 4393244,
+      "paletteBytes": 64,
+      "gfx": 4393308
+    },
+    "areas/seafoam_islands/tiles": {
+      "width": 120,
+      "height": 224,
+      "pal": 4369920,
+      "paletteBytes": 64,
+      "gfx": 4369984
+    },
+    "areas/silph_co/tiles": {
+      "width": 104,
+      "height": 224,
+      "pal": 4356928,
+      "paletteBytes": 64,
+      "gfx": 4356992
+    },
+    "areas/victory_road/tiles": {
+      "width": 120,
+      "height": 200,
+      "pal": 4379524,
+      "paletteBytes": 64,
+      "gfx": 4379588
+    },
+    "areas/viridian_forest/tiles": {
+      "width": 112,
+      "height": 224,
+      "pal": 4322516,
+      "paletteBytes": 64,
+      "gfx": 4322580
+    }
+  },
+  "found": {
+    "credits/white_circle/map": 4246100,
+    "credits/charizard_1": 4246412,
+    "credits/charizard_2": 4248104,
+    "credits/venusaur_unused": 4250636,
+    "credits/venusaur_1": 4251992,
+    "credits/venusaur_2": 4253956,
+    "credits/blastoise_1": 4256320,
+    "credits/blastoise_2": 4258116,
+    "credits/pikachu_1": 4260248,
+    "credits/pikachu_2": 4261300,
+    "credits/the_end": 4262688,
+    "credits/the_end/map": 4262804,
+    "credits/player_male": 4263472,
+    "credits/player_female": 4267032,
+    "credits/rival": 4270528,
+    "credits/ground_grass": 4272952,
+    "credits/ground_dirt": 4274292,
+    "credits/ground_city": 4275640,
+    "areas/viridian_forest/tiles": 4322580,
+    "areas/viridian_forest/tilemap/map": 4328856,
+    "areas/rock_tunnel/tiles": 4329904,
+    "areas/rock_tunnel/tilemap/map": 4335444,
+    "areas/rocket_hideout/tiles": 4336516,
+    "areas/rocket_hideout/tilemap/map": 4338524,
+    "areas/power_plant/tiles": 4339192,
+    "areas/power_plant/tilemap/map": 4343760,
+    "areas/pokemon_mansion/tiles": 4344772,
+    "areas/pokemon_mansion/tilemap/map": 4351180,
+    "areas/pokemon_tower/tiles": 4352232,
+    "areas/pokemon_tower/tilemap/map": 4356140,
+    "areas/silph_co/tiles": 4356992,
+    "areas/silph_co/tilemap/map": 4361564,
+    "areas/mt_moon/tiles": 4362556,
+    "areas/mt_moon/tilemap/map": 4369000,
+    "areas/seafoam_islands/tiles": 4369984,
+    "areas/seafoam_islands/tilemap/map": 4375400,
+    "areas/rocket_warehouse/tiles": 4376480,
+    "areas/rocket_warehouse/tilemap/map": 4378824,
+    "areas/victory_road/tiles": 4379588,
+    "areas/victory_road/tilemap/map": 4385504,
+    "areas/mt_ember/tiles": 4386524,
+    "areas/mt_ember/tilemap/map": 4392336,
+    "areas/safari_zone/tiles": 4393308,
+    "areas/safari_zone/tilemap/map": 4398700,
+    "areas/monean_chamber/tiles": 4399628,
+    "areas/monean_chamber/tilemap/map": 4404936,
+    "areas/dotted_hole/tiles": 4405860,
+    "areas/dotted_hole/tilemap/map": 4410564,
+    "areas/cerulean_cave/tiles": 4411464,
+    "areas/cerulean_cave/tilemap/map": 4416536,
+    "areas/digletts_cave/tiles": 4417620,
+    "areas/digletts_cave/tilemap/map": 4423552,
+    "areas/lost_cave/tiles": 4424612,
+    "areas/lost_cave/tilemap/map": 4429296,
+    "areas/berry_forest/tiles": 4430360,
+    "areas/berry_forest/tilemap/map": 4437028,
+    "areas/icefall_cave/tiles": 4438084,
+    "areas/icefall_cave/tilemap/map": 4443972,
+    "areas/altering_cave/tiles": 4445028,
+    "areas/altering_cave/tilemap/map": 4449816,
+    "credits/pokeball": 15379352,
+    "credits/pokeball/map": 15381260,
+    "credits/copyright": 15394120,
+    "credits/copyright/map": 15395072
+  }
+}
