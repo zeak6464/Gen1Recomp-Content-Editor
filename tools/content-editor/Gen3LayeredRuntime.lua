@@ -10,6 +10,33 @@ return "  local collisionModes="..encode(C.modes).."\n  local paintedCollision="
     local View=require("src.core.game3.field_view")
     local Runtime=require("src.mods.Runtime")
     local Collision=require("src.core.game3.collision")
+    local okDoors,Doors=pcall(require,"src.core.game3.doors")
+    if okDoors and Doors.getDoorEntryAt and Doors._layoutCache then
+      if not Doors._editorLayerDispatch then
+        Doors._editorLayerDispatch=true
+        local lookup=Doors.getDoorEntryAt
+        Doors.getDoorEntryAt=function(...) return Runtime.call("editor.gen3.doors.lookup",lookup,...) end
+      end
+      mod.hooks:wrap("editor.gen3.doors.lookup",function(proceed,mapId,x,y)
+        local id=tostring(mapId or ""):gsub("^FR_",""):gsub("^MAP_","")
+        local source=layered.maps[mapId] or layered.maps["FR_"..id] or layered.maps[id]
+        if not source then return proceed(mapId,x,y) end
+        if not x or not y or x<0 or y<0 or x>=source.cellWidth or y>=source.cellHeight then return end
+        -- Compiled atlas IDs are unrelated to the ROM door manifest. Resolve
+        -- the actual painted native tile, including moved and mixed-pair doors.
+        local index=y*source.cellWidth+x+1
+        local nativeRef,nativePair
+        for _,layer in ipairs(source.layers or {}) do
+          local ref=(layer.cells or {})[index]
+          local pair=ref and ref.source:match("^@runtime:(.+)$")
+          if layer.export~=false and pair then nativeRef,nativePair=ref,pair end
+        end
+        if not nativeRef then return end
+        local key="editor_door_"..mod.id.."_"..nativePair
+        Doors._layoutCache[key]={pair=nativePair,midAt=function(_,mid) return mid end}
+        return proceed(key,nativeRef.tile,0)
+      end)
+    end
     if not Collision._editorWarpDispatch then
       Collision._editorWarpDispatch=true
       local install=Collision.installWarps

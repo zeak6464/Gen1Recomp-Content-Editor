@@ -139,7 +139,19 @@ function M.compile(S)
     for k,v in pairs(map) do
       if not tostring(k):match("^_") and k~="blocks" and k~="width" and k~="height" and k~="tileset" and k~="signs" then value[k]=copy(v) end
     end
+    -- Trigger conversion needs a little editor-only bookkeeping in the
+    -- workspace. Keep the compiled map clean while preserving the real
+    -- FireRed object/coordinate-event representation.
+    for _,row in ipairs(value.coordEvents or {}) do row._editorTriggerOwner=nil end
+    for _,row in ipairs(value.objects or {}) do
+      row.touchScriptKey=nil
+      if row.trigger=="player_touch" then row.trigger=nil end
+    end
     value.bgEvents=copy(map.signs or map.bgEvents or {})
+    for _,row in ipairs(value.bgEvents) do
+      row.touchScriptKey=nil
+      if row.trigger=="player_touch" then row.trigger=nil end
+    end
     value.warps=copy(map.warps or {})
     if map._isNew then
       local source=p.layeredMaps[id]

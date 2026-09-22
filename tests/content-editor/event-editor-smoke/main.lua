@@ -29,6 +29,16 @@ function love.load()
   require("Gen3ContentAdapter").prepare(S);require("Gen3Workspace").prepare(S)
   local d={kind="dialog",map="FR_PALLET_TOWN",npc="1",text="Welcome, {PLAYER}!\nEnjoy your adventure."}
   local script=assert(require("Gen3EventBuilder").create(S,d))
+  local storyModule=require("Gen3EventStory")
+  S.project.gen3.map_scripts.EditorBattleTest={{op="end"}}
+  storyModule.openAddMenu(S,"EditorBattleTest",require("Gen3").catalog(S.data,"map_scripts"),{markDirty=function() end})
+  local addBattle=S.choicePicker.onPick;require("ChoicePicker").close(S);addBattle("wild_battle")
+  local battleRows=storyModule.rows(S,"EditorBattleTest",require("Gen3").catalog(S.data,"map_scripts"))
+  assert(battleRows[1].kind=="wild_battle" and battleRows[1].level==5)
+  S.project.gen3.map_scripts.EditorTrainerTest={{op="end"}}
+  storyModule.openAddMenu(S,"EditorTrainerTest",require("Gen3").catalog(S.data,"map_scripts"),{markDirty=function() end})
+  local addTrainer=S.choicePicker.onPick;require("ChoicePicker").close(S);addTrainer("trainer_battle")
+  assert(storyModule.rows(S,"EditorTrainerTest",require("Gen3").catalog(S.data,"map_scripts"))[1].kind=="trainer_battle")
   S.g3EventMode="map";S.g3EventMap=d.map;S.g3MapEventId="objects/1"
   S._g3StepSelection={["event/"..script]=3}
   local K=require("Kit");local Panel=require("Gen3Events");local Writer=require("ModWriter")

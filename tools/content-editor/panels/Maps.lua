@@ -706,6 +706,20 @@ local function oppositeDir(dir)
   return nil
 end
 
+local function connectionMapChoices(S, fromId)
+  local ids, labels = {}, {}
+  for _, id in ipairs(Autocomplete.mapIds(S)) do
+    if id ~= fromId then
+      ids[#ids + 1] = id
+      local friendly
+      if Generation.isGen3(S) then friendly = require("Gen3Names").map(id)
+      else friendly = tostring(id):gsub("_", " "):lower():gsub("(%a)([%w']*)", function(a,b) return a:upper()..b end) end
+      labels[id] = friendly .. "  (" .. tostring(id) .. ")"
+    end
+  end
+  return ids, labels
+end
+
 -- Wire A[dir] → B and B[opposite] → A with negated block offset (Tiled/vanilla).
 local function applyConnectionEdit(S, fromId, dir, wantMap, wantOff, App, opts)
   opts = opts or {}
@@ -2705,8 +2719,10 @@ local function drawWorldView(S, App, vx, vy, vw, vh, propW)
   y = y + 16 * s
   map.connections = map.connections or {}
   local fromId = map.id or S.mapId
+  local connectionIds, connectionLabels = connectionMapChoices(S, fromId)
   local listBottom = py + canvasH - 16 * s
   for _, dir in ipairs({ "north", "south", "east", "west" }) do
+    local connectionDir = dir
     if y + fh > listBottom then break end
     local cur = map.connections[dir]
     local val = connMapId(cur, S) or ""
@@ -2718,16 +2734,18 @@ local function drawWorldView(S, App, vx, vy, vw, vh, propW)
     end
     Kit.text("micro",dir:upper(),px+10*s,y,PAL.caption)
     y=y+16*s
-    local v = field(App, "mp_wc_" .. dir, px + 10 * s, y, propW - 20 * s, fh,
-      val, dir)
-    local wantMap = (v == "") and nil or v:upper():gsub("%s+", "_")
+    local wantMap = val ~= "" and val or nil
+    ChoicePicker.field(S, {
+      x=px+10*s,y=y,w=propW-20*s,h=fh,current=wantMap or "",
+      ids=connectionIds,labels=connectionLabels,title="CONNECT "..connectionDir:upper().." TO MAP",
+      emptyLabel="No connection",allowClear=true,clearLabel="Remove "..connectionDir.." connection",
+      tooltip="Choose the neighboring map",
+      onPick=function(id)
+        applyConnectionEdit(S,fromId,connectionDir,id,cur and (cur.offset or 0) or 0,App,{world=true})
+      end,
+    })
     local curMap = connMapId(cur, S) or ""
     local curOff = cur and (cur.offset or 0) or 0
-    if (curMap or "") ~= (wantMap or "") then
-      map = applyConnectionEdit(S, fromId, dir, wantMap, curOff, App,
-        { world = true }) or mutate()
-      owned = true
-    end
     if wantMap and map.connections and map.connections[dir] then
       local off = tonumber(field(App, "mp_wco_" .. dir,
         px + 10 * s, y + fh + 2 * s, 60 * s, fh - 4 * s,
@@ -5872,18 +5890,24 @@ function Maps._section.drawBasics(S, map, mutate, App, px, py, propW, listBottom
   py = py + 16 * s
   map.connections = map.connections or {}
   local fromId = map.id or S.mapId
+  local connectionIds, connectionLabels = connectionMapChoices(S, fromId)
   for _, dir in ipairs({ "north", "south", "east", "west" }) do
+    local connectionDir = dir
     if py + fh > listBottom then break end
     local cur = map.connections[dir]
     local val = connMapId(cur, S) or ""
-    local v = field(App, "mp_c_" .. dir, px + 10 * s, py, propW - 20 * s, fh,
-      val, dir, function() return Autocomplete.mapIds(S) end)
-    local wantMap = (v == "") and nil or v:upper():gsub("%s+", "_")
+    local wantMap = val ~= "" and val or nil
+    ChoicePicker.field(S, {
+      x=px+10*s,y=py,w=propW-20*s,h=fh,current=wantMap or "",
+      ids=connectionIds,labels=connectionLabels,title="CONNECT "..connectionDir:upper().." TO MAP",
+      emptyLabel="No connection",allowClear=true,clearLabel="Remove "..connectionDir.." connection",
+      tooltip="Choose the neighboring map",
+      onPick=function(id)
+        applyConnectionEdit(S,fromId,connectionDir,id,cur and (cur.offset or 0) or 0,App)
+      end,
+    })
     local curMap = connMapId(cur, S) or ""
     local curOff = cur and (cur.offset or 0) or 0
-    if (curMap or "") ~= (wantMap or "") then
-      map = applyConnectionEdit(S, fromId, dir, wantMap, curOff, App) or mutate()
-    end
     if wantMap and map.connections and map.connections[dir] then
       local off = tonumber(field(App, "mp_co_" .. dir,
         px + 10 * s, py + fh + 2 * s, 60 * s, fh - 4 * s,

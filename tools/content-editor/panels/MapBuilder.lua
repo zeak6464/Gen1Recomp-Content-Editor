@@ -1004,6 +1004,7 @@ local function drawConnectedNeighbors(S, source, camX, camY, viewW, viewH)
 end
 
 local function drawCanvas(S, source, x, y, w, h, App)
+  local resolveSource = LayeredMap.sourceResolver(S)
   local pad = 8 * Kit.scale
   local vx, vy = x + pad, y + pad
   local vw, vh = math.max(1, w - pad * 2), math.max(1, h - pad * 2)
@@ -1047,7 +1048,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
   local mapRec = S.project.maps and S.project.maps[source.id]
   local borderTs = source.baseTileset or (mapRec and mapRec.tileset)
   local borderDesc = borderTs
-    and LayeredMap.sourceDescriptor(S, LayeredMap.runtimeSourceId(borderTs))
+    and resolveSource(LayeredMap.runtimeSourceId(borderTs))
   if borderDesc then
     local bx0 = math.max(viewX0, -BORDER)
     local by0 = math.max(viewY0, -BORDER)
@@ -1060,7 +1061,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
           local tile = LayeredMap.borderCellTile(mapRec, cx, cy)
           local desc = borderDesc
           if mapRec and mapRec._borderExplicit and mapRec._borderSource then
-            desc = LayeredMap.sourceDescriptor(S, mapRec._borderSource) or desc
+            desc = resolveSource(mapRec._borderSource) or desc
           end
           drawSourceTile(S, desc, tile, cx * CELL, cy * CELL, CELL, 1)
         end
@@ -1077,7 +1078,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
         if layer.visible ~= false then
           local ref = layer.cells[cy * source.cellWidth + cx + 1]
           if ref then
-            local tileSource = LayeredMap.sourceDescriptor(S, ref.source)
+            local tileSource = resolveSource(ref.source)
             drawSourceTile(S, tileSource, ref.tile, dx, dy, CELL,
               clamp(layer.opacity or 1, 0, 1))
           end

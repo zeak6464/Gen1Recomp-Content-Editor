@@ -10,7 +10,7 @@ return function(data,root,output)
   local oldText,oldChoice=K.textfield,C.field
   local S={};local changes=0
   K.textfield=function(id,x,y,w,h,value) return "7" end
-  C.field=function(_,opts) opts.onPick(opts.title=="CHARACTER TO MOVE" and "7" or "Walk left") end
+  C.field=function(_,opts) opts.onPick(opts.title=="CHARACTER TO MOVE" and "7" or "18") end
   local canvas=love.graphics.newCanvas(800,600)
   love.graphics.setCanvas({canvas,stencil=true});K.layout(800,600);K.beginFrame(0,0,false,0)
   M.draw(S,"test",step,20,20,600,520,function() changes=changes+1 end)

@@ -881,6 +881,19 @@ function LayeredMap.sourceDescriptor(S, sourceId)
     and S.project.mapTileSources[sourceId]
 end
 
+-- Keep descriptors local to a draw so edits are visible on the next frame.
+-- Runtime descriptors can scan an entire metatile registry when resolved.
+function LayeredMap.sourceResolver(S)
+  local descriptors = {}
+  return function(id)
+    if id == nil then return nil end
+    if descriptors[id] == nil then
+      descriptors[id] = LayeredMap.sourceDescriptor(S, id) or false
+    end
+    return descriptors[id] or nil
+  end
+end
+
 function LayeredMap.sourceIds(S, mapId)
   local ids, seen = {}, {}
   local function add(id)
@@ -3058,6 +3071,7 @@ function LayeredMap.previewRenderer(S, source, mapId)
   local CELL = LayeredMap.CELL_SIZE
   mapId = mapId or source.id
   local function draw(_, camX, camY, vw, vh)
+    local resolveSource = LayeredMap.sourceResolver(S)
     camX, camY = camX or 0, camY or 0
     vw = vw or source.cellWidth * CELL
     vh = vh or source.cellHeight * CELL
@@ -3075,7 +3089,7 @@ function LayeredMap.previewRenderer(S, source, mapId)
           if layer.visible ~= false then
             local ref = layer.cells[cy * source.cellWidth + cx + 1]
             if ref then
-              local desc = LayeredMap.sourceDescriptor(S, ref.source)
+              local desc = resolveSource(ref.source)
               if desc then
                 LayeredMap.drawSourceTile(S, desc, ref.tile,
                   cx * CELL, cy * CELL, CELL, layer.opacity or 1, mapId)

@@ -10,7 +10,7 @@ function M.attach(S,path,payload)
     assert(require("Gen3Workspace").convert(S,payload.target.mapId))
   end
   local K=require("Kit");local History=require("History");local Theme=require("Theme")
-  local Choice=require("ChoicePicker");local Items=require("ItemPicker")
+  local Choice=require("ChoicePicker");local Items=require("ItemPicker");local Species=require("SpeciesPicker")
   History.clear(S);History.resetBaseline(S)
   local window={};local clicked,wheel=false,0;local done=false
   local App={markDirty=function() History.noteDirty(S);S.dirty=true end}
@@ -46,22 +46,24 @@ function M.attach(S,path,payload)
     K.text("title","EDIT EVENT",20*s,15*s,Theme.PAL.heading)
     local target=payload.target
     K.text("small",require("Gen3Names").map(target.mapId).." / "..targetLabel.." "..target.index,20*s,48*s,Theme.PAL.text)
-    local modal=Choice.isOpen(S) or Items.isOpen(S)
+    local modal=Choice.isOpen(S) or Items.isOpen(S) or Species.isOpen(S)
     K.blockClicks=modal
     if K.button(w-230*s,18*s,95*s,32*s,"OK",{kind="good"}) then window.accept() end
     if K.button(w-125*s,18*s,105*s,32*s,"Cancel",{}) then window.cancel() end
     History.beginFrame(S)
-    require("Gen3EventEditor").draw(S,20*s,90*s,w-40*s,h-140*s,App)
+    require("Gen3RpgEventEditor").draw(S,20*s,90*s,w-40*s,h-140*s,App)
     History.endFrame(S)
     K.text("small",K.ellipsize("small",S.status or "",w-40*s),20*s,h-30*s,Theme.PAL.text)
     K.blockClicks=false
     if Choice.isOpen(S) then Choice.draw(S,0,0,w,h) end
     if Items.isOpen(S) then Items.draw(S,0,0,w,h) end
+    if Species.isOpen(S) then Species.draw(S,0,0,w,h) end
     K.endFrame()
   end
   function window.keypressed(key)
     if Choice.isOpen(S) and Choice.keypressed(S,key) then return end
     if Items.isOpen(S) and Items.keypressed(S,key) then return end
+    if Species.isOpen(S) and Species.keypressed(S,key) then return end
     local ctrl=love.keyboard.isDown("lctrl","rctrl","lgui","rgui")
     if ctrl and key=="s" then window.accept();return end
     if ctrl and (key=="z" or key=="y") then

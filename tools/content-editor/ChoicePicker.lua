@@ -33,6 +33,8 @@ function ChoicePicker.open(S, opts)
     allowClear = opts.allowClear and true or false,
     clearLabel = opts.clearLabel or "(none)",
     onPick = opts.onPick,
+    rowHeight = opts.rowHeight,
+    drawRow = opts.drawRow,
   }
 end
 
@@ -71,6 +73,8 @@ function ChoicePicker.field(S, opts)
       allowClear = opts.allowClear,
       clearLabel = opts.clearLabel or opts.emptyLabel,
       onPick = opts.onPick,
+      rowHeight = opts.rowHeight,
+      drawRow = opts.drawRow,
     })
   end
   require("PickerArrow").draw(x,y,w,h)
@@ -164,7 +168,7 @@ function ChoicePicker.draw(S, x, y, w, h)
   local listY = cy + qh + 8 * s
   local extra = p.allowClear and (32 * s) or 0
   local listH = py + ph - pad - listY - extra - 4 * s
-  local rowH = 28 * s
+  local rowH = (p.rowHeight or 28) * s
   local perPage = math.max(1, math.floor(listH / (rowH + 3 * s)))
   local innerW = Kit.scrollInnerWidth(inner)
   p.offset = Kit.scroll(cx, listY, inner, listH, p.offset or 0, #list, perPage)
@@ -192,8 +196,9 @@ function ChoicePicker.draw(S, x, y, w, h)
         return
       end
       local shown = labels[id] or id
-      Kit.text("small", Kit.ellipsize("small", shown, math.max(8, innerW - 12 * s)),
-        cx + 8 * s, ry + 6 * s, on and PAL.heading or PAL.text)
+      if p.drawRow then p.drawRow(S,id,cx,ry,innerW,rowH,shown,on)
+      else Kit.text("small", Kit.ellipsize("small", shown, math.max(8, innerW - 12 * s)),
+        cx + 8 * s, ry + (rowH-Kit.textHeight("small"))/2, on and PAL.heading or PAL.text) end
       ry = ry + rowH + 3 * s
     end
     Kit.popClip()

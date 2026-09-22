@@ -17,8 +17,13 @@ return function(data,root,output)
   assert(not vm:isRunning());assert(#messages>0)
   d.kind="item";d.item="POTION";d.quantity="2";d.success="Here you go!";d.done="Enjoy!"
   local reward=assert(B.create(S,d));assert(reward~=key and S.project.maps[d.map].objects[1].scriptKey==reward)
+  d.kind="pickup";d.item="ESCAPE_ROPE";d.quantity="1"
+  local pickup=assert(B.create(S,d));local object=S.project.maps[d.map].objects[1]
+  assert(pickup~=reward and object.scriptKey==pickup and object.flag>=0x900)
+  local item=assert(require("Gen3EventStory").itemPickup(S.project.gen3.map_scripts[pickup]))
+  assert(item.quantity==1 and require("Gen3EventStory").itemName(S,item.item)=="ESCAPE ROPE")
   local IO=require("ModIO");local path=output.."/event-builder-project"
-  IO.ensureDirectory(path);assert(IO.save(path,S.project));local p=assert(IO.load(path));assert(p.maps[d.map].objects[1].scriptKey==reward)
+  IO.ensureDirectory(path);assert(IO.save(path,S.project));local p=assert(IO.load(path));assert(p.maps[d.map].objects[1].scriptKey==pickup)
   S.g3EventMode="builder";S._eventBuilderProject=S.project;S.eventBuilder=d
   local K=require("Kit");local canvas=love.graphics.newCanvas(1360,860)
   love.graphics.setCanvas({canvas,stencil=true});love.graphics.clear(.04,.06,.12,1)

@@ -57,7 +57,7 @@ function M.drawScript(S,id,fx,y,fw,h,App)
   Steps.draw(S,"event/"..id,S._g3ScriptDraft,S._g3ScriptTemplates,fx,y+42*s,fw,h-42*s,function()
     edits[id]=require("src.mods.Merge").deepCopy(S._g3ScriptDraft)
     S._g3ScriptSource=edits[id];App.markDirty()
-  end)
+  end,{id=id,catalog=catalog,onInputChanged=function() S._g3ScriptSource=nil;App.markDirty() end})
 end
 return M
 

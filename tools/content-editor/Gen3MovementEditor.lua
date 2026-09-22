@@ -1,17 +1,11 @@
 local M={}
 local K=require("Kit")
 local Movement=require("src.core.game3.scripting.movement")
-local choices,names={},{}
-local function add(name,byte) choices[#choices+1]=name;names[name]=byte end
-for _,group in ipairs({{"Face",0},{"Walk slowly",12},{"Walk",16},{"Walk fast",29}}) do
-  for i,dir in ipairs({"down","up","left","right"}) do add(group[1].." "..dir,group[2]+i-1) end
-end
-for i,frames in ipairs({2,4,8,16,32}) do add("Wait "..frames.." frames",23+i) end
-for name,byte in pairs({Hide=96,Show=97,Exclamation=98,Question=99,Smile=102,Bow=91}) do add(name,byte) end
-table.sort(choices)
+local Language=require("Gen3MovementLanguage")
+local choices,labels=Language.choices,{}
+for _,id in ipairs(choices) do labels[id]=Language.label(tonumber(id)) end
 function M.label(byte)
-  for name,value in pairs(names) do if value==byte then return name end end
-  return string.format("Native action 0x%02X",byte)
+  return Language.label(byte)
 end
 function M.insert(step,byte)
   local bytes=step.movement
@@ -52,14 +46,15 @@ function M.draw(S,key,step,x,y,w,h,changed)
   S[sk]=K.scroll(x,top,w,page*28*s,S[sk] or 0,count,page)
   for i=S[sk]+1,math.min(count,S[sk]+page) do
     local yy=top+(i-S[sk]-1)*28*s
-    K.caption(x,yy+4*s,i..". "..M.label(bytes[i]))
+    K.caption(x,yy+4*s,K.ellipsize("micro",i..". "..M.label(bytes[i]),w-124*s))
+    K.offerTooltip(x,yy,w-124*s,25*s,M.label(bytes[i]))
     if K.button(x+w-116*s,yy,52*s,25*s,"Up",{}) and i>1 then bytes[i],bytes[i-1]=bytes[i-1],bytes[i];changed() end
     if K.button(x+w-60*s,yy,52*s,25*s,"Delete",{}) then table.remove(bytes,i);changed();break end
   end
   S[sk]=K.scrollbar(x,top,w,page*28*s,S[sk],count,page)
   local by=top+page*28*s+8*s
-  require("ChoicePicker").field(S,{x=x,y=by,w=w,h=28*s,ids=choices,current="",emptyLabel="Add movement action",title="MOVEMENT ACTION",
-    onPick=function(name) M.insert(step,names[name]);changed() end})
+  require("ChoicePicker").field(S,{x=x,y=by,w=w,h=28*s,ids=choices,labels=labels,current="",emptyLabel="Add movement action",title="HOW SHOULD THE CHARACTER MOVE?",
+    onPick=function(id) M.insert(step,tonumber(id));changed() end})
   K.caption(x,by+36*s,"Path preview · each square is one map cell")
   local points=M.path(bytes);local minx,maxx,miny,maxy=0,0,0,0
   for _,p in ipairs(points) do minx=math.min(minx,p[1]);maxx=math.max(maxx,p[1]);miny=math.min(miny,p[2]);maxy=math.max(maxy,p[2]) end

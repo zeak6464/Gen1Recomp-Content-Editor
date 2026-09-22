@@ -5,7 +5,7 @@ local Writer=require("ModWriter")
 local PAL=require("Theme").PAL
 local Commands=require("Gen3EventCommands")
 local Actions=require("Gen3EventActions")
-function M.draw(S,key,steps,templates,x,y,w,h,changed)
+function M.draw(S,key,steps,templates,x,y,w,h,changed,context)
   local s=Kit.scale
   S._g3StepSelection=S._g3StepSelection or {}
   local nativeKey="g3NativeCommands/"..key
@@ -64,7 +64,17 @@ function M.draw(S,key,steps,templates,x,y,w,h,changed)
     local Pane=require("FormPane");local pk="g3FriendlyFields/"..key
     Pane.track(S,pk,step)
     local top,view=Pane.begin(S,pk,fx,y+64*s,fw,math.max(40*s,h-64*s))
-    local handled,ending=Commands.draw(S,key.."/"..selected,step,fx,top,view.contentW,changed)
+    local inputs
+    if context and (step.op=="special" or step.op=="specialvar" or step.op=="setwildbattle" or step.op=="dowildbattle") then
+      for _,row in ipairs(require("Gen3EventStory").rows(S,context.id,context.catalog)) do
+        if row.script==context.id and row.index==rows[selected].first then inputs=row.inputs;break end
+      end
+    end
+    local handled,ending
+    if inputs then
+      ending=require("Gen3ActionInputs").draw(S,key.."/"..selected,inputs,context.catalog,fx,top,view.contentW,context.onInputChanged)
+      handled=true
+    else handled,ending=Commands.draw(S,key.."/"..selected,step,fx,top,view.contentW,changed) end
     Pane.finish(S,pk,top,ending or top,view)
     if handled then return end
   end

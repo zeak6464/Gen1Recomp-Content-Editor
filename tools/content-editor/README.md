@@ -58,6 +58,24 @@ See [docs/content-editor.md](../../docs/content-editor.md) and
 
 ## FireRed / Gen 3
 
+Map events show actions in everyday language. Select an action to edit its
+settings: choose Pokémon, moves, trainers, characters, screen transitions,
+directions, and built-in game actions by name. A saved switch remembers yes or
+no; a saved number can remember a count or quest stage. Use the same number
+when another action needs to check it.
+
+Legendary and other prepared battles expose their Pokémon, level, and held item
+on the battle action itself, even when an earlier command sets those values.
+Editing a prepared opponent keeps the original battle type and event behavior.
+If no fixed opponent can be found, choose one and use **Apply battle opponent**.
+Other supported actions expose prepared inputs such as the team Pokémon to
+check, the Day Care Pokémon to return, and the price to charge.
+
+Movement routes describe individual steps, turns, jumps, and effects. Hover
+over shortened labels to read the full description. Unrecognized values remain
+visible and are preserved when you open an event. **All actions / details**
+provides access to the underlying commands when needed.
+
 Use a Gen1Recomp checkout with FireRed and Gen 3 content schemas. On Windows,
 `ContentEditor-FireRed.bat` launches against
 `%USERPROFILE%\Downloads\gen1recomp-dev\gen1recomp-dev`; pass another checkout

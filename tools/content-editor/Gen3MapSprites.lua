@@ -1,6 +1,6 @@
 -- Draw a native overworld frame at the map cell's feet, at its original size.
 local M={}
-function M.draw(S,obj,x,y)
+function M.draw(S,obj,x,y,opts)
   local id=tonumber(obj.graphicsId or obj.graphics)
   if not id then return false end
   local path="data/generated/gba/ow/"..id..".rgba"
@@ -23,7 +23,8 @@ function M.draw(S,obj,x,y)
     rec={image=image,override=override,quad=love.graphics.newQuad(0,0,meta.frameWidth,meta.frameHeight,width,height)};cache.images[id]=rec
   end
   love.graphics.setColor(1,1,1,1)
-  love.graphics.draw(rec.image,rec.quad,x+(16-meta.frameWidth)/2,y+16-meta.frameHeight)
+  local scale=opts and opts.scale or 1
+  love.graphics.draw(rec.image,rec.quad,x+(16-meta.frameWidth)*scale/2,y+(16-meta.frameHeight)*scale,0,scale,scale)
   return true
 end
 return M

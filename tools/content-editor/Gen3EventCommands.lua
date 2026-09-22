@@ -1,10 +1,10 @@
 -- Presentation only: keep native script data intact, including unknown fields.
 local M={}
 M.definitions={
-  lock={"Pause this NPC", "Keep this NPC still during the conversation."},
-  lockall={"Pause all NPCs", "Keep everyone still while this event runs."},
-  faceplayer={"Face the player", "Turn this NPC toward the player."},
-  release={"Resume movement", "Let the player and NPC move again."},
+  lock={"Pause this character", "Keep this character still during the conversation."},
+  lockall={"Pause all characters", "Keep everyone still while this event runs."},
+  faceplayer={"Face the player", "Turn this character toward the player."},
+  release={"Resume movement", "Let the player and character move again."},
   releaseall={"Resume all movement", "Let everyone move again."},
   message={"Show text", "Write what the player reads.", "ptr", "Dialogue"},
   delay={"Wait", "Pause this event. 60 frames is about one second.", "frames", "Frames", true},
@@ -26,7 +26,7 @@ M.definitions={
 }
 function M.label(op)
   local d=M.definitions[op]
-  return d and d[1] or ("Advanced: "..tostring(op))
+  return require("Gen3ActionLanguage").label(op) or (d and d[1]) or ("Undescribed action: "..tostring(op))
 end
 function M.summary(step,S)
   if S and step.op=="message" then
@@ -34,7 +34,7 @@ function M.summary(step,S)
     if text then return 'Show text: "'..text:gsub("%s+"," ")..'"' end
   end
   local d=M.definitions[step.op]
-  return M.label(step.op)..(d and d[3] and step[d[3]]~=nil and (": "..tostring(step[d[3]])) or "")
+  return (require("Gen3ActionLanguage").label(step) or M.label(step.op))..(d and d[3] and step[d[3]]~=nil and (": "..tostring(step[d[3]])) or "")
 end
 local variableOps={setvar=true,setorcopyvar=true,compare_var_to_value=true}
 local function variableFields(step)
@@ -90,11 +90,14 @@ function M.drawText(S,key,step,x,y,w,changed)
   return true,y+36*s
 end
 function M.draw(S,key,step,x,y,w,changed)
-  if step.op=="message" then return M.drawText(S,key,step,x,y,w,changed) end
+  if step.op=="message" then
+    local handled,bottom=M.drawText(S,key,step,x,y,w,changed)
+    if handled then return handled,bottom end
+  end
+  if require("Gen3ActionLanguage").schemas[step.op] then return require("Gen3ActionLanguage").draw(S,key,step,x,y,w,changed) end
   if variableOps[step.op] then return M.drawVariables(S,key,step,x,y,w,changed) end
   local d=M.definitions[step.op]
-  if not d then return false end
-  if d[3] and step[d[3]]==nil then return false end
+  if not d or (d[3] and step[d[3]]==nil) then return require("Gen3ActionLanguage").draw(S,key,step,x,y,w,changed) end
   local K=require("Kit");local s=K.scale
   K.text("small",K.ellipsize("small",d[2],w),x,y,require("Theme").PAL.text);K.offerTooltip(x,y,w,24*s,d[2])
   if not d[3] then return true,y+32*s end

@@ -33,10 +33,31 @@ function love.load(args)
   assert(S.data.maps.FR_PALLET_TOWN,"Real FireRed cache not loaded")
   S.project=require("State").ensureProjectFields(require("State").blankProject("window_test"));S.project.game="firered";S.tab="maps"
   require("Gen3ContentAdapter").prepare(S);require("Gen3Workspace").prepare(S)
+  dofile(root.."/tests/content-editor/test_gen3_action_forms.lua")(S,root,root.."/tests/content-editor/event-window-smoke")
+  dofile(root.."/tests/content-editor/test_gen3_movement.lua")(S.data,root,root.."/tests/content-editor/event-window-smoke")
+  dofile(root.."/tests/content-editor/test_gen3_legendary_editor.lua")(S,root,root.."/tests/content-editor/event-window-smoke")
   local id=assert(require("Gen3EventBuilder").create(S,{kind="dialog",map="FR_PALLET_TOWN",npc="1",text="Unsaved parent dialogue"}))
   local map=S.project.maps.FR_PALLET_TOWN
   map.signs={{x=4,y=4,elevation=3,kind=0,scriptKey=id}}
   map.coordEvents={{x=5,y=4,elevation=3,var=16384,value=0,scriptKey=id}}
+  local target={mapId="FR_PALLET_TOWN",kind="objects",index=1};local object=map.objects[1];local originalScript=object.scriptKey
+  local triggerEditor=require("Gen3RpgEventEditor");local triggerApp={markDirty=function() end}
+  triggerEditor.setTrigger(S,target,object,"player_touch",triggerApp)
+  assert(object.scriptKey==nil and object.touchScriptKey==originalScript and object.trigger=="player_touch")
+  assert(#map.coordEvents==2 and map.coordEvents[2].scriptKey==originalScript)
+  assert(require("Gen3Workspace").compile(S))
+  local exported=S.project.gen3.maps.FR_PALLET_TOWN
+  assert(exported.objects[1].scriptKey==nil and exported.objects[1].touchScriptKey==nil and exported.objects[1].trigger==nil)
+  assert(#exported.coordEvents==2 and exported.coordEvents[2].scriptKey==originalScript and exported.coordEvents[2]._editorTriggerOwner==nil)
+  triggerEditor.setTrigger(S,target,object,"action_button",triggerApp)
+  assert(object.scriptKey==originalScript and object.touchScriptKey==nil and object.trigger==nil and #map.coordEvents==1,
+    table.concat({tostring(object.scriptKey),tostring(object.touchScriptKey),tostring(object.trigger),tostring(#map.coordEvents)}," / "))
+  triggerEditor.setTrigger(S,target,object,"event_touch",triggerApp);assert(object.trigger=="event_touch" and object.scriptKey==originalScript)
+  triggerEditor.setTrigger(S,target,object,"autorun",triggerApp);assert(object.trigger=="autorun" and object.scriptKey==originalScript)
+  triggerEditor.setTrigger(S,target,object,"parallel",triggerApp);assert(object.trigger=="parallel" and object.scriptKey==originalScript)
+  triggerEditor.setTrigger(S,target,object,"action_button",triggerApp);assert(object.trigger==nil and object.scriptKey==originalScript)
+  assert(require("Gen3Workspace").compile(S))
+  assert(S.project.gen3.maps.FR_PALLET_TOWN.objects[1].scriptKey==originalScript and #S.project.gen3.maps.FR_PALLET_TOWN.coordEvents==1)
   S.mapId="FR_PALLET_TOWN"
   require("History").clear(S);baseline=require("ModWriter").encodeLua(S.project)
   -- Exact hit testing includes native step-on triggers, and selecting them records the right index.
@@ -66,6 +87,17 @@ function love.update(dt)
     child.update(dt);frames=frames+1
     if frames==8 then
       capture()
+      -- The normal event window must render editable built-in actions directly.
+      if childMode=="accept" then
+        local map=S.project.maps[S._eventWindowTarget.mapId]
+        local script=map.objects[1].scriptKey;local rows=S.project.gen3.map_scripts[script]
+        local oldSelection=S._g3RpgRow
+        table.insert(rows,1,{op="special",id=0,[1]=0});S._g3RpgRow=1
+        local before=require("ModWriter").encodeLua(rows)
+        capture()
+        assert(require("ModWriter").encodeLua(rows)==before,"Drawing action settings modified the event")
+        table.remove(rows,1);S._g3RpgRow=oldSelection
+      end
       local target=S._eventWindowTarget
       assert(target.mapId=="FR_PALLET_TOWN" and target.index==1)
       if childMode=="crash" then os.exit(0) end

@@ -26,6 +26,7 @@ function Gen3.load(data, read, list)
   data._gen3Read = read
   data._gen3List = list
   data._g3Animations,data._g3Audio,data._g3Assets=nil,nil,nil
+  data._g3ActionMarts=nil
   data._editorGen3Catalog,data._gen3Layouts,data._gen3DerivedLayouts=nil,nil,nil
   data._g3PreviewPack=nil
   data._g3TownMap=nil
