@@ -33,3 +33,10 @@ gen3-rom-path.txt
 /tests/content-editor/gen3-smoke/screens-project/
 /tests/content-editor/gen3-smoke/custom-species-project/
 /tests/content-editor/custom-species-runner/result.txt
+/tests/content-editor/event-editor-smoke/*.png
+/tests/content-editor/event-editor-smoke/result.txt
+/tests/content-editor/event-editor-smoke/project/
+/tests/content-editor/event-editor-smoke/event-builder-project/
+/tests/content-editor/event-window-smoke/*.png
+/tests/content-editor/event-window-smoke/result.txt
+/tests/content-editor/event-window-smoke/child-error.txt

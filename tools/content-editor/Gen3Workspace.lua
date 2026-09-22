@@ -2,6 +2,11 @@
 -- native; the shared panels edit the same project structures as other games.
 local M={}
 local function copy(v) return require("src.mods.Merge").deepCopy(v) end
+local function behaviorFor(pair,mid)
+  local ok,interactions=pcall(require,"src.core.game3.scripting.interaction_scripts")
+  local behaviors=ok and interactions and interactions.behaviors
+  return behaviors and behaviors[pair] and behaviors[pair][mid]
+end
 function M.prepare(S)
   local data=S.data
   if not data or not data._gen3Read then return end
@@ -22,6 +27,11 @@ function M.prepare(S)
     for i,coll in pairs(source.gen3Collision or {}) do
       if source.collision[i]==(coll==0 and "walk" or "solid") then
         source.collision[i]=require("Gen3Collision").mode(coll)
+      end
+      if source.gen3Behavior==nil then source.gen3Behavior={} end
+      if source.gen3Behavior[i]==nil then
+        local ref=source.layers and source.layers[1] and source.layers[1].cells[i]
+        if ref then source.gen3Behavior[i]=behaviorFor(source.baseTileset,ref.tile) end
       end
     end
   end
@@ -60,17 +70,18 @@ function M.source(S,id)
   if not native then return nil,"Unknown FireRed map "..tostring(id) end
   local layout,err=require("Gen3Map").layout(S.data,id,S.project)
   if not layout then return nil,err end
-  local cells,collision,elevation,nativeCollision={},{},{},{}
+  local cells,collision,elevation,nativeCollision,nativeBehavior={},{},{},{},{}
   for y=0,layout.height-1 do for x=0,layout.width-1 do
     local i=y*layout.width+x+1
     local c=require("Gen3Map").cell(S.project,id,layout,x,y)
     cells[i]={source=L.runtimeSourceId(layout.pair),tile=c.mid}
     collision[i]=require("Gen3Collision").mode(c.coll);elevation[i]=c.elev;nativeCollision[i]=c.coll
+    nativeBehavior[i]=behaviorFor(layout.pair,c.mid)
   end end
   local border=(S.project.gen3Borders or {})[id] or layout
   local source={id=id,cellWidth=layout.width,cellHeight=layout.height,baseTileset=layout.pair,
     layers={{id="ground",name="Ground",visible=true,export=true,opacity=1,cells=cells}},
-    collision=collision,gen3Elevation=elevation,gen3Collision=nativeCollision,
+    collision=collision,gen3Elevation=elevation,gen3Collision=nativeCollision,gen3Behavior=nativeBehavior,
     gen3Border={width=border.borderWidth,height=border.borderHeight,mids=copy(border.borderMids)}}
   return source
 end

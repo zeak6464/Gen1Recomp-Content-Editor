@@ -14,13 +14,21 @@ end
 function Panel.draw(S,x,y,w,h,App)
   local s = Kit.scale
   if Kit.button(x,y,130*s,28*s,"Terrain",{kind=(S.g3MapMode==nil or S.g3MapMode=="terrain") and "primary" or "ghost"}) then S.g3MapMode="terrain" end
-  if Kit.button(x+140*s,y,170*s,28*s,"Events / properties",{kind=S.g3MapMode=="records" and "primary" or "ghost"}) then S.g3MapMode="records";S.gen3Id=S.g3MapId end
+  if Kit.button(x+140*s,y,170*s,28*s,"Events / properties",{kind=S.g3MapMode=="records" and "primary" or "ghost"}) then
+    local layered=S.project and S.project.layeredMaps and S.project.layeredMaps[S.g3MapId]
+    if layered and S.mapWorkspace then
+      S.mapBorderEditor=false;S.builderPane="details";S.mapId=S.g3MapId;S.builderMapId=S.g3MapId
+    else S.g3MapMode="records";S.gen3Id=S.g3MapId end
+  end
   if Kit.button(x+320*s,y,140*s,28*s,"Create / resize",{kind=S.g3MapMode=="layout" and "primary" or "ghost"}) then S.g3MapMode="layout" end
   if Kit.button(x+470*s,y,100*s,28*s,"Border",{kind=S.g3MapMode=="border" and "primary" or "ghost"}) then S.g3MapMode="border";S.g3Tool="Paint" end
   y,h=y+40*s,h-40*s
   if S.g3MapMode=="records" then return require("Gen3Records").draw(S,x,y,w,h,App) end
   if not S.project then Kit.caption(x,y,"Create or open a mod first"); return end
   local maps={};for id,def in pairs(S.data and S.data.maps or {}) do maps[id]=def end
+  -- Newly created layered maps do not enter the Gen 3 registry until save.
+  -- Include their project records so every editor path has a map definition.
+  for id,def in pairs(S.project.maps or {}) do maps[id]=def end
   for id,def in pairs((S.project.gen3 or {}).maps or {}) do if not maps[id] then maps[id]=def end end
   local ids=RegList.sortedKeys(maps)
   S.g3MapId=S.g3MapId or ids[1]
@@ -88,7 +96,24 @@ function Panel.draw(S,x,y,w,h,App)
   for i,tool in ipairs(borderMode and {} or {"Object","Warp","Sign","Trigger"}) do
     if Kit.button(fx+(i-1)*75*s,row,70*s,25*s,tool,{kind=S.g3Tool==tool and "primary" or "ghost"}) then S.g3Tool=tool end
   end
-  if borderMode then Kit.caption(fx,row,"Paint the pattern that repeats outside the map.") end
+  if borderMode then
+    if S._g3BorderSizeFor~=S.g3MapId then
+      S._g3BorderSizeFor=S.g3MapId
+      S.g3BorderW=tostring(layout.width);S.g3BorderH=tostring(layout.height)
+    end
+    Kit.caption(fx,row,"Pattern size")
+    S.g3BorderW=Kit.textfield("g3BorderW",fx+88*s,row-3*s,52*s,26*s,S.g3BorderW,"W")
+    Kit.caption(fx+147*s,row,"x")
+    S.g3BorderH=Kit.textfield("g3BorderH",fx+163*s,row-3*s,52*s,26*s,S.g3BorderH,"H")
+    if Kit.button(fx+225*s,row-3*s,92*s,26*s,"Resize",{kind="accent"}) then
+      local changed,sizeErr=Map.resizeBorder(S.project,S.g3MapId,baseLayout,
+        tonumber(S.g3BorderW),tonumber(S.g3BorderH))
+      if changed then
+        App.markDirty();S.status="Border pattern resized; paint the new cells, then Save"
+      elseif sizeErr then S.status=sizeErr end
+    end
+    Kit.caption(fx+327*s,row,"Repeats outside the map (1–512 each)")
+  end
   row=row+31*s
   local tile=16*s*S.g3Zoom
   local viewH=math.max(50*s,h-146*s)
@@ -114,31 +139,28 @@ function Panel.draw(S,x,y,w,h,App)
       love.graphics.setColor(1,1,1,0.14);love.graphics.rectangle("line",px,py,tile,tile)
       if Kit.press(px,py,tile,tile) then
         local tool=S.g3Tool or "Paint"
-        if borderMode then
+        local hitKind,hitIndex
+        if not borderMode and tool~="Paint" and tool~="Revert" and not love.keyboard.isDown("lshift","rshift") then
+          local patch=((S.project.gen3 or {}).maps or {})[S.g3MapId] or {}
+          for _,group in ipairs({"objects","warps","signs","coordEvents"}) do
+            local def=maps[S.g3MapId] or {}
+            local events=patch[group] or group=="signs" and (patch.bgEvents or def.signs or def.bgEvents) or def[group]
+            for i,event in ipairs(events or {}) do
+              if event.x==cx and event.y==cy then hitKind,hitIndex=group,i end
+            end
+          end
+        end
+        if hitKind then
+          require("Gen3EventWindow").request(S,S.g3MapId,hitKind,hitIndex)
+        elseif borderMode then
           if tool=="Pick" then S.g3Mid=cell.mid
           else
             local mid=tool=="Revert" and (baseLayout.borderMids[cy*layout.width+cx+1] or 0) or (S.g3Mid or 0)
             if Map.paintBorder(S.project,S.g3MapId,baseLayout,cx,cy,mid) then App.markDirty() end
           end
         elseif tool=="Object" or tool=="Warp" or tool=="Sign" or tool=="Trigger" then
-          local id=S.g3MapId
-          local kind=({Object="objects",Warp="warps",Sign="bgEvents",Trigger="coordEvents"})[tool]
-          S.project.gen3=S.project.gen3 or {};S.project.gen3.maps=S.project.gen3.maps or {};S.project.gen3.maps[id]=S.project.gen3.maps[id] or {}
-          local patch=S.project.gen3.maps[id]
-          local events=require("src.mods.Merge").deepCopy(patch[kind] or maps[id][kind] or {})
-          local script="EDITOR_"..id.."_"..kind.."_"..(#events+1)
-          local ev={x=cx,y=cy,elevation=cell.elev,scriptKey=script}
-          if tool=="Object" then
-            local max=0;for _,e in ipairs(events) do max=math.max(max,e.localId or e.index or 0) end
-            ev.localId=max+1;ev.index=max+1;ev.graphicsId=1;ev.graphics=1;ev.movement="STAY";ev.movementType=9;ev.flag=0
-          elseif tool=="Warp" then ev={x=cx,y=cy,destMap=id,destWarp=1}
-          elseif tool=="Sign" then ev.kind=0
-          else ev.var=16384;ev.value=0 end
-          events[#events+1]=ev;patch[kind]=events
-          S.project.gen3Exact=S.project.gen3Exact or {};S.project.gen3Exact.maps=S.project.gen3Exact.maps or {};S.project.gen3Exact.maps[id]=true
-          if tool~="Warp" then S.project.gen3.map_scripts=S.project.gen3.map_scripts or {};S.project.gen3.map_scripts[script]={{op="end"}} end
-          S.gen3Id=id;S._g3Identity=nil;S.g3MapMode="records";App.markDirty()
-          S.status="Placed "..tool..". Edit its properties here and its script on Events."
+          S.mapId=S.g3MapId
+          require("Gen3MapEvents").place(S,tool:lower(),cx,cy,App)
         elseif tool=="Pick" then S.g3Mid,S.g3Coll,S.g3Elev=cell.mid,cell.coll,cell.elev
         else
           local chosen=tool=="Revert" and layout:cellAt(cx,cy)
@@ -148,9 +170,11 @@ function Panel.draw(S,x,y,w,h,App)
       end
     end
   end
-  local def=maps[S.g3MapId];local patch=((S.project.gen3 or {}).maps or {})[S.g3MapId] or {}
+  local def=maps[S.g3MapId] or {};local patch=((S.project.gen3 or {}).maps or {})[S.g3MapId] or {}
   for _,group in ipairs(borderMode and {} or {{"objects","O"},{"warps","W"},{"bgEvents","S"},{"coordEvents","T"}}) do
-    for i,ev in ipairs(patch[group[1]] or def[group[1]] or {}) do
+    local base=def[group[1]]
+    if group[1]=="bgEvents" then base=base or def.signs end
+    for i,ev in ipairs(patch[group[1]] or base or {}) do
       if ev.x and ev.y then
         local px,py=fx+(ev.x-S.g3PanX)*tile,viewY+(ev.y-S.g3PanY)*tile
         love.graphics.setColor(0.9,0.5,0.1,0.65);love.graphics.rectangle("fill",px,py,tile,tile)

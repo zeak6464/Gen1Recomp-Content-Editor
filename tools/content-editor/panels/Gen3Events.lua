@@ -5,8 +5,9 @@ local Steps=require("Gen3ScriptSteps")
 function M.draw(S,x,y,w,h,App)
   if not S.project then Kit.caption(x,y,"Open a FireRed mod first");return end
   local s=Kit.scale
-  local body=List.modeChips(S,"g3EventMode",{{id="builder",label="Create event"},{id="quests",label="Reward quests"},{id="scripts",label="Advanced scripts"}},x,y,s)
+  local body=List.modeChips(S,"g3EventMode",{{id="map",label="Map events"},{id="builder",label="Create event"},{id="quests",label="Reward quests"},{id="scripts",label="All scripts"}},x,y,s)
   h=h-(body-y);y=body
+  if S.g3EventMode=="map" then require("Gen3EventEditor").draw(S,x,y,w,h,App);return end
   if S.g3EventMode=="builder" then require("Gen3EventBuilder").draw(S,x,y,w,h,App);return end
   if S.g3EventMode=="quests" then require("Gen3Quests").draw(S,x,y,w,h,App);return end
   S.project.gen3=S.project.gen3 or {};S.project.gen3.map_scripts=S.project.gen3.map_scripts or {}
@@ -29,14 +30,25 @@ function M.draw(S,x,y,w,h,App)
     if Kit.button(fx+140*s,y+40*s,130*s,28*s,"Cancel",{}) then S.g3NewScript=false end
     return
   end
-  local id=S.gen3Id;local value=id and (edits[id] or catalog[id])
+  M.drawScript(S,S.gen3Id,fx,y,fw,h,App)
+end
+function M.drawScript(S,id,fx,y,fw,h,App)
+  local s=Kit.scale
+  S.project.gen3=S.project.gen3 or {};S.project.gen3.map_scripts=S.project.gen3.map_scripts or {}
+  local edits=S.project.gen3.map_scripts
+  local catalog=require("Gen3").catalog(S.data,"map_scripts")
+  local value=id and (edits[id] or catalog[id])
   if not value then Kit.caption(fx,y,"Select a script");return end
+  local mode="g3StoryAdvanced/"..id
+  if Kit.button(fx,y,220*s,28*s,S[mode] and "What happens" or "Advanced commands",{}) then S[mode]=not S[mode];S._g3MessageDraft=nil end
+  y=y+40*s;h=h-40*s
+  if not S[mode] then require("Gen3EventStory").draw(S,id,catalog,fx,y,fw,h,App);return end
   if S._g3ScriptSource~=value or S._g3ScriptId~=id then
     S._g3ScriptSource=value;S._g3ScriptId=id
     S._g3ScriptDraft=require("src.mods.Merge").deepCopy(value)
   end
-  Kit.caption(fx,y,id..(edits[id] and " (edited)" or " (vanilla)"))
-  if Kit.button(fx+fw-140*s,y,140*s,28*s,"Revert edits",{}) then
+  Kit.caption(fx,y,Kit.ellipsize("micro",id..(edits[id] and " (edited)" or " (original)"),fw-155*s))
+  if catalog[id] and edits[id] and Kit.button(fx+fw-140*s,y,140*s,28*s,"Revert edits",{}) then
     edits[id]=nil;S._g3ScriptSource=nil;App.markDirty();return
   end
   if S._g3ScriptCatalog~=catalog then

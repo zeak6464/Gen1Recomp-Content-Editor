@@ -68,14 +68,20 @@ return "  local collisionModes="..encode(C.modes).."\n  local paintedCollision="
       local width,height=source.cellWidth,source.cellHeight
       for index=1,width*height do
         local refs,key={},{}
-        local behavior=0
+        -- Keep the original feet-tile behavior. It distinguishes, for
+        -- example, rocks in water from ordinary surfable water even when the
+        -- native behavior catalog is unavailable by the time the mod loads.
+        local behavior=(source.gen3Behavior or {})[index] or 0
         for _,layer in ipairs(source.layers or {}) do
           local ref=(layer.cells or {})[index]
           if layer.export~=false and ref then
             refs[#refs+1]={source=ref.source,tile=ref.tile,opacity=layer.opacity or 1}
             key[#key+1]=ref.source..":"..ref.tile..":"..(layer.opacity or 1)
             local pair=ref.source:match("^@runtime:(.+)$")
-            if pair then behavior=(Interactions.behaviors[pair] or {})[ref.tile] or behavior end
+            if pair then
+              local native=(Interactions.behaviors[pair] or {})[ref.tile]
+              if native~=nil then behavior=native end
+            end
           end
         end
         local mode=(source.collision or {})[index] or "solid"

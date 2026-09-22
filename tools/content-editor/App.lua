@@ -393,7 +393,7 @@ function App.load(modPath, opts)
   local prefsPeek = DataSource.loadPrefs()
   -- main.lua always passes version="red" unless POKEPORT_VERSION is set.
   -- Keep the last game chip the user actually selected.
-  local version = os.getenv("POKEPORT_VERSION")
+  local version = opts.eventWindow and opts.version or os.getenv("POKEPORT_VERSION")
     or prefsPeek.lastVersion or opts.version or "red"
   S.version = version
   App.dataVersion = version
@@ -1425,6 +1425,7 @@ end
 
 function App.update(dt)
   if not S then return end
+  if require("Gen3EventWindow").update(S,App) then return end
   if S.g3AnimPreview then require("Gen3AnimPreview").update(S,dt) end
   if S.g3IntroPreview then require("Gen3IntroPreview").update(S,dt) end
   if type(S.g3MinigamePreview)=="table" then require("Gen3MinigamePreview").update(S,dt) end
@@ -1564,6 +1565,10 @@ end
 
 function App.draw()
   if not S then return end
+  if require("Gen3EventWindow").busy(S) then
+    mouseClicked=false;clickX,clickY=nil,nil;wheelY=0
+    require("Gen3EventWindow").drawWaiting(S);return
+  end
   local W, H = love.graphics.getDimensions()
   local s = Kit.layout(W, H)
   local mx, my = love.mouse.getPosition()
@@ -1778,6 +1783,10 @@ end
 
 function App.keypressed(key)
   if not S then return end
+  if require("Gen3EventWindow").busy(S) then
+    if S._eventWindow then S._eventWindow.process.focus() end
+    return
+  end
   local ctrl = love.keyboard.isDown("lctrl") or love.keyboard.isDown("rctrl")
     or love.keyboard.isDown("lgui") or love.keyboard.isDown("rgui")
   local shift = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
@@ -1853,10 +1862,15 @@ function App.keypressed(key)
 end
 
 function App.textinput(text)
+  if require("Gen3EventWindow").busy(S) then return end
   Kit.textinput(text)
 end
 
 function App.mousepressed(x, y, button)
+  if require("Gen3EventWindow").busy(S) then
+    if S._eventWindow then S._eventWindow.process.focus() end
+    return
+  end
   if button == 1 then
     mouseClicked = true
     clickX, clickY = x, y
@@ -1873,6 +1887,7 @@ function App.mousereleased(_, _, button)
 end
 
 function App.wheelmoved(x, y)
+  if require("Gen3EventWindow").busy(S) then return end
   -- Tileset / palette modals need Kit.wheelY for their lists; never zoom maps.
   if S and (S.mapTilesetPicker or PalettePicker.isOpen(S)
       or SpeciesPicker.isOpen(S) or ItemPicker.isOpen(S)
@@ -1889,6 +1904,7 @@ function App.wheelmoved(x, y)
 end
 
 function App.filedropped(file)
+  if require("Gen3EventWindow").busy(S) then return end
   if not (file and S) then return end
   local path = file.getFilename and file:getFilename() or nil
   if not path then return end
@@ -1911,6 +1927,11 @@ function App.filedropped(file)
 end
 
 function App.quit()
+  if require("Gen3EventWindow").busy(S) then
+    S.status="Close the event window with OK or Cancel first."
+    if S._eventWindow then S._eventWindow.process.focus() end
+    return true
+  end
   if anyDirty(S) and not S._quitArmed then
     S._quitArmed = true
     say("Unsaved changes — quit again to discard")

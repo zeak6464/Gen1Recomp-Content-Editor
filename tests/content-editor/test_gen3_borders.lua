@@ -28,6 +28,28 @@ assert(base:collAt(-1,0)==255 and base:midAt(0,0)==3)
 assert(Map.paintBorder(project,'FR_TEST',base,0,0,5))
 project.gen3Borders.FR_TEST.borderMids[1]=1024
 assert(not pcall(Map.emit,project,encode,{}))
+local custom={game='firered',maps={FR_CUSTOM={id='FR_CUSTOM'}},layeredMaps={FR_CUSTOM={id='FR_CUSTOM',cellWidth=2,cellHeight=2,
+ baseTileset='PAIR',layers={{cells={
+  {tile=7},{tile=8},{tile=9},{tile=10},
+ }}},gen3Collision={[1]=24},gen3Elevation={[1]=3},
+ gen3Border={width=2,height=1,mids={4,5}}}}}
+local customLayout=assert(Map.layout({},'FR_CUSTOM',custom))
+assert(customLayout.width==2 and customLayout.height==2 and customLayout.pair=='PAIR')
+assert(customLayout:cellAt(0,0).mid==7 and customLayout:cellAt(0,0).coll==24 and customLayout:cellAt(0,0).elev==3)
+assert(customLayout.borderWidth==2 and customLayout.borderMids[2]==5)
+assert(Map.paintBorder(custom,'FR_CUSTOM',customLayout,1,0,12))
+assert(custom.gen3Borders.FR_CUSTOM.borderMids[2]==12)
+assert(custom.layeredMaps.FR_CUSTOM.gen3Border.mids[2]==12)
+assert(custom.maps.FR_CUSTOM._gen3Border.mids[2]==12)
+assert(Map.resizeBorder(custom,'FR_CUSTOM',customLayout,3,2))
+assert(custom.gen3Borders.FR_CUSTOM.borderWidth==3 and custom.gen3Borders.FR_CUSTOM.borderHeight==2)
+assert(custom.gen3Borders.FR_CUSTOM.borderMids[1]==4)
+assert(custom.gen3Borders.FR_CUSTOM.borderMids[2]==12)
+assert(custom.gen3Borders.FR_CUSTOM.borderMids[3]==4)
+assert(custom.gen3Borders.FR_CUSTOM.borderMids[5]==12)
+assert(custom.layeredMaps.FR_CUSTOM.gen3Border.width==3)
+assert(custom.maps.FR_CUSTOM._gen3Border.height==2)
+assert(not Map.resizeBorder(custom,'FR_CUSTOM',customLayout,0,2))
 assert(loadfile('tools/content-editor/panels/Gen3Maps.lua'))
 assert(loadfile('tools/content-editor/Gen3.lua'))
 assert(loadfile('tools/content-editor/ModIO.lua'))

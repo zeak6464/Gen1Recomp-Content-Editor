@@ -1,8 +1,9 @@
-return function(data,root)
+return function(data,root,output)
+  output=output or root.."/tests/content-editor/gen3-smoke"
   local S=require("State").new();S.data=data;S.version="firered";S.project=require("State").blankProject("event_builder_test");S.project.game="firered"
   require("Gen3ContentAdapter").prepare(S)
   local B=require("Gen3EventBuilder")
-  local d={kind="dialog",map="FR_ROUTE10",npc="1",text="Welcome, {PLAYER}!"}
+  local d={kind="dialog",map=data.maps.FR_ROUTE10 and "FR_ROUTE10" or "FR_PALLET_TOWN",npc="1",text="Welcome, {PLAYER}!"}
   local key=assert(B.create(S,d))
   assert(S.project.maps[d.map].objects[1].scriptKey==key)
   local before=require("ModWriter").encodeLua(S.project)
@@ -16,13 +17,13 @@ return function(data,root)
   assert(not vm:isRunning());assert(#messages>0)
   d.kind="item";d.item="POTION";d.quantity="2";d.success="Here you go!";d.done="Enjoy!"
   local reward=assert(B.create(S,d));assert(reward~=key and S.project.maps[d.map].objects[1].scriptKey==reward)
-  local IO=require("ModIO");local path=root.."/tests/content-editor/gen3-smoke/event-builder-project"
+  local IO=require("ModIO");local path=output.."/event-builder-project"
   IO.ensureDirectory(path);assert(IO.save(path,S.project));local p=assert(IO.load(path));assert(p.maps[d.map].objects[1].scriptKey==reward)
   S.g3EventMode="builder";S._eventBuilderProject=S.project;S.eventBuilder=d
   local K=require("Kit");local canvas=love.graphics.newCanvas(1360,860)
   love.graphics.setCanvas({canvas,stencil=true});love.graphics.clear(.04,.06,.12,1)
   K.layout(1360,860);K.beginFrame(0,0,false,0)
   require("Gen3Events").draw(S,20,80,1320,740,{markDirty=function() error("Browsing changed the mod") end});K.endFrame();love.graphics.setCanvas()
-  local f=assert(io.open(root.."/tests/content-editor/gen3-smoke/event-builder.png","wb"));f:write(canvas:newImageData():encode("png"):getString());f:close()
+  local f=assert(io.open(output.."/event-builder.png","wb"));f:write(canvas:newImageData():encode("png"):getString());f:close()
 end
 

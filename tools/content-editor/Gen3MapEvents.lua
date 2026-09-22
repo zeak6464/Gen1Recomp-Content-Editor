@@ -26,7 +26,9 @@ function M.place(S,tool,x,y,App)
     S.project.gen3Modes.map_scripts[script]="register"
   end
   S.mapSection=kind;S[groups[kind][2]]=index;S.mapEditMode="events"
-  App.markDirty();return true
+  App.markDirty()
+  require("Gen3EventWindow").request(S,S.mapId,kind,index)
+  return true
 end
 function M.draw(S,x,y,w,h,App)
   local Kit=require("Kit");local Pane=require("FormPane")
@@ -64,7 +66,9 @@ function M.draw(S,x,y,w,h,App)
       App.markDirty()
     else S.status=err or "Event needs numeric x and y coordinates" end
   end
-  if ev.scriptKey and Kit.button(x,y+57*s,w,27*s,"Edit event script",{}) then S.tab="events";S.g3EventMode="scripts";S.gen3Id=ev.scriptKey;S._g3Identity=nil end
+  if Kit.button(x,y+57*s,w,27*s,"Open event window",{}) then
+    require("Gen3EventWindow").request(S,S.mapId,kind,S[key])
+  end
   local fieldTop=y+92*s
   if kind~="warps" then
     local scripts=require("RegList").mergeIds((S.project.gen3 or {}).map_scripts or {},require("Gen3").catalog(S.data,"map_scripts"))

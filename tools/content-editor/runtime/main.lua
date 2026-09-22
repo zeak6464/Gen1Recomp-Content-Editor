@@ -47,6 +47,11 @@ function love.load(args)
   love.graphics.setDefaultFilter("nearest", "nearest")
   mountPinnedRuntime()
   addEditorRequirePath()
+  local eventSession=argumentAfter(args,"--event-session")
+  if eventSession then
+    EditorApp=require("Gen3EventWindowChild").load(eventSession)
+    return
+  end
   local packRoot = argumentAfter(args, "--pokemonium-pack")
   if packRoot then packLog("packRoot=" .. tostring(packRoot)) end
   local version = os.getenv("POKEPORT_VERSION")

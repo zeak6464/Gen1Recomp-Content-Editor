@@ -433,6 +433,12 @@ local function pickEventAt(S, mapDef, cx, cy)
     local d = math.abs((sign.x or 0) - cx) + math.abs((sign.y or 0) - cy)
     if d <= bestD then best, bestD, kind = i, d, "sign" end
   end
+  if Generation.isGen3(S) then
+    for i,event in ipairs(mapDef.coordEvents or {}) do
+      local d=math.abs((event.x or 0)-cx)+math.abs((event.y or 0)-cy)
+      if d<=bestD then best,bestD,kind=i,d,"trigger" end
+    end
+  end
   return kind, best
 end
 
@@ -444,12 +450,15 @@ local function selectEvent(S, kind, index)
     S.mapSection = "warps"; S.mapWarpIndex = index
   elseif kind == "sign" then
     S.mapSection = "signs"; S.mapSignIndex = index
+  elseif kind == "trigger" then
+    S.mapSection = "coordEvents"; S.g3CoordIndex = index
   end
 end
 
 local function eventEntity(S, mapDef, kind, index)
   if kind == "object" then return (mapDef.objects or {})[index] end
   if kind == "warp" then return (mapDef.warps or {})[index] end
+  if kind == "trigger" then return (mapDef.coordEvents or {})[index] end
   if kind == "sign" then
     if Generation.isGen2(S) then return (mapDef.bgEvents or {})[index] end
     return (mapDef.signs or {})[index]
@@ -3844,6 +3853,14 @@ local function drawMarkerOverlays(S, mapDef, opts)
       love.graphics.setColor(1, 0.85, 0.15, 0.7)
     end
   end
+  if Generation.isGen3(S) then
+    for i,event in ipairs(mapDef.coordEvents or {}) do
+      love.graphics.setColor(.85,.25,1,.32)
+      love.graphics.rectangle("fill",cellRect(event.x or 0,event.y or 0))
+      love.graphics.setColor(.95,.45,1,S.mapSection=="coordEvents" and S.g3CoordIndex==i and 1 or .6)
+      love.graphics.rectangle("line",cellRect(event.x or 0,event.y or 0))
+    end
+  end
   love.graphics.setColor(1, 1, 1, 1)
   drawObjectSprites(S, mapDef, opts)
 end
@@ -4314,7 +4331,9 @@ local function drawMapPreview(S, mapDef, x, y, w, h, App)
       end
       S._mapSelDraft = nil
     elseif S._mapDrag.eventMove then
-      -- position already updated while dragging
+      if not S._mapDrag.moved and Generation.isGen3(S) then
+        require("Gen3EventWindow").request(S,S.mapId,S._mapDrag.kind,S._mapDrag.index)
+      end
     elseif S._mapDrag.eventClick and not S._mapDrag.moved then
       applyToolAtCell(S, mapDef, S._mapDrag.cx, S._mapDrag.cy, App)
     elseif not S._mapDrag.brush and not S._mapDrag.pan and not S._mapDrag.moved

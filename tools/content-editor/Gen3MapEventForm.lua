@@ -11,11 +11,13 @@ local tips={
   var="The saved story variable this step-on event checks. A variable stores a number, such as the current stage of a quest.",
   value="Run this event only when its story variable equals this number. For example, value 2 can mean the second stage of a quest.",
 }
-function M.draw(S,ev,kind,indexKey,x,y,w,App)
+function M.draw(S,ev,kind,indexKey,x,y,w,App,context)
   local K=require("Kit");local P=require("ChoicePicker");local s=K.scale
+  local mapId=context and context.mapId or S.mapId
+  local index=context and context.index or S[indexKey]
   local function set(key,value,alias)
-    assert(require("Gen3Workspace").convert(S,S.mapId))
-    local row=S.project.maps[S.mapId][kind][S[indexKey]]
+    assert(require("Gen3Workspace").convert(S,mapId))
+    local row=S.project.maps[mapId][kind][index]
     row[key]=value;if alias then row[alias]=value end
     if key=="movementType" then local m=require("src.core.game3.scripting.gfx_ids").hostMovement(value,row.rangeX,row.rangeY);row.movement=m.movement;row.range=m.range;row.radius=m.radius end
     S._g3EventIdentity=nil;App.markDirty()
@@ -32,7 +34,7 @@ function M.draw(S,ev,kind,indexKey,x,y,w,App)
   local function number(key,label)
     K.caption(x,y,label);K.offerTooltip(x,y,w,22*s,tips[key]);y=y+22*s
     local old=ev[key] or 0
-    local value=K.textfield("mapEvent/"..kind.."/"..key,x,y,w,28*s,tostring(old),"",tips[key])
+    local value=K.textfield("mapEvent/"..mapId.."/"..kind.."/"..index.."/"..key,x,y,w,28*s,tostring(old),"",tips[key])
     local n=tonumber(value);if n and n>=0 and n%1==0 and n~=old then set(key,n) end
     y=y+37*s
   end
@@ -52,8 +54,8 @@ function M.draw(S,ev,kind,indexKey,x,y,w,App)
     number("destWarp","Destination exit number")
   end
   number("x","Position: column");number("y","Position: row")
-  if kind=="objects" then number("flag","Hide when this story flag is set (0 = never)") end
-  if kind=="coordEvents" then number("var","Story variable to check");number("value","Start when its value equals") end
+  if kind=="objects" then number("flag","Hide switch (0 = never)") end
+  if kind=="coordEvents" then number("var","Story variable to check");number("value","Required value") end
   return y
 end
 return M

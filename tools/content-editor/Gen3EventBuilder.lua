@@ -64,7 +64,14 @@ function M.draw(S,x,y,w,h,App)
   for i,o in ipairs(map and map.objects or {}) do local id=tostring(i);ids[#ids+1]=id;names[id]="NPC "..tostring(o.localId or i).." at ("..tostring(o.x)..", "..tostring(o.y)..")" end
   P.field(S,{x=x,y=y,w=w,h=29*s,ids=ids,labels=names,current=d.npc,title="CHOOSE NPC",onPick=function(v) d.npc=v;d.created=nil end});y=y+40*s
   if #ids==0 then caption("Choose a map with NPCs, or add an Object with Maps > Add events first.") end
-  caption("3. Create and attach, then Save your mod")
+  caption("EVENT COMMANDS - runs when the player talks to this NPC")
+  caption("1. Face the player")
+  caption("2. Show text: "..K.ellipsize("micro",d.text or "",math.max(80*s,w-120*s)))
+  if d.kind=="item" then
+    caption("3. If the player says Yes: give "..tostring(d.quantity).." x "..tostring(d.item))
+    caption("4. Remember the reward; show return dialogue next time")
+  else caption("3. Wait for a button press, then end the conversation") end
+  caption("Create and attach, then Save your mod")
   caption("This replaces the chosen NPC's interaction. Its position and appearance stay the same.")
   if K.button(x,y,300*s,30*s,"Create and attach to NPC",{kind="good"}) then
     local key,err=M.create(S,d)
@@ -72,9 +79,11 @@ function M.draw(S,x,y,w,h,App)
   end
   y=y+42*s
   if d.created then
-    caption("Event attached successfully. You can edit its dialogue in Dialog.")
+    caption("Event attached successfully. Open its actions to edit dialogue and preview it.")
     if K.button(x,y,190*s,29*s,"Show NPC on map",{}) then S.mapId=d.map;S.mapObjectIndex=tonumber(d.npc);S.mapSection="objects";S.mapEditMode="events";S.tab="maps" end
-    if K.button(x+200*s,y,190*s,29*s,"Advanced script",{}) then S.gen3Id=d.created;S.g3EventMode="scripts" end
+    if K.button(x+200*s,y,190*s,29*s,"Edit event commands",{}) then
+      S.gen3Id=d.created;S.g3EventMode="map";S.g3EventMap=d.map;S.g3MapEventId="objects/"..d.npc
+    end
     y=y+40*s
   end
   require("FormPane").finish(S,"eventBuilder",top,y,view)

@@ -32,10 +32,18 @@ function M.path(bytes)
 end
 function M.draw(S,key,step,x,y,w,h,changed)
   local s=K.scale
-  K.caption(x,y,"Actor local ID (255 = player, 32783 = last talked)")
-  local value=K.textfield("g3MovementActor/"..key,x,y+24*s,w,28*s,tostring(step.localId or 255),"")
-  local n=tonumber(value)
-  if n and n%1==0 and n>=0 and n<=65535 and n~=step.localId then step.localId=n;changed() end
+  K.caption(x,y,"WHO SHOULD MOVE?")
+  local ids={"255","32783"};local labels={["255"]="The player",["32783"]="The character being spoken to"}
+  local mapId=S.g3EventMap or S.mapId
+  local map=((S.project or {}).maps or {})[mapId] or require("Generation").dataMaps(S)[mapId]
+  for i,object in ipairs(map and map.objects or {}) do
+    local id=tostring(object.localId or i)
+    if not labels[id] then ids[#ids+1]=id;labels[id]="Character "..id.." at "..object.x..", "..object.y end
+  end
+  local current=tostring(step.localId or 255)
+  if not labels[current] then ids[#ids+1]=current;labels[current]="Character / variable "..current end
+  require("ChoicePicker").field(S,{x=x,y=y+24*s,w=w,h=28*s,ids=ids,labels=labels,current=current,title="CHARACTER TO MOVE",
+    onPick=function(value) local n=tonumber(value);if n and n~=step.localId then step.localId=n;changed() end end})
   local bytes=step.movement
   local count=#bytes
   if bytes[count]==254 or bytes[count]==255 then count=count-1 end

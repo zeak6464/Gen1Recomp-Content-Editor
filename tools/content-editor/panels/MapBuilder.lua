@@ -1278,7 +1278,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
       else
         local shift = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
         local kind, index = nil, nil
-        if not cellTool then
+        if not cellTool or require("Generation").isGen3(S) and eventTool.id=="trigger" then
           kind, index = Maps.pickEventAt(S, cx, cy)
         end
         if kind and not shift then
@@ -1305,6 +1305,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
       elseif drag.pathAdded then
         -- Cell already recorded on press.
       elseif drag.move and inMap and (cx ~= drag.lastX or cy ~= drag.lastY) then
+        drag.moved=true
         drag.lastX, drag.lastY = cx, cy
         Maps.moveEvent(S, drag.kind, drag.index, cx, cy, App)
       elseif drag.click then
@@ -1319,6 +1320,8 @@ local function drawCanvas(S, source, x, y, w, h, App)
     elseif drag and not Kit.mouseDown then
       if drag.pathMove or drag.pathAdded then
         -- Path cells stay visible after the click.
+      elseif drag.move and not drag.moved then
+        require("Gen3EventWindow").request(S,S.mapId,drag.kind,drag.index)
       elseif drag.click and not drag.moved and eventTool.id == "trigger" then
         Maps.placeTriggerCell(S, drag.x, drag.y, App)
       elseif drag.click and not drag.moved and eventTool.id == "berry" then
@@ -2102,14 +2105,19 @@ local function drawToolbar(S, source, x, y, w, App)
       if Kit.chip(x + 66 * s, barY, 58 * s, 24 * s, "Script",
           S.builderShowScript == true, PAL.yellow, PAL.steel,
           "Edit the selected NPC/sign command list") then
-        S.builderShowScript = not S.builderShowScript
-        if S.builderShowScript then
-          S._builderScriptFor = nil
-          ownSelectedTalk(S, App)
+        if Generation.isGen3(S) then
+          local key=({objects="mapObjectIndex",signs="mapSignIndex",coordEvents="g3CoordIndex",warps="mapWarpIndex"})[S.mapSection]
+          if not (key and require("Gen3EventWindow").request(S,S.mapId,S.mapSection,S[key])) then S.status="Click an event on the map to edit it." end
+        else
+          S.builderShowScript = not S.builderShowScript
+          if S.builderShowScript then
+            S._builderScriptFor = nil
+            ownSelectedTalk(S, App)
+          end
         end
       end
       Kit.text("micro", Kit.ellipsize("micro",
-        "Click a cell to place; drag an existing marker to move it", w - 140 * s),
+        Generation.isGen3(S) and "Click an event to edit; drag to move" or "Click a cell to place; drag an existing marker to move it", w - 140 * s),
         x + 130 * s, barY + 5 * s, PAL.muted)
     end
     local bx = x
@@ -3302,7 +3310,7 @@ function MapBuilder.draw(S, x, y, w, h, App)
 
   local canvasY = drawToolbar(S, source, centerX, y, centerW, App)
   local scriptH = 0
-  if S.mapEditMode == "events" and S.builderShowScript then
+  if S.mapEditMode == "events" and S.builderShowScript and not Generation.isGen3(S) then
     scriptH = math.min(280 * s, math.max(180 * s, (y + h - canvasY) * 0.42))
   end
   local canvasH = y + h - canvasY - (scriptH > 0 and (scriptH + 6 * s) or 0)

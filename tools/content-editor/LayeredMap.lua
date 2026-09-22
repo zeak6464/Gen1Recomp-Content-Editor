@@ -638,7 +638,7 @@ function LayeredMap.resize(source, newWidth, newHeight)
           and source.collision[y * oldWidth + x + 1] or "solid"
     end
   end
-  for _,key in ipairs({"gen3Elevation","gen3Collision"}) do
+  for _,key in ipairs({"gen3Elevation","gen3Collision","gen3Behavior"}) do
     if source[key] then
       local values={}
       for y=0,height-1 do for x=0,width-1 do
@@ -731,7 +731,9 @@ function LayeredMap.setCell(source, layerIndex, x, y, ref)
   end
   local layer = source.layers[layerIndex]
   if not layer then return false end
-  layer.cells[cellIndex(source, x, y)] = internCellRef(ref)
+  local index=cellIndex(source,x,y)
+  layer.cells[index] = internCellRef(ref)
+  if layerIndex==1 and source.gen3Behavior then source.gen3Behavior[index]=nil end
   return true
 end
 
