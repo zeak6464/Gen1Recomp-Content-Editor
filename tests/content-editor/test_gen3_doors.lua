@@ -6,6 +6,14 @@ local cache=os.getenv("POKEPORT_GEN3_CACHE")
 if cache then
   Doors._manifest=assert(loadfile(cache.."/data/generated/gba/doors/manifest.lua"))()
   Doors._manifestLoaded=true
+else
+  Doors._manifest={doors={},by_mid={
+    [0x2A3]={tile="Pallet",tileset="pallet",sound="normal",size="1x1"},
+    [0x62]={tile="SlidingSingle",tileset="primary",sound="sliding",size="1x1"},
+    [0x15B]={tile="SlidingDouble",tileset="primary",sound="sliding",size="1x1"},
+    [0x299]={tile="Viridian",tileset="viridian",sound="normal",size="1x1"},
+  }}
+  Doors._manifestLoaded=true
 end
 local Runtime=require("src.mods.Runtime")
 local hooks=require("src.mods.Hooks").new()
@@ -35,7 +43,7 @@ local maps={FR_TEST={}}
 local vanilla=Layout.fromDecoded({width=1,height=1,cells={{mid=0x2A3,coll=0x71,elev=3}}},"FR_VANILLA","pallet")
 maps.FR_VANILLA={midLayout=vanilla,pair="pallet"}
 package.loaded["src.core.game3.runtime"]={_game={data={maps=maps}}}
--- This fixture uses the runtime's real fallback door catalog and pair matching.
+-- Use the runtime's real door lookup with a cache manifest or a small fixture.
 assert(Doors.getDoorEntryAt("FR_VANILLA",0,0).tile=="Pallet")
 local mod={id="door_test",events={on=function(_,_,fn) fn({game={data={maps=maps}}}) end},
   hooks={wrap=function(_,name,fn) hooks:wrap(name,fn,0,"door_test") end}}
@@ -73,6 +81,39 @@ game.currentMap="FR_INSIDE"
 Collision._warps={[3*1024+2]=maps.FR_INSIDE.warps[1]}
 local exit=assert(Collision.isExitWarp(game,2,3),"Return to edited door not recognized")
 assert(exit.destMap=="FR_TEST" and exit.destX==0 and exit.destY==0)
+-- Entrance sequencing may pass the destination as mapId: Gen 3 keeps the
+-- current map in its session, not game.currentMap. Exercise real open/draw.
+local gameRuntime=package.loaded["src.core.game3.runtime"]
+gameRuntime.getSession=function() return {map="FR_TEST"} end
+local sounds,draws={},{}
+package.loaded["src.core.game3.audio"]={playSe=function(sound) sounds[#sounds+1]=sound end}
+local sheetImage={}
+Doors._sheets.SlidingSingle={image=sheetImage,quads={[0]="closed",[1]="half",[2]="open"},
+  frames=3,frame_width=16,frame_height=16}
+love.graphics.draw=function(image,quad) if image==sheetImage then draws[#draws+1]=quad end end
+Doors.open("FR_INSIDE",1,0,{})
+assert(Doors._activeAnim.tile=="SlidingSingle","Entrance sound plays but animation tile is missing")
+Doors.draw(0,0)
+for _=1,Doors.FRAME_TICKS do Doors.update(1/60) end
+Doors.draw(0,0)
+assert(sounds[1]==Doors.SOUND_SLIDING and draws[1]=="closed" and draws[2]=="half",
+  "Entrance must draw opening frames alongside the sliding sound")
+Doors.reset()
+source.layers[1].cells[2]=ref("pallet",0x15B)
+behaviors.pallet[0x15B]=0x69
+Doors._sheets.SlidingDouble=Doors._sheets.SlidingSingle
+draws={}
+Doors.open("FR_INSIDE",1,0,{})
+assert(Doors._activeAnim.tile=="SlidingDouble","Double sliding entrance graphic missing")
+Doors.draw(0,0)
+for _=1,Doors.FRAME_TICKS do Doors.update(1/60) end
+Doors.draw(0,0)
+for _=1,Doors.FRAME_TICKS do Doors.update(1/60) end
+Doors.draw(0,0)
+assert(draws[1]=="closed" and draws[2]=="half" and draws[3]=="open",
+  "Double sliding entrance must draw all opening frames")
+Doors.reset()
+gameRuntime.getSession=nil
 -- A fresh export can move a door to a different cell without ROM coordinates.
 source.layers[1].cells[1],source.layers[1].cells[4]=source.layers[1].cells[4],source.layers[1].cells[1]
 hooks:removeOwner("door_test")

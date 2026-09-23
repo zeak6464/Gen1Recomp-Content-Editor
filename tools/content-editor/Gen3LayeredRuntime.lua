@@ -17,7 +17,7 @@ return "  local collisionModes="..encode(C.modes).."\n  local paintedCollision="
         local lookup=Doors.getDoorEntryAt
         Doors.getDoorEntryAt=function(...) return Runtime.call("editor.gen3.doors.lookup",lookup,...) end
       end
-      mod.hooks:wrap("editor.gen3.doors.lookup",function(proceed,mapId,x,y)
+      local function lookupEditedDoor(proceed,mapId,x,y)
         local id=tostring(mapId or ""):gsub("^FR_",""):gsub("^MAP_","")
         local source=layered.maps[mapId] or layered.maps["FR_"..id] or layered.maps[id]
         if not source then return proceed(mapId,x,y) end
@@ -40,6 +40,20 @@ return "  local collisionModes="..encode(C.modes).."\n  local paintedCollision="
             cells={{mid=nativeRef.tile,coll=0,elev=3}}},key,nativePair)
         end
         return proceed(key,0,0)
+      end
+      mod.hooks:wrap("editor.gen3.doors.lookup",function(proceed,mapId,x,y)
+        -- Entrance sequencing can supply the destination map when the game
+        -- stores its current map only in the Gen 3 session. Match the native
+        -- lookup's live-map-first behavior before resolving edited tile IDs.
+        local GameRuntime=package.loaded["src.core.game3.runtime"]
+        local session=GameRuntime and GameRuntime.getSession and GameRuntime.getSession()
+        local Map=package.loaded["src.core.game3.map"]
+        local live=(session and session.map) or (Map and Map.current)
+        if live and live~=mapId then
+          local entry,info=lookupEditedDoor(proceed,live,x,y)
+          if entry then return entry,info end
+        end
+        return lookupEditedDoor(proceed,mapId,x,y)
       end)
     end
     if not Collision._editorWarpDispatch then
