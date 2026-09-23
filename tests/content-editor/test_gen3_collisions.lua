@@ -24,7 +24,7 @@ end
 -- Execute the actual exported runtime with rendering stubbed out.
 local behaviors={native={[0]=0x10}}
 package.loaded["src.core.game3.scripting.interaction_scripts"]={behaviors=behaviors}
-package.loaded["src.core.game3.tileset_native"]={_pairs={}}
+package.loaded["src.core.game3.tileset_native"]={_pairs={},get=function() return {} end}
 package.loaded["src.core.game3.field_view"]={draw=function() end}
 package.loaded["src.core.game3.collision"]={installWarps=function() end}
 package.loaded["src.mods.Runtime"]={}

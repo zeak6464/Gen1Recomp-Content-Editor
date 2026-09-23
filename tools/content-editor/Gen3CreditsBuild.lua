@@ -8,7 +8,7 @@ function M.build(S,rows)
   local cache=require("src.core.game3.dataset").cache();require("Gen3").load(S.data,function(path) return cache:read(path) end)
  end
  -- Bake isolated editor renderers. Never warp the live session or run map scripts.
- local preview={data=S.data,project=copy(S.project),version="firered"}
+ local preview={data=S.data,project=copy(S.project),version=require("Generation").id(S)}
  for id,spec in pairs(seq.maps) do
   local ok,map=require("Maps").loadEditorMap(preview,spec.map);assert(ok,"Credits map: "..tostring(map))
   local g=love.graphics;local old=g.getCanvas();local canvas=g.newCanvas(map.widthCells*16,map.heightCells*16)

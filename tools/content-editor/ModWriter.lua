@@ -161,6 +161,7 @@ local PROJECT_SPLIT_BAGS = {
   maps = true,
   tilesets = true,
   mapTileSources = true,
+  mapTileSourceArchive = true,
   mapWarpNodes = true,
 }
 
@@ -2294,7 +2295,7 @@ end
 function ModWriter.emitMain(project, baseData, derivedModId)
   if project.gen3 and next(project.gen3) then
     assert(Generation.isGen3({ version = project.game or project.version }),
-      "Select FireRed to export this project's Gen 3 edits")
+      "Select FireRed or LeafGreen to export this project's Gen 3 edits")
   end
   if Generation.isGen3({ version = project.game or project.version }) then
     return require("Gen3").emit(project, ModWriter.encodeLua)
@@ -3843,6 +3844,10 @@ function ModWriter.emitMain(project, baseData, derivedModId)
   -- Gift path uses Gen1 src.script.Commands / Party / Boxes — Gen2 gets battle
   -- trainers only (gift command gated inside emitSpecialEncounters).
   ModWriter.emitSpecialEncounters(project, out, gen2)
+  require("OfflineGifts").emit(project, ModWriter.encodeLua, out, gen2 and 2 or 1)
+  if gen2 then require("Gen2Decorations").emit(project, ModWriter.encodeLua, out) end
+  if gen2 then require("TrainerHouseEditor").emit(project, ModWriter.encodeLua, out)
+  else require("SafariSettings").emit(project, ModWriter.encodeLua, out, 1) end
 
   -- trainer_headers keyed by map label (Gen1 only — no Gold counterpart).
   -- Newer engines expose mod.content.trainer_headers. Older Gen1Recomp still

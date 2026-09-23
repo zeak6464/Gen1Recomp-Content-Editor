@@ -33,7 +33,7 @@ function Panel.draw(S,x,y,w,h,App)
   if not id or (not catalog[id] and not patches[id]) then return end
   local patch=patches[id] or {}
   local rec={};for k,v in pairs(catalog[id] or {}) do rec[k]=v end;for k,v in pairs(patch) do rec[k]=v end
-  Kit.caption(fx,y,id .. " — FireRed 64 x 64 battle sprites")
+  Kit.caption(fx,y,id .. " — Gen 3 64 x 64 battle sprites")
   for i,side in ipairs({"Front","Back"}) do
     local xx=fx+(i-1)*fw/2
     local key="sprite"..side
@@ -52,7 +52,7 @@ function Panel.draw(S,x,y,w,h,App)
         local bytes=require("ModIO").readText(picked)
         local ok, imageData=pcall(function() return love.image.newImageData(love.filesystem.newFileData(bytes,"sprite.png")) end)
         if not ok or imageData:getWidth()~=64 or imageData:getHeight()~=64 then
-          S.status="FireRed battle sprites must be 64 x 64 PNGs";return
+          S.status="Gen 3 battle sprites must be 64 x 64 PNGs";return
         end
         App.importToMod(picked,"assets/"..id:lower().."_"..side:lower().."_gen3.png",function(rel)
           local value=require("src.mods.Merge").deepCopy(rec)

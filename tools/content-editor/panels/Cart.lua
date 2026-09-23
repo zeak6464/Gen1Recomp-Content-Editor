@@ -27,6 +27,7 @@ local SHELL_PRESETS = {
   { "S", PAL.railSilver, "Silver" },
   { "C", PAL.railCrystal, "Crystal" },
   { "FR", { 222, 73, 26 }, "FireRed" },
+  { "LG", { 38, 162, 78 }, "LeafGreen" },
 }
 
 local function join(a, b)
@@ -508,7 +509,7 @@ function Cart.draw(S, x, y, w, h, App)
   end)
   row("base", function(fx, fy, fw, fh_)
     require("ChoicePicker").field(S,{x=fx,y=fy,w=fw,h=fh_,current=d.base or S.version or "red",ids=BASES,
-      labels={red="Red",blue="Blue",yellow="Yellow",gold="Gold",silver="Silver",crystal="Crystal",firered="FireRed"},
+      labels={red="Red",blue="Blue",yellow="Yellow",gold="Gold",silver="Silver",crystal="Crystal",firered="FireRed",leafgreen="LeafGreen"},
       title="Game for this cartridge",tooltip="Choose the original game this cartridge uses.",
       onPick=function(id) d.base=id;markDirty(S) end})
   end)

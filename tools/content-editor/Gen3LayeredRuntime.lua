@@ -32,9 +32,14 @@ return "  local collisionModes="..encode(C.modes).."\n  local paintedCollision="
           if layer.export~=false and pair then nativeRef,nativePair=ref,pair end
         end
         if not nativeRef then return end
-        local key="editor_door_"..mod.id.."_"..nativePair
-        Doors._layoutCache[key]={pair=nativePair,midAt=function(_,mid) return mid end}
-        return proceed(key,nativeRef.tile,0)
+        local key="editor_door_"..mod.id.."_"..nativePair.."_"..nativeRef.tile
+        -- Door lookups can also query collision behavior. Give them a real
+        -- bounded layout, not a partial midAt adapter with missing dimensions.
+        if not Doors._layoutCache[key] then
+          Doors._layoutCache[key]=Layout.fromDecoded({width=1,height=1,
+            cells={{mid=nativeRef.tile,coll=0,elev=3}}},key,nativePair)
+        end
+        return proceed(key,0,0)
       end)
     end
     if not Collision._editorWarpDispatch then

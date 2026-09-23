@@ -45,7 +45,7 @@ function M.play(S,id,script)
   local encoded="return "..require("ModWriter").encodeLua(pack)
   local p={id=id,frame=0,elapsed=0,paused=false,source=S.project,data=S.data}
   p.cache={read=function(_,path)
-    path=path:gsub("^firered/","")
+    path=path:gsub("^firered/",""):gsub("^leafgreen/","")
     if path==Resources.animationPath then return encoded end
     local override=(S.project.gen3Assets or {})[path]
     if override then return require("ModIO").readText(S.path.."/"..override.file) end

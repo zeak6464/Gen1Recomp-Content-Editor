@@ -3110,7 +3110,23 @@ function Events.draw(S, x, y, w, h, App)
 
   local bodyY = y + 36 * s
   local bodyH = h - 36 * s
-  if mode == "saveflags" then
+  if Kit.chip(x, bodyY, 100 * s, 26 * s, "GIFTS", mode == "gifts", PAL.green) then
+    S.eventsMode = "gifts"; mode = "gifts"
+  end
+  if gen2 and Kit.chip(x + 106 * s, bodyY, 160 * s, 26 * s, "DECORATIONS", mode == "decorations", PAL.green) then
+    S.eventsMode = "decorations"; mode = "decorations"
+  end
+  if gen2 and Kit.chip(x + 272 * s, bodyY, 180 * s, 26 * s, "TRAINER HOUSE", mode == "trainerhouse", PAL.green) then
+    S.eventsMode = "trainerhouse"; mode = "trainerhouse"
+  end
+  bodyY = bodyY + 36 * s; bodyH = bodyH - 36 * s
+  if mode == "gifts" then
+    require("OfflineGifts").draw(S, x, bodyY, w, bodyH, App)
+  elseif mode == "decorations" and gen2 then
+    require("Gen2Decorations").draw(S, x, bodyY, w, bodyH, App)
+  elseif mode == "trainerhouse" and gen2 then
+    require("TrainerHouseEditor").draw(S, x, bodyY, w, bodyH, App)
+  elseif mode == "saveflags" then
     drawSaveFlags(S, x, bodyY, w, bodyH, App)
   elseif mode == "phone" and gen2 then
     drawPhone(S, x, bodyY, w, bodyH, App)

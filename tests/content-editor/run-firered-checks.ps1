@@ -12,9 +12,9 @@ try {
   $env:POKEPORT_GEN3_MOD = Join-Path $env:POKEPORT_RECOMP 'mods/example_mew_starter'
   $env:POKEPORT_GEN3_TEST_MOD = Join-Path $PSScriptRoot 'gen3-smoke/mew-project'
   $env:POKEPORT_VERSION = 'firered'
-  $env:LUA_PATH = "$env:POKEPORT_RECOMP/?.lua;;"
+  $env:LUA_PATH = "tools/save-editor/?.lua;$env:POKEPORT_RECOMP/?.lua;;"
   $lua = Join-Path $workspace 'tools/tooling/luajit/luajit.exe'
-  $checks = @('gen3','gen3_real','gen3_collisions','gen3_starter_choices','manifest_target','mapbuilder_manifest','playtest_options','playtest_paths','tileset_export','world_palette_overrides')
+  $checks = @('gen3','gen3_real','gen3_collisions','gen3_doors','gen3_starter_choices','manifest_target','mapbuilder_manifest','playtest_options','playtest_paths','tileset_export','world_palette_overrides')
   foreach ($check in $checks) {
     & $lua "tests/content-editor/test_$check.lua"
     if ($LASTEXITCODE -ne 0) { throw "Failed: $check" }

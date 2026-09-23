@@ -101,7 +101,7 @@ M.source=[=[
   end
   local memo={}
   mod.hooks:wrap("editor.gen3.cache",function(proceed,path)
-    local key=path:gsub("^firered/","")
+    local key=path:gsub("^firered/",""):gsub("^leafgreen/","")
     if not key:match("^data/generated/gba/") then key="data/generated/gba/"..key end
     local asset=native.assets[key]
     if asset then

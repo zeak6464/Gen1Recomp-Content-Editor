@@ -22,7 +22,7 @@ local function imageData(S,path,rec,width)
   return ok and value or nil,not ok and tostring(value) or nil
 end
 function Panel.draw(S,x,y,w,h,App,filter)
-  if not S.project then Kit.caption(x,y,"Open a FireRed project first");return end
+  if not S.project then Kit.caption(x,y,"Open a Gen 3 project first");return end
   local s=Kit.scale
   local catalog=R.assets(S.data)
   local ids={}
@@ -33,7 +33,7 @@ function Panel.draw(S,x,y,w,h,App,filter)
   S.g3AssetId=S.g3AssetId or ids[1]
   local fx,fw=List.drawList(S,App,x,y,w,h,"Native UI / image assets",ids,{selKey="g3AssetId",queryKey="g3AssetQuery",offsetKey="g3AssetOffset",label=assetLabel,listW=math.min(w*.43,510*s)})
   local path=S.g3AssetId
-  if not path or not catalog[path] then Kit.caption(fx,y,"Import FireRed to extract UI and animation assets");return end
+  if not path or not catalog[path] then Kit.caption(fx,y,"Import FireRed or LeafGreen to extract UI and animation assets");return end
   local override=(S.project.gen3Assets or {})[path]
   if S._g3AssetKey~=path or S._g3AssetOverride~=override then
     S._g3AssetKey,S._g3AssetOverride=path,override;S._g3AssetImage=nil;S.g3AssetFrame=0;S.g3AssetPlaying=false

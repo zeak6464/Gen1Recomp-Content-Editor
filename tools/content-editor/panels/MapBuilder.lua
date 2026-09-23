@@ -1966,6 +1966,11 @@ local function drawTilePalette(S, source, x, y, w, h, App)
       local Maps = require("Maps")
       Maps.exportTmx(S, App)
     end
+    if Kit.button(x + 12 * Kit.scale + bw, fy, bw, 24 * Kit.scale,
+        "Combine tiles", { kind = "accent",
+          tooltip = "Preview and merge identical tiles from image-based maps" }) then
+      require("TileDedupPanel").open(S)
+    end
     fy = fy + 28 * Kit.scale
     if Kit.button(x + 8 * Kit.scale, fy, bw, 24 * Kit.scale,
         "Export selected", { kind = "ghost", enabled = descriptor ~= nil,
@@ -3172,6 +3177,10 @@ end
 
 function MapBuilder.keypressed(S, key, App)
   if not S or not S.project then return false end
+  if S.tileDedup then
+    if key=="escape" then S.tileDedup=nil end
+    return true
+  end
   if key == "escape" and S.builderNewMap then
     S.builderNewMap = nil
     Kit.blur()
@@ -3233,6 +3242,7 @@ function MapBuilder.update(S, dt)
 end
 
 function MapBuilder.wheelmoved(S, dy, dx)
+  if S and S.tileDedup then return false end
   if not (S and S._builderViewHit) then return false end
   dy, dx = tonumber(dy) or 0, tonumber(dx) or 0
   local shift = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
@@ -3257,6 +3267,10 @@ function MapBuilder.draw(S, x, y, w, h, App)
     return
   end
   LayeredMap.ensureProject(S.project)
+  if S.tileDedup then
+    require("TileDedupPanel").draw(S,x,y,w,h,App)
+    return
+  end
   S.builderTool = S.builderTool or "pencil"
   S.builderTile = S.builderTile or 0
   S.builderCollision = S.builderCollision or "solid"

@@ -34,7 +34,7 @@ function Panel.draw(S, x, y, w, h, App)
     Kit.caption(x, y + 28*s, "Use Pokemon, Moves, Items, Trainers, Encounters, Maps, Dialog or Events.")
     return
   end
-  if not S.project then Kit.caption(x, y, "Create or open a FireRed mod on Project first."); return end
+  if not S.project then Kit.caption(x, y, "Create or open a Gen 3 mod on Project first."); return end
   S._gen3Catalog = S._gen3Catalog or {}
   local ok, catalog = true, S._gen3Catalog[name]
   if not catalog then
@@ -88,7 +88,7 @@ function Panel.draw(S, x, y, w, h, App)
   end
   local id = S.gen3Id
   if not id or (catalog[id] == nil and patches[id] == nil) then
-    Kit.caption(fx, y, "Select a record. Import a FireRed ROM if the list is empty."); return
+    Kit.caption(fx, y, "Select a record. Import a FireRed or LeafGreen ROM if the list is empty."); return
   end
   local identity = name .. "/" .. id
   -- Rebuild drafts after undo/redo or a data reload as well as selection changes.

@@ -35,7 +35,7 @@ function M.draw(S,x,y,w,h,App)
   local s=K.scale;local fh=30*s;local rows=S.project.gen3Roamers
   if not rows then
     K.caption(x,y,"Roaming Pokemon travel between maps and remember their remaining HP and status.")
-    if K.button(x,y+42*s,300*s,fh,"Set up FireRed roaming legendary",{kind="good"}) then S.project.gen3Roamers={M.defaults()};App.markDirty() end
+    if K.button(x,y+42*s,300*s,fh,"Set up roaming legendary",{kind="good"}) then S.project.gen3Roamers={M.defaults()};App.markDirty() end
     if K.button(x,y+84*s,300*s,fh,"Create a custom roaming Pokemon",{}) then M.add(S);App.markDirty() end
     return
   end

@@ -85,7 +85,7 @@ function M.attach(S,path,payload)
 end
 function M.load(path)
   local payload=assert(require("Gen3EventWindow").read(path))
-  assert(payload.version=="firered","Separate event windows require a FireRed project")
+  assert(require("Generation").isGen3({version=payload.version}),"Separate event windows require a Gen 3 project")
   local App=require("App");App.load(nil,{version=payload.version,eventWindow=true})
   return M.attach(App.getState(),path,payload)
 end

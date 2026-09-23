@@ -18,7 +18,7 @@ function Panel.update(S)
   end
 end
 function Panel.draw(S,x,y,w,h,App)
-  if not S.project then Kit.caption(x,y,"Open a FireRed project first");return end
+  if not S.project then Kit.caption(x,y,"Open a Gen 3 project first");return end
   local s=Kit.scale
   local groups={"songs","sounds","cries","mapSongs"}
   S.g3AudioGroup=S.g3AudioGroup or "songs"
@@ -39,9 +39,9 @@ function Panel.draw(S,x,y,w,h,App)
   local edits=((S.project.gen3Audio or {})[group] or {})
   local ids=List.mergeIds(edits,catalog)
   S.g3AudioId=S.g3AudioId or (group=="songs" and catalog["300"] and "300") or ids[1]
-  local fx,fw=List.drawList(S,App,x,y,w,h,"FireRed "..group,ids,{selKey="g3AudioId",queryKey="g3AudioQuery",offsetKey="g3AudioOffset"})
+  local fx,fw=List.drawList(S,App,x,y,w,h,"Gen 3 "..group,ids,{selKey="g3AudioId",queryKey="g3AudioQuery",offsetKey="g3AudioOffset"})
   local id=S.g3AudioId
-  if not id then Kit.caption(fx,y,"Import FireRed audio first");return end
+  if not id then Kit.caption(fx,y,"Import Gen 3 audio first");return end
   local value=edits[id]
   if S._g3AudioKey~=group..id or S._g3AudioValue~=value then
     S._g3AudioKey,S._g3AudioValue=group..id,value

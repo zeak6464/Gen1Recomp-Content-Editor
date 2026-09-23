@@ -5,6 +5,15 @@ package.path = "tools/content-editor/?.lua;" .. package.path
 local PlaytestPaths = require("PlaytestPaths")
 local sep = package.config:sub(1, 1)
 
+local function launchable(path) return path == "game" or path == "override" end
+assert(PlaytestPaths.linkedRuntime(nil, "game", "game", "cache", launchable) == "game",
+  "Mounted ROM cache must not shadow the linked game")
+assert(PlaytestPaths.linkedRuntime("", nil, "game", "cache", launchable) == "game")
+assert(PlaytestPaths.linkedRuntime("missing", "cache", "game", nil, launchable) == "game")
+assert(PlaytestPaths.linkedRuntime("override", "game", nil, "cache", launchable) == "override")
+assert(PlaytestPaths.linkedRuntime(nil, nil, nil, "game", launchable) == "game")
+assert(PlaytestPaths.linkedRuntime(nil, "cache", nil, "cache", launchable) == nil)
+
 local root = sep == "\\" and "C:\\package" or "/package"
 local relative = sep == "\\" and "mods\\my_content" or "mods/my_content"
 local expected = sep == "\\" and "C:\\package\\mods\\my_content"

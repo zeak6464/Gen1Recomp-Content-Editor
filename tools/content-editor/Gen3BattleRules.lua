@@ -23,7 +23,7 @@ function M.draw(S,x,y,w,h,App)
     end
     y=y+38*s
   end
-  if K.button(x,y+12*s,160*s,28*s,"Reset to FireRed",{}) then S.project.gen3BattleRules=nil;App.markDirty() end
+  if K.button(x,y+12*s,160*s,28*s,"Reset to defaults",{}) then S.project.gen3BattleRules=nil;App.markDirty() end
 end
 function M.emit(p,encode,out)
   if not next(p.gen3BattleRules or {}) then return end

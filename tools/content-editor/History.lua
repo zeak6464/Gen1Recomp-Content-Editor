@@ -51,6 +51,7 @@ local function isModAssetPath(path)
   end
   -- Immutable rotated graphics must remain available to redo snapshots.
   if path:sub(1, #"assets/mapbuilder/rotations/") == "assets/mapbuilder/rotations/" then return false end
+  if path:sub(1, #"assets/mapbuilder/combined/") == "assets/mapbuilder/combined/" then return false end
   return path:sub(1, #"assets/") == "assets/"
     or path:sub(1, #"tilesets/") == "tilesets/"
 end
@@ -208,6 +209,8 @@ end
 local function restore(S, snapshot)
   local before = S.project
   S.project = ensureProject(snapshot)
+  S.tileDedup=nil
+  S.builderStamp=nil;S.builderClip=nil
   S._histBaseline = deepCopy(S.project)
   S._histDirtyFrame = false
   S._histLastPush = nil
@@ -229,6 +232,7 @@ end
 
 function History.clear(S)
   if not S then return end
+  S.tileDedup=nil
   S.undoStack = {}
   S.redoStack = {}
   S._histBaseline = S.project and deepCopy(S.project) or nil

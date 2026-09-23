@@ -40,3 +40,13 @@ gen3-rom-path.txt
 /tests/content-editor/event-window-smoke/*.png
 /tests/content-editor/event-window-smoke/result.txt
 /tests/content-editor/event-window-smoke/child-error.txt
+/tests/content-editor/gifts-smoke/*.png
+/tests/content-editor/gifts-smoke/result.txt
+/tests/content-editor/gifts-smoke/project/
+/tests/content-editor/gifts-smoke/safari-project/
+tests/content-editor/tile-dedup-smoke/project/
+tests/content-editor/tile-dedup-smoke/result.txt
+tests/content-editor/tile-dedup-smoke/*.png
+tests/content-editor/leafgreen-smoke/project/
+tests/content-editor/leafgreen-smoke/result.txt
+tests/content-editor/leafgreen-smoke/*.png

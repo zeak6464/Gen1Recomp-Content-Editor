@@ -108,7 +108,7 @@ sprites). Do **not** ship ROM files (`.gb`) or `data/generated` /
 | **Types** | Type chart |
 | **Audio** | Music, cries, SFX, map songs |
 | **GFX** | SGB palettes, overworld sprites, tilesets |
-| **Events** | Talk scripts + save-flag tester |
+| **Events** | Talk scripts, offline gifts, Gen 2 decorations / Trainer House, and save-flag tester |
 
 ---
 

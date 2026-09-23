@@ -12,7 +12,7 @@ function Gen3.load(data, read, list)
     local path = "data/generated/" .. name .. ".lua"
     local bytes = read(path)
     if not bytes then
-      assert(not required, "Missing FireRed cache: " .. path)
+      assert(not required, "Missing Gen 3 cache: " .. path)
       return {}
     end
     local value, err = Serializer.decode(bytes, { allowArray = true, allowComments = true,
@@ -109,7 +109,7 @@ function Gen3.projectError(project)
   local Generation = require("Generation")
   if not Generation.isGen3({version=project.game or project.version}) then
     if (project.gen3 and next(project.gen3)) or next(project.gen3Borders or {}) or next(project.gen3Terrain or {}) or next(project.gen3Hooks or {}) or next(project.gen3Starters or {}) or require("Gen3Native").used(project) or next(project.gen3MapLayouts or {}) then
-      return "This project has Gen 3 edits. Select FireRed before saving."
+      return "This project has Gen 3 edits. Select FireRed or LeafGreen before saving."
     end
     return nil
   end
@@ -125,7 +125,7 @@ function Gen3.projectError(project)
   for name in pairs(project.gen3ContentWorkspaces or {}) do shared[name]=true end
   for key, default in pairs(require("State").blankProject("check")) do
     if not shared[key] and type(default) == "table" and hasValues(project[key]) then
-      return "Gen 3 cannot export legacy " .. key .. " edits. Create a new FireRed project."
+      return "Gen 3 cannot export legacy " .. key .. " edits. Create a new Gen 3 project."
     end
   end
 end
@@ -169,9 +169,25 @@ function Gen3.emit(project, encode)
   require("Gen3Map").emit(project, encode, out)
   require("Gen3Starters").emit(project, encode, out)
   require("Gen3Native").emit(project, encode, out)
+  require("OfflineGifts").emit(project, encode, out, 3)
+  require("SafariSettings").emit(project, encode, out, 3)
   if next(project.gen3Layered or {}) then
-    out[#out+1]="  local layered="..encode({maps=project.gen3Layered,
-      sources=project.gen3TileSources or {},animations=project.gen3TileAnimations or {}})
+    -- Keep large map constructors outside the entry function's early-return
+    -- jump span, and give each map its own LuaJIT constant/instruction budget.
+    out[#out+1]="  local layered=(function() local data={}"
+    for _, bag in ipairs({{"maps",project.gen3Layered},
+        {"sources",project.gen3TileSources or {}},
+        {"animations",project.gen3TileAnimations or {}}}) do
+      out[#out+1]="    data."..bag[1].."={}"
+      local keys={}
+      for key in pairs(bag[2]) do keys[#keys+1]=key end
+      table.sort(keys)
+      for _,key in ipairs(keys) do
+        out[#out+1]="    data."..bag[1].."["..encode(key).."]=(function() return "
+          ..encode(bag[2][key]).." end)()"
+      end
+    end
+    out[#out+1]="    return data end)()"
     out[#out+1]=require("Gen3LayeredRuntime")
   end
   out[#out + 1] = "end\n"

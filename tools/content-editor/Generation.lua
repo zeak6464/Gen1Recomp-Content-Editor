@@ -16,7 +16,7 @@ function Generation.num(S)
     if gok and type(n) == "number" then return n end
   end
   local id = Generation.id(S)
-  if id == "firered" then return 3 end
+  if id == "firered" or id == "leafgreen" then return 3 end
   return (id == "gold" or id == "silver" or id == "crystal") and 2 or 1
 end
 
@@ -27,7 +27,7 @@ function Generation.engine(S)
     if eok and type(engine) == "string" and engine ~= "" then return engine end
   end
   local id = Generation.id(S)
-  if id == "firered" then return "game3" end
+  if id == "firered" or id == "leafgreen" then return "game3" end
   if id == "crystal" then return "crystal" end
   if id == "gold" or id == "silver" then return "gs" end
   return "gen1"

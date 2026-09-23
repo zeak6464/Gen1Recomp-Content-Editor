@@ -67,7 +67,7 @@ function M.source(S,id)
   L.ensureProject(S.project)
   if S.project.layeredMaps[id] then return S.project.layeredMaps[id] end
   local native=S.data.maps[id] or S.data._editorMaps[id]
-  if not native then return nil,"Unknown FireRed map "..tostring(id) end
+  if not native then return nil,"Unknown Gen 3 map "..tostring(id) end
   local layout,err=require("Gen3Map").layout(S.data,id,S.project)
   if not layout then return nil,err end
   local cells,collision,elevation,nativeCollision,nativeBehavior={},{},{},{},{}
@@ -110,7 +110,7 @@ function M.descriptor(S,pair)
     S.project.runtimeTileAnims=S.project.runtimeTileAnims or {}
     S.project.runtimeTileAnims[pair]=S.project.runtimeTileAnims[pair] or {}
   end
-  return {id=require("LayeredMap").runtimeSourceId(pair),name=pair.." (FireRed metatiles)",nativePair=pair,
+  return {id=require("LayeredMap").runtimeSourceId(pair),name=pair.." (Gen 3 metatiles)",nativePair=pair,
     image="@gen3/"..pair,colorMode="true_color",columns=8,count=count,
     animations=S.project and S.project.runtimeTileAnims and S.project.runtimeTileAnims[pair] or {}}
 end
@@ -183,6 +183,6 @@ function M.compile(S)
   p.gen3Layered=copy(p.layeredMaps or {})
   p.gen3TileSources=copy(p.mapTileSources or {})
   p.gen3TileAnimations=copy(p.runtimeTileAnims or {})
-  return true,"Compiled FireRed workspace"
+  return true,"Compiled Gen 3 workspace"
 end
 return M

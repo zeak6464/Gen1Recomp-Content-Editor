@@ -265,7 +265,7 @@ function Project.draw(S, x, y, w, h, App)
   local dsW = math.min(150 * s, math.floor((dataW - 2 * dsGap) / 3))
   if Kit.button(dataX, row, dsW, btnH, "Link Recomp", {
       kind = "primary",
-      tooltip = "Use data/generated (or red|blue|yellow|gold|silver|crystal|firered/) from a Gen1Recomp install",
+      tooltip = "Use data/generated (or red|blue|yellow|gold|silver|crystal|firered|leafgreen/) from a Gen1Recomp install",
     }) then
     App.pickFolder("Choose Gen1Recomp folder", function(path)
       App.linkRecompFolder(path)
@@ -273,7 +273,7 @@ function Project.draw(S, x, y, w, h, App)
   end
   if Kit.button(dataX + dsW + dsGap, row, dsW, btnH, "Import ROM", {
       kind = "accent",
-      tooltip = "Import US Red/Blue/Yellow (.gb, 1 MiB) Gold/Silver/Crystal (.gbc) or FireRed USA 1.0 (.gba)\n"
+      tooltip = "Import US Red/Blue/Yellow (.gb, 1 MiB) Gold/Silver/Crystal (.gbc) or FireRed/LeafGreen USA 1.0 or 1.1 (.gba)\n"
         .. "into the versioned save-directory cache",
     }) then
     App.pickFile("Choose Pokemon ROM",
@@ -289,7 +289,7 @@ function Project.draw(S, x, y, w, h, App)
   row = row + btnH + 8 * s
   if Kit.button(dataX, row, dsW, btnH, "Clear cache", {
       kind = "danger",
-      tooltip = "Delete save-directory ROM caches (red|blue|yellow|gold|silver|crystal|firered/…)\n"
+      tooltip = "Delete save-directory ROM caches (red|blue|yellow|gold|silver|crystal|firered|leafgreen/…)\n"
         .. "and flush editor image caches, then reload data.\n"
         .. "Does not delete a Linked Gen1Recomp folder.",
   }) then
@@ -328,7 +328,7 @@ function Project.draw(S, x, y, w, h, App)
   if Kit.button(dataX, row, dsW, btnH, "Open cache", {
       kind = "ghost",
       tooltip = (cacheFolder and ("Open:\n" .. cacheFolder) or "Open the save-directory ROM cache")
-        .. "\nImported data lives here (red|blue|yellow|gold|silver|crystal|firered/)",
+        .. "\nImported data lives here (red|blue|yellow|gold|silver|crystal|firered|leafgreen/)",
     }) then
     if App.openCacheFolder then App.openCacheFolder() end
   end

@@ -32,9 +32,9 @@ function Panel.draw(S,x,y,w,h,App)
   for id,def in pairs((S.project.gen3 or {}).maps or {}) do if not maps[id] then maps[id]=def end end
   local ids=RegList.sortedKeys(maps)
   S.g3MapId=S.g3MapId or ids[1]
-  local fx,fw=RegList.drawList(S,App,x,y,w,h,"FireRed maps",ids,
+  local fx,fw=RegList.drawList(S,App,x,y,w,h,"Gen 3 maps",ids,
     {selKey="g3MapId",queryKey="g3MapQuery",offsetKey="g3MapOffset",listW=210*s})
-  if not S.g3MapId then Kit.caption(fx,y,"Import FireRed to load native maps"); return end
+  if not S.g3MapId then Kit.caption(fx,y,"Import FireRed or LeafGreen to load native maps"); return end
   local layout,err=Map.layout(S.data,S.g3MapId,S.project)
   if not layout then Kit.caption(fx,y,tostring(err)); return end
   if S.g3MapMode=="layout" then

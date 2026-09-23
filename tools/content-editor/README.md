@@ -15,6 +15,36 @@ contains maps and tile sources, the center switches between **Terrain** and
 **Warps**. Existing maps are prepared for the 16×16 grid when selected; use
 **+ New Map** for a new layered map and **World View** for connected neighbors.
 
+## LeafGreen
+
+With a linked runtime that supports LeafGreen, select **Project → Target game →
+LeafGreen**, or start `ContentEditor-LeafGreen.bat`. The shortcut uses the linked
+development runtime under Downloads, or accepts its folder as the first argument.
+The editor reads LeafGreen's own imported cache and preserves `leafgreen` as the
+project, manifest, cartridge and playtest target. Shared Gen 3 map, Pokémon, item,
+trainer, script, animation and asset editors use that edition's extracted data.
+
+Supplementary extraction that still relies on fixed FireRed USA 1.0 offsets
+(including native form artwork, trade presets and Town Map artwork) remains
+FireRed-only. Those tools report this limitation in LeafGreen rather than reading
+a remembered FireRed ROM. Cache-backed editing and custom imported assets remain
+available. Requires the updated runtime; the older bundled runtime has no
+LeafGreen engine support.
+
+## Combine duplicate tiles
+
+In **Maps**, open the tile palette's **More options → Combine tiles**. Select
+image-based maps, then **Scan selected maps** to preview the tile count reduction
+and matching examples. **Apply combined tileset** builds compact shared PNG
+sources and updates every use of the selected sources, including other maps,
+hidden layers, map borders, stamps and assembly groups. Save and playtest normally.
+
+This works with imported 16×16 PNG sources in Gen 1, 2 and 3. Matches require
+identical RGBA pixels; palette and true-color sources stay separate, and animated
+tiles merge only when their frame pixels and timing also match. Collision,
+elevation, events and map dimensions stay intact. Original PNGs are retained,
+and the change supports Undo/Redo. Native ROM metatiles are not included.
+
 ## Tile animations
 
 Import a 16×16-tile PNG with **+ New PNG**, select the animated starting tile,
@@ -55,6 +85,61 @@ Then **Link Recomp** or **Import ROM** on the Project tab for full data.
 
 See [docs/content-editor.md](../../docs/content-editor.md) and
 [PACK_README.md](PACK_README.md).
+
+## Offline gifts and Gen 2 decorations
+
+In **Events → Gifts** (Gen 1/2) or **Events → Offline gifts** (FireRed), create
+an item or Pokémon reward. Gen 2 also supports bedroom decorations. Set the
+title, reward, quantity or level, and collection/full/already-collected dialogue.
+Click **Build delivery script**, then attach the displayed script to a delivery
+NPC on Maps. For Gen 1, enter the map ID and the NPC's `TEXT_` identifier before
+building. Save the mod before playtesting.
+
+Each gift can be collected once per save, tracked separately for each mod and
+gift ID. Item rewards respect bag capacity and stack limits. Pokémon require a
+free party slot. Failed delivery leaves the gift available. Disable/re-enable
+keeps claim history; creating a new gift creates a new reward identity. FireRed
+dialogue changes need **Build delivery script** again. Rebuilding preserves
+manual script/dialogue changes and reports a conflict instead of overwriting them.
+
+**Events → Decorations** in Gen 2 edits existing collectible decoration names
+and their sprite/block references, with **Revert decoration** to remove an
+override. Categories and ownership flags stay intact. Give decorations through
+the gift builder; players place them using the bedroom PC. Artwork changes
+appear after the bedroom map reloads.
+
+These are offline NPC rewards. They do not implement infrared/wireless transfer,
+native Wonder Card menus/imports, or event-ticket destination unlocks. An item
+gift alone does not unlock its associated event; author that event separately.
+
+Run gift checks with `tests/content-editor/run-gift-checks.ps1 -Runtime <recomp>`.
+The integration harness needs an extracted FireRed cache and uses disposable test
+projects, without loading or changing player saves.
+
+## Safari Zone and Trainer House
+
+**Rules → Safari** in Gen 1 edits the entry price, Safari Ball allowance, steps
+inside the zone, and timeout/out-of-balls exit map and cell. Entry dialogue shows
+the configured price and allowance. The original early-exit event remains in
+place. Yellow has an optional discounted-entry setting, including its eventual
+one-ball admission for a player with no money.
+
+**Rules → Safari Zone** in FireRed edits balls and steps. Its native entrance
+script still controls the fee and exit. Allowance changes apply to new visits;
+saved visits retain their remaining balls and steps.
+
+**Events → Trainer House** in Gen 2 edits the visiting opponent's name and a team
+of one to six Pokémon, including levels, held items and up to four explicit
+moves per member. Leave moves empty to use the species' normal level moves.
+Choose the normal once-per-day restriction or allow repeat battles. The repeat
+option applies only to the Trainer House daily check and still records that a
+battle happened, so returning to daily mode respects that day's visit.
+
+Both forms have a Revert control. Save and restart the playtest after changes.
+The Trainer House override does not rewrite native trainer records or Mystery
+Gift save data; disabling the mod restores the original opponent behavior.
+
+The gift-check runner also tests these features and renders their panels.
 
 ## FireRed / Gen 3
 

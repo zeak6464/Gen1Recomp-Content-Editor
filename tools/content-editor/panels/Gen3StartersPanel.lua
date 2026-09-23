@@ -33,7 +33,7 @@ function Panel.add(S,kind)
   else return Panel.addGift(S,"EEVEE") end
 end
 function Panel.draw(S,x,y,w,h,App)
-  if not S.project then K.caption(x,y,"Open a FireRed mod first");return end
+  if not S.project then K.caption(x,y,"Open a Gen 3 mod first");return end
   local s=K.scale
   K.caption(x,y,"Choose starter and gift Pokemon by name. Save your mod to apply changes.")
   if K.button(x,y+28*s,220*s,29*s,"Change starter choices",{kind="good"}) then Panel.add(S,"starters");App.markDirty() end

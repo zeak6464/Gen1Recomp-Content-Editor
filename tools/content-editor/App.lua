@@ -788,19 +788,6 @@ local function engineHasLoader(root)
   return false
 end
 
-local function linkedRecompRoot()
-  local persisted = DataSource.loadPrefs()
-  local prefs = (S and S.dataPrefs) or persisted
-  local recomp = os.getenv("POKEPORT_RECOMP")
-    or (DataSource.mountedRecompRoot and DataSource.mountedRecompRoot())
-    or (prefs and prefs.recompRoot)
-    or (persisted and persisted.recompRoot)
-  if recomp and recomp ~= "" and DataSource.isValidRecompRoot(recomp) then
-    return recomp:gsub("[/\\]+$", "")
-  end
-  return nil
-end
-
 local function recompIsLaunchable(root)
   if not root or root == "" then return false end
   local sep = package.config:sub(1, 1)
@@ -810,6 +797,15 @@ local function recompIsLaunchable(root)
   local main = io.open(root .. sep .. "main.lua", "rb")
   if main then main:close(); return true end
   return false
+end
+
+local function linkedRecompRoot()
+  local persisted = DataSource.loadPrefs()
+  local prefs = S and S.dataPrefs
+  return PlaytestPaths.linkedRuntime(os.getenv("POKEPORT_RECOMP"),
+    prefs and prefs.recompRoot, persisted and persisted.recompRoot,
+    DataSource.mountedRecompRoot and DataSource.mountedRecompRoot(),
+    recompIsLaunchable)
 end
 
 local function validationEngineRoot()

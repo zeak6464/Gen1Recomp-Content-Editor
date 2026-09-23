@@ -3,13 +3,14 @@ local Kit=require("Kit")
 local List=require("RegList")
 local Steps=require("Gen3ScriptSteps")
 function M.draw(S,x,y,w,h,App)
-  if not S.project then Kit.caption(x,y,"Open a FireRed mod first");return end
+  if not S.project then Kit.caption(x,y,"Open a Gen 3 mod first");return end
   local s=Kit.scale
-  local body=List.modeChips(S,"g3EventMode",{{id="map",label="Map events"},{id="builder",label="Create event"},{id="quests",label="Reward quests"},{id="scripts",label="All scripts"}},x,y,s)
+  local body=List.modeChips(S,"g3EventMode",{{id="map",label="Map events"},{id="builder",label="Create event"},{id="quests",label="Reward quests"},{id="gifts",label="Offline gifts"},{id="scripts",label="All scripts"}},x,y,s)
   h=h-(body-y);y=body
   if S.g3EventMode=="map" then require("Gen3EventEditor").draw(S,x,y,w,h,App);return end
   if S.g3EventMode=="builder" then require("Gen3EventBuilder").draw(S,x,y,w,h,App);return end
   if S.g3EventMode=="quests" then require("Gen3Quests").draw(S,x,y,w,h,App);return end
+  if S.g3EventMode=="gifts" then require("OfflineGifts").draw(S,x,y,w,h,App);return end
   S.project.gen3=S.project.gen3 or {};S.project.gen3.map_scripts=S.project.gen3.map_scripts or {}
   local edits=S.project.gen3.map_scripts
   local catalog=require("Gen3").catalog(S.data,"map_scripts")

@@ -24,6 +24,8 @@ local ALL_MODES = {
     tip = "Kurt apricorn → ball rows" },
   { id = "radio", label = "RADIO", gen2 = true,
     tip = "Pokegear / wall-radio stations" },
+  { id = "safari", label = "SAFARI", gen1 = true,
+    tip = "Entry price, Safari Balls, steps and exit" },
   { id = "lua", label = "LUA",
     tip = "Wiki recipes that are functions — author them on CODE" },
 }
@@ -583,7 +585,12 @@ local FORM_DRAW = {
 }
 
 function Rules.draw(S, x, y, w, h, App)
-  if Generation.isGen3(S) then return require("Gen3BattleRules").draw(S,x,y,w,h,App) end
+  if Generation.isGen3(S) then
+    if not S.project then Kit.emptyBox(x,y,w,h,"Open a mod on the Project tab first");return end
+    local body=RegList.modeChips(S,"g3RulesMode",{{id="battle",label="Battle rules"},{id="safari",label="Safari Zone"}},x,y,Kit.scale)
+    if S.g3RulesMode=="safari" then return require("SafariSettings").draw(S,x,body,w,h-(body-y),App) end
+    return require("Gen3BattleRules").draw(S,x,body,w,h-(body-y),App)
+  end
   local s = Kit.scale
   if not S.project then
     Kit.emptyBox(x, y, w, h, "Open a mod on the Project tab first")
@@ -598,6 +605,7 @@ function Rules.draw(S, x, y, w, h, App)
   if not valid then S.rulesMode = modes[1] and modes[1].id end
   local modeY = RegList.modeChips(S, "rulesMode", modes, x, y, s)
   local mode = S.rulesMode or "statuses"
+  if mode == "safari" then return require("SafariSettings").draw(S,x,modeY,w,h-(modeY-y),App) end
   if mode == "lua" then
     drawLua(S, x, modeY, w, h - (modeY - y))
     return

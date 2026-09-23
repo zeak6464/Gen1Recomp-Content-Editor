@@ -423,7 +423,7 @@ end
 local function tryRecomp(prefs, version)
   if not prefs.recompRoot then return false, "no linked folder" end
   local cacheRoot=prefs.recompRoot
-  if version=="firered" and not DataSource.recompHasVersion(cacheRoot,version) then
+  if require("Generation").isGen3({version=version}) and not DataSource.recompHasVersion(cacheRoot,version) then
     local appdata=os.getenv("APPDATA")
     local save=love.filesystem.getSaveDirectory()
     local shared=appdata and join(appdata,"LOVE/pokemon-love2d") or (save:match("^(.*)[/\\][^/\\]+$") or save).."/pokemon-love2d"

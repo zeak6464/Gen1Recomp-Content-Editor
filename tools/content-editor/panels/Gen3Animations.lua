@@ -14,7 +14,7 @@ function Panel.label(S,id)
   return index==0 and "No move (0)" or id
 end
 function Panel.draw(S,x,y,w,h,App)
-  if not S.project then Kit.caption(x,y,"Open a FireRed project first");return end
+  if not S.project then Kit.caption(x,y,"Open a Gen 3 project first");return end
   local s=Kit.scale
   local catalog=R.animations(S.data)
   local edits=S.project.gen3Animations or {}
@@ -47,7 +47,7 @@ function Panel.draw(S,x,y,w,h,App)
     return
   end
   local id=S.g3AnimId
-  if not id then Kit.caption(fx,y,"Import FireRed to extract animations");return end
+  if not id then Kit.caption(fx,y,"Import FireRed or LeafGreen to extract animations");return end
   local value=edits[id] or catalog[id]
   if S._g3AnimValue~=value or S._g3AnimId~=id then
     if S._g3AnimId~=id then

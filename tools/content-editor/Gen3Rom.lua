@@ -1,6 +1,11 @@
 -- Read-only supplementary datasets missing from the current runtime extract.
 local M={}
 function M.open(S)
+  -- These supplementary decoders still use verified BPRE0 offsets. Never
+  -- silently use the global FireRed ROM path while editing LeafGreen.
+  if require("Generation").id(S)=="leafgreen" then
+    return nil,"This supplementary ROM tool currently requires FireRed USA 1.0; LeafGreen cache editing is supported"
+  end
   if S.data._g3RomBytes then return S.data._g3RomBytes end
   local IO=require("ModIO")
   local path=(S.project or {}).gen3RomPath or os.getenv("POKEPORT_GEN3_ROM") or IO.readText("gen3-rom-path.txt")

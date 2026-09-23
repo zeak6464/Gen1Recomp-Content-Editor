@@ -270,7 +270,7 @@ local function drawCart(S, x, y, w, h, skin)
     sendFinish(shader, sparkle and FINISH_SPARKLE or FINISH_NONE, st.spin)
   end
 
-  local gba = skin.base == "firered"
+  local gba = (skin.base == "firered" or skin.base == "leafgreen")
   local capH = h * (gba and 0.10 or 3 / 65)
   local mainTop = -halfH + capH
   local capRight = gba and halfW or halfW - w * 5 / 57
@@ -417,7 +417,7 @@ function CartPreview.draw(S, x, y, w, h, info)
   local areaH = h - headH - footH
   if areaW < 8 or areaH < 8 then return end
 
-  local aspect = info.base == "firered" and (60 / 35) or 0.72
+  local aspect = (info.base == "firered" or info.base == "leafgreen") and (60 / 35) or 0.72
   local cartW = math.min(areaW, areaH * aspect)
   local cartH = cartW / aspect
   if cartH > areaH then

@@ -443,6 +443,17 @@ function ModIO.authoringGame(project, modDir)
 end
 
 function ModIO.save(modDir, project, version)
+  local generation = require("Generation").num({version=project.game or project.version})
+  local validRewards, rewardError = pcall(function()
+    require("SafariSettings").validate(project.safariSettings, generation)
+    require("TrainerHouseEditor").validate(project.trainerHouse, generation)
+    require("OfflineGifts").validate(project.offlineGifts, generation)
+    if next(project.decorations or {}) then
+      assert(generation == 2, "Select a Gen 2 game before saving bedroom decoration edits")
+      require("Gen2Decorations").validate(project.decorations)
+    end
+  end)
+  if not validRewards then return false, tostring(rewardError) end
   local Gen3 = require("Gen3")
   local problem = Gen3.projectError(project)
   if problem then return false, problem end

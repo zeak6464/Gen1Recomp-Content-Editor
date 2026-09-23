@@ -23,7 +23,7 @@ function M.draw(S,x,y,w,h,App)
   local s=K.scale;local fh=30*s
   if not S.project.gen3Fly then
     K.caption(x,y,"Set where Fly takes the player, and when each location unlocks.")
-    if K.button(x,y+40*s,260*s,fh,"Set up FireRed Fly destinations",{kind="good"}) then S.project.gen3Fly=M.defaults();App.markDirty() end
+    if K.button(x,y+40*s,260*s,fh,"Set up Fly destinations",{kind="good"}) then S.project.gen3Fly=M.defaults();App.markDirty() end
     return
   end
   local rows=S.project.gen3Fly;local ids,labels={},{}

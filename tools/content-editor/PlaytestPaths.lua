@@ -4,6 +4,15 @@ local function separator()
   return package.config:sub(1, 1)
 end
 
+function PlaytestPaths.linkedRuntime(envRoot, selectedRoot, savedRoot, mountedRoot, isLaunchable)
+  -- A mounted ROM cache supplies editor data, but cannot launch the game.
+  for _, root in ipairs({envRoot or "", selectedRoot or "", savedRoot or "", mountedRoot or ""}) do
+    if root ~= "" and isLaunchable(root) then
+      return (root:gsub("[/\\]+$", ""))
+    end
+  end
+end
+
 function PlaytestPaths.absoluteFromRoot(path, root)
   path = tostring(path or "")
   local windowsAbsolute = path:match("^%a:[/\\]") ~= nil
