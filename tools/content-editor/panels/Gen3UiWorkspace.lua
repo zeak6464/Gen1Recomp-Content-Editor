@@ -1,7 +1,7 @@
 local M={}
 local modes={{id="credits",label="End credits"},{id="areas",label="Area previews"},{id="intro",label="Title / Intro"},{id="oak",label="Oak intro"},{id="playback",label="Animation preview"},{id="menus",label="Windows / borders"},{id="bag",label="Bag screens"},{id="party",label="Pokemon menu"},{id="summary",label="Pokemon summary"},{id="backgrounds",label="Battle backgrounds"},{id="minigames",label="Mini-games"},{id="battle",label="Battle"},
   {id="town",label="Town Map"},{id="fonts",label="Fonts"},{id="dex",label="Pokedex"},{id="trainer",label="Trainer Card"},
-  {id="fame",label="Fame Checker"},{id="naming",label="Naming"},{id="help",label="Help"},{id="all",label="All assets"}}
+  {id="fame",label="Fame Checker"},{id="teachy",label="Teachy TV"},{id="naming",label="Naming"},{id="help",label="Help"},{id="all",label="All assets"}}
 function M.draw(S,x,y,w,h,App)
   local scale=require("Kit").scale
   local ids,labels={},{}
@@ -13,6 +13,7 @@ function M.draw(S,x,y,w,h,App)
   local top=y+36*scale
   if S.g3UiMode=="credits" or S.g3UiMode=="areas" then require("Gen3Screens").draw(S,x,top,w,h-(top-y),App,S.g3UiMode);return end
   if S.g3UiMode=="fame" then require("Gen3Fame").draw(S,x,top,w,h-(top-y),App);return end
+  if S.g3UiMode=="teachy" then require("Gen3TeachyTv").draw(S,x,top,w,h-(top-y),App);return end
   if S.g3UiMode=="oak" then require("Gen3Oak").draw(S,x,top,w,h-(top-y),App);return end
   if S.g3UiMode=="minigames" then require("Gen3Minigames").draw(S,x,top,w,h-(top-y),App);return end
   if S.g3UiMode=="playback" then require("Gen3IntroPreview").draw(S,x,top,w,h-(top-y));return end

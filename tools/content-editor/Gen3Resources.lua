@@ -47,6 +47,18 @@ function M.assets(data)
     if data._gen3Read and data._gen3Read(path) then result[path]={path=path,width=size[1],height=size[2]} end
   end
   local ow=M.readTable(data,root.."ow/manifest.lua")
+  -- Teachy TV consists of composed screens plus a four-frame static strip.
+  -- Explicit entries also support cache providers without directory listing.
+  local tv=M.readTable(data,root.."teachy_tv/manifest.lua")
+  local tvSizes={screen={tv.width or 240,tv.height or 160},title={tv.width or 240,tv.height or 160},
+    ["end"]={tv.width or 240,tv.height or 160},bg3={tv.bg3Width or 256,tv.bg3Height or 256},
+    static={tv.staticWidth or 32,tv.staticHeight or 8}}
+  for name,size in pairs(tvSizes) do
+    local path=root.."teachy_tv/"..name..".rgba"
+    if data._gen3Read and data._gen3Read(path) then
+      local rec={path=path,width=size[1],height=size[2]};result[path]=rec
+    end
+  end
   for id,meta in pairs(ow.sprites or {}) do
     local path=root.."ow/"..id..".rgba"
     if result[path] then

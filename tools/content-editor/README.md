@@ -15,6 +15,19 @@ contains maps and tile sources, the center switches between **Terrain** and
 **Warps**. Existing maps are prepared for the 16×16 grid when selected; use
 **+ New Map** for a new layered map and **World View** for connected neighbors.
 
+## Teachy TV
+
+In the Gen 3 UI workspace, select **Teachy TV**. The **Artwork** tab shows the
+TV frame, title, end graphic, scrolling background and static strip at their
+original dimensions, with PNG import, export and revert controls.
+Use **Dialogue** to edit all six lesson titles,
+introductions and conclusions, plus the host greeting, menu labels and TM
+explanations. Text comes from the selected game's imported cache. The editor
+includes a paged dialogue preview and **Restore original dialogue**. Use `\n`
+for a new line and `\f` for a new page; preserve displayed control tokens.
+Save and playtest to see the changes in Teachy TV. Demonstration battles,
+animations and TM Case unlock requirements retain their original behavior.
+
 ## LeafGreen
 
 With a linked runtime that supports LeafGreen, select **Project → Target game →

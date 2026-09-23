@@ -5,6 +5,9 @@ local IO=require("ModIO")
 local Panel={}
 local function assetLabel(path)
   local name=path:match("([^/]+)%.[^.]+$") or path
+  if path:find("/teachy_tv/",1,true) then
+    return ({screen="TV frame",title="Title graphic",["end"]="End graphic",bg3="Scrolling background",static="TV static frames"})[name] or name
+  end
   local aliases={bg="Background",bg_female="Background (female player)",desc_sel="Selected item description",page_info="Summary: Pokemon information",page_moves="Summary: moves",page_moves_info="Summary: move details",page_skills="Summary: stats",page_egg="Summary: egg",list="Item list",list_blank="Empty item list"}
   return aliases[name] or (name:gsub("_"," "):gsub("^%l",string.upper))
 end

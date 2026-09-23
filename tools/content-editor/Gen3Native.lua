@@ -6,6 +6,7 @@ function M.used(p)
   return next(p.gen3Forms or {}) or p.gen3Fly or next(p.gen3OakScene or {}) or next(p.gen3Oak or {}) or p.gen3Breeding or next(p.gen3Behaviors or {}) or next(p.gen3TrainerMusic or {}) or next(p.items or {}) or next(p.gen3Help or {}) or next(p.gen3Trades or {}) or next(p.gen3Effects or {}) or next(p.gen3BattleRules or {}) or require("Gen3Workbench").used(p) or next(p.gen3Animations or {}) or next(p.gen3Assets or {}) or next(p.gen3Audio or {})
 end
 function M.emit(p,encode,out)
+  require("Gen3TeachyTv").emit(p,encode,out)
   if not M.used(p) then return end
   for path in pairs(p.gen3Assets or {}) do
     if path:match("^data/generated/gba/intro/.*%.png$") then
@@ -62,6 +63,8 @@ M.source=[=[
     require("src.core.game3.items_data").install(cache)
     require("src.ui.game3.help_system").install(cache)
     local map=require("src.ui.game3.region_map");map._images={}
+    local teachy=package.loaded["src.ui.game3.teachy_tv"]
+    if teachy and teachy.reloadAssets then teachy.reloadAssets() end
     local bytes=cache:read("data/generated/gba/region_map/kanto_map.png")
     if bytes and love and love.graphics then
       local ok,img=pcall(function() return love.graphics.newImage(love.filesystem.newFileData(bytes,"map.png")) end)
