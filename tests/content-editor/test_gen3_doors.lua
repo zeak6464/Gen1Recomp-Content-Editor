@@ -24,6 +24,9 @@ package.loaded["src.core.game3.tileset_native"]={_pairs={},get=function() return
 package.loaded["src.core.game3.scripting.interaction_scripts"]={behaviors={}}
 package.loaded["src.core.game3.field_view"]={draw=function() end}
 local Collision=require("src.core.game3.collision")
+local behaviors=require("src.core.game3.scripting.interaction_scripts").behaviors
+behaviors.pallet={[0x2A3]=0x69,[0x62]=0x69}
+behaviors.viridian={[0x299]=0x69}
 local nativeDoorLookup=Doors.getDoorEntryAt
 Doors.getDoorEntryAt=function(mapId,x,y)
   local layout=Doors._layoutCache[mapId]
@@ -39,7 +42,12 @@ local source={cellWidth=5,cellHeight=1,baseTileset="pallet",gen3Border={width=0,
   collision={"door","door","door","walk","door"},layers={
     {cells={ref("pallet",0x2A3),ref("pallet",0x62),ref("viridian",0x299),ref("pallet",0),ref("pallet",0x299)}},
     {export=false,cells={ref("pallet",0)}}}}
-local maps={FR_TEST={}}
+local inside={cellWidth=5,cellHeight=1,baseTileset="pallet",gen3Border={width=0,height=0,mids={}},
+  collision={"walk","walk","walk","walk","walk"},layers={{cells={
+    ref("pallet",0),ref("pallet",0),ref("pallet",0),ref("pallet",0),ref("pallet",0)}}}}
+local fresh={cellWidth=1,cellHeight=1,baseTileset="pallet",gen3Border={width=0,height=0,mids={}},
+  collision={"walk"},gen3Collision={},layers={{cells={ref("pallet",0x62)}}}}
+local maps={FR_TEST={},FR_INSIDE={},FR_NEW={}}
 local vanilla=Layout.fromDecoded({width=1,height=1,cells={{mid=0x2A3,coll=0x71,elev=3}}},"FR_VANILLA","pallet")
 maps.FR_VANILLA={midLayout=vanilla,pair="pallet"}
 package.loaded["src.core.game3.runtime"]={_game={data={maps=maps}}}
@@ -47,8 +55,11 @@ package.loaded["src.core.game3.runtime"]={_game={data={maps=maps}}}
 assert(Doors.getDoorEntryAt("FR_VANILLA",0,0).tile=="Pallet")
 local mod={id="door_test",events={on=function(_,_,fn) fn({game={data={maps=maps}}}) end},
   hooks={wrap=function(_,name,fn) hooks:wrap(name,fn,0,"door_test") end}}
-local run=assert(loadstring("return function(mod,layered) "..require("Gen3LayeredRuntime").." end"))()
-run(mod,{maps={FR_TEST=source},sources={},animations={}})
+local exported=require("Gen3LayeredRuntime")
+assert(not exported:find("package.loaded",1,true),"Exported mod cannot access package.loaded in sandbox")
+local run=assert(loadstring("return function(mod,layered) "..exported.." end"))()
+local layered={maps={FR_TEST=source,FR_INSIDE=inside,FR_NEW=fresh},sources={},animations={}}
+run(mod,layered)
 assert(maps.FR_TEST.midLayout:midAt(0,0)~=0x2A3,"Test must renumber door tiles")
 assert(Doors.getDoorEntryAt("FR_TEST",0,0).tile=="Pallet","Renumbered house door lost")
 assert(Doors.getDoorEntryAt("TEST",1,0).tile=="SlidingSingle","Sliding door lost")
@@ -60,9 +71,6 @@ assert(Doors.getDoorEntryAt("FR_TEST",5,0)==nil)
 assert(Doors.getDoorEntryAt("FR_VANILLA",0,0).tile=="Pallet","Unedited door changed")
 -- Native door implementations can inspect collision behavior on the lookup
 -- layout. A partial cache entry with no width/height crashes behaviorOn.
-local behaviors=require("src.core.game3.scripting.interaction_scripts").behaviors
-behaviors.pallet={[0x2A3]=0x69,[0x62]=0x69}
-behaviors.viridian={[0x299]=0x69}
 for key,layout in pairs(Doors._layoutCache) do
   if key:match("^editor_door_") then
     assert(layout.width==1 and layout.height==1,"Door layout lacks bounds")
@@ -71,7 +79,7 @@ for key,layout in pairs(Doors._layoutCache) do
     assert(Collision.behaviorOn(map,1,0)==nil,"Door layout has incorrect bounds")
   end
 end
-maps.FR_INSIDE={warps={{x=2,y=3,destMap="FR_TEST",destWarp=1}}}
+maps.FR_INSIDE.warps={{x=2,y=3,destMap="FR_TEST",destWarp=1}}
 maps.FR_TEST.warps={{x=0,y=0,destMap="FR_INSIDE",destWarp=1}}
 local game={currentMap="FR_TEST",data={maps=maps}}
 Collision._warps={[0]=maps.FR_TEST.warps[1]}
@@ -81,10 +89,9 @@ game.currentMap="FR_INSIDE"
 Collision._warps={[3*1024+2]=maps.FR_INSIDE.warps[1]}
 local exit=assert(Collision.isExitWarp(game,2,3),"Return to edited door not recognized")
 assert(exit.destMap=="FR_TEST" and exit.destX==0 and exit.destY==0)
--- Entrance sequencing may pass the destination as mapId: Gen 3 keeps the
--- current map in its session, not game.currentMap. Exercise real open/draw.
-local gameRuntime=package.loaded["src.core.game3.runtime"]
-gameRuntime.getSession=function() return {map="FR_TEST"} end
+-- Both sides are repacked. Entrance sequencing passes the repacked interior,
+-- so the hook must prefer the currently bound exterior without package.loaded.
+Collision._mapId="FR_TEST"
 local sounds,draws={},{}
 package.loaded["src.core.game3.audio"]={playSe=function(sound) sounds[#sounds+1]=sound end}
 local sheetImage={}
@@ -113,11 +120,14 @@ Doors.draw(0,0)
 assert(draws[1]=="closed" and draws[2]=="half" and draws[3]=="open",
   "Double sliding entrance must draw all opening frames")
 Doors.reset()
-gameRuntime.getSession=nil
+local newMid=maps.FR_NEW.midLayout:midAt(0,0)
+local newPair=maps.FR_NEW.pair
+assert(require("src.core.game3.scripting.interaction_scripts").behaviors[newPair][newMid]==0x69,
+  "New-map walkable door lost its native warp behavior")
 -- A fresh export can move a door to a different cell without ROM coordinates.
 source.layers[1].cells[1],source.layers[1].cells[4]=source.layers[1].cells[4],source.layers[1].cells[1]
 hooks:removeOwner("door_test")
-run(mod,{maps={FR_TEST=source},sources={},animations={}})
+run(mod,layered)
 assert(Doors.getDoorEntryAt("FR_TEST",0,0)==nil)
 assert(Doors.getDoorEntryAt("FR_TEST",3,0).tile=="Pallet","Moved door lost")
 Runtime.reset()

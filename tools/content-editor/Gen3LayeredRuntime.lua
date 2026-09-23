@@ -42,13 +42,10 @@ return "  local collisionModes="..encode(C.modes).."\n  local paintedCollision="
         return proceed(key,0,0)
       end
       mod.hooks:wrap("editor.gen3.doors.lookup",function(proceed,mapId,x,y)
-        -- Entrance sequencing can supply the destination map when the game
-        -- stores its current map only in the Gen 3 session. Match the native
-        -- lookup's live-map-first behavior before resolving edited tile IDs.
-        local GameRuntime=package.loaded["src.core.game3.runtime"]
-        local session=GameRuntime and GameRuntime.getSession and GameRuntime.getSession()
-        local Map=package.loaded["src.core.game3.map"]
-        local live=(session and session.map) or (Map and Map.current)
+        -- Entrance sequencing supplies the destination map, while the door is
+        -- still on the bound collision map. Use the module already available
+        -- in the sandbox; mod environments intentionally have no `package`.
+        local live=Collision._mapId
         if live and live~=mapId then
           local entry,info=lookupEditedDoor(proceed,live,x,y)
           if entry then return entry,info end
@@ -136,7 +133,13 @@ return "  local collisionModes="..encode(C.modes).."\n  local paintedCollision="
         local preserve=original~=nil and (mode==nativeMode or mode==(original==0 and "walk" or "solid"))
         local value=paintedCollision[mode] or paintedCollision.solid
         local coll=preserve and original or value[1]
-        if not preserve then behavior=value[2] end
+        -- A new map has no baked collision byte to preserve. Its ordinary
+        -- walkable door cell must retain the native MB_WARP_* behavior or the
+        -- warp is dead even though its visual tile and event are present.
+        local nativeWarp=behavior>=0x60 and (behavior<=0x6F or behavior==0x71)
+        if not preserve and not (original==nil and mode=="walk" and nativeWarp) then
+          behavior=value[2]
+        end
         key[#key+1]=tostring(behavior);local signature=table.concat(key,"|")
         local mid=seen[signature]
         if mid==nil then mid=#slots;seen[signature]=mid;slots[#slots+1]=refs;behaviors[mid]=behavior end
