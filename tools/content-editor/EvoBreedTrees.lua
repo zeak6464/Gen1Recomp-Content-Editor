@@ -63,6 +63,7 @@ local function evoInto(evo, gen2)
 end
 
 local function evoLabel(evo)
+  if evo and evo.referenceText then return evo.referenceText end
   local m = tostring((evo and evo.method) or "")
   m = m:gsub("^EVOLVE_", ""):gsub("^EVO_", "")
   if m == "LEVEL" then
@@ -112,9 +113,17 @@ local function buildChildren(S, gen2)
     for _, evo in ipairs((def and def.evolutions) or {}) do
       add(id, evo)
     end
+    local edited=S.project and S.project.pokemon and S.project.pokemon[id]
+    if not (edited and edited.evolutions~=nil) and not next((def and def.evolutions) or {}) then
+      local ref=(S.data._editorEvolutionReference or {})[id]
+      for _,edge in ipairs(ref and ref.evolvesInto or {}) do
+        add(id,{species=edge.id,referenceText=edge.text or "Reference",reference=true})
+      end
+    end
   end
   return children, parents
 end
+EvoBreedTrees.buildChildren=buildChildren
 
 local function familyRoots(startId, parents)
   local up, stack = {}, { startId }
@@ -157,7 +166,8 @@ local function drawSprite(S, id, x, y, size)
   if def and def.spriteFront then
     local pal = Preview.monPaletteName(S, def, id)
     if def.trueColor then pal = false end
-    Preview.draw(S, def.spriteFront, x, y, size, size, pal)
+    local path=require("ModPokemonArt").path(S,def,"spriteFront") or def.spriteFront
+    Preview.draw(S, path, x, y, size, size, pal)
   else
     Preview.drawPokemonIcon(S, def, x, y, size, size, id)
   end
@@ -183,6 +193,7 @@ local function isNoEggs(def)
     return def.eggGroupsRaw == NO_EGGS_RAW
   end
   local a, b = eggGroupsOf(def)
+  if a==15 or b==15 or a==0 or (a==nil and b==nil) then return true end
   return a == EGG_NONE and b == EGG_NONE
 end
 
@@ -222,6 +233,9 @@ local function canBreed(idA, defA, idB, defB)
 end
 
 local function groupTitle(g)
+  if type(g)=="number" then
+    return ({"Monster","Water 1","Bug","Flying","Field","Fairy","Grass","Human-like","Water 3","Mineral","Amorphous","Water 2","Ditto","Dragon","Undiscovered"})[g] or "Unknown"
+  end
   return tostring(g or ""):gsub("^EGG_", ""):gsub("_", " ")
 end
 
@@ -281,6 +295,20 @@ local function drawEvoTree(S, speciesId, x, y, w, s)
   local gen2 = Generation.isGen2(S)
   local children, parents = buildChildren(S, gen2)
   local roots = familyRoots(speciesId, parents)
+  local seen={}
+  local function hasReference(id)
+    if seen[id] then return false end;seen[id]=true
+    for _,edge in ipairs(children[id] or {}) do
+      if edge.evo.reference or hasReference(edge.into) then return true end
+    end
+    return false
+  end
+  for _,root in ipairs(roots) do
+    if hasReference(root) then
+      Kit.text("micro","Includes mod reference data; these links are not necessarily enabled in-game.",x,y,PAL.yellow)
+      y=y+20*s;break
+    end
+  end
 
   local nodeW = 56 * s
   local nodeH = 70 * s
@@ -354,8 +382,8 @@ end
 local function drawBreeding(S, speciesId, x, y, w, s)
   Kit.caption(x, y, "BREEDING")
   y = y + 22 * s
-  if not Generation.isGen2(S) then
-    Kit.text("micro", "Egg groups are Gold / Crystal only. Red, Blue, and Yellow have no breeding.",
+  if not Generation.isGen2(S) and not Generation.isGen3(S) then
+    Kit.text("micro", "Red, Blue, and Yellow have no breeding.",
       x, y, PAL.muted)
     return y + 20 * s
   end
@@ -364,6 +392,10 @@ local function drawBreeding(S, speciesId, x, y, w, s)
   if not def then return y end
 
   local g1, g2 = eggGroupsOf(def)
+  if Generation.isGen3(S) and g1==nil and g2==nil then
+    Kit.text("micro","This mod's loaded record does not provide egg groups.",x,y,PAL.muted)
+    return y+20*s
+  end
   local groups = {}
   if g1 then groups[#groups + 1] = g1 end
   if g2 and g2 ~= g1 then groups[#groups + 1] = g2 end

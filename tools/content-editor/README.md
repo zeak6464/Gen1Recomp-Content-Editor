@@ -260,6 +260,57 @@ Asset overrides are read through mod-owned hooks; extracted cache files are
 not overwritten. Editor changes are excluded when loading the original mod's
 base records so Revert can restore the original data.
 
+Pokémon and move expansion mods use the linked runtime's content registries;
+there is no fixed species roster or mod-name whitelist. Successfully loaded
+records are available immediately in the editors and content pickers. Edits
+to an authored mod run after its original entry point, preserving its scripts
+and assets. New species allocate native slots and National Dex numbers
+independently. Large exports split record constructors into separate functions
+to stay within LuaJIT's limits.
+
+Project > Mod Content shows available and added Pokémon/move counts, rejected
+registrations (including failures the mod catches itself), and runtime messages.
+Expand the details or copy the complete report to diagnose partial imports.
+This does not translate incompatible record formats or implement custom battle
+effects: those still need support in the selected game's runtime. In particular,
+1025Dex 1.1.18 exposes its 1025 species with the tested FireRed runtime, but its
+Gen 1-shaped additional moves are rejected by the FireRed move schema.
+
+Pokémon previews also recognize DBK/g9 sprite components using
+`data/dbk_data.lua` and `data/icon_data.lua`, either at the mod root or in a
+component subfolder. Front/back and shiny sheets animate as individual frames;
+party icons use the pack's atlas mapping. These are preview-only mappings, so
+the mod's rendering hooks and saved sprite paths stay intact. Explicit editor
+sprite imports take priority. Other custom rendering formats need an adapter.
+
+Pokémon > Positions adjusts each species' opponent/front and player/back
+vertical battle offsets (-64 to 64 pixels). The animated singles preview shows
+both sides, supports shiny art, and includes the mod's existing vertical lift.
+Reset removes the editor offsets. Saved offsets apply in battle only, after
+the original mod, and leave health bars and substitute sprites unchanged.
+
+The custom ability/effect builder supports healing, percentage HP loss, stat
+changes/resets, weather, curing status, sleep/poison/toxic/burn/paralysis/freeze,
+confusion and flinching. Move actions can individually target the user or the
+opponent and can be reordered. Activation can require low/full HP or the presence
+or absence of a status condition. Custom abilities can trigger on entry, at turn
+end, or on switch-out. Status actions use native secondary-effect checks,
+including substitute, Safeguard and Shield Dust handling.
+
+The builder now offers seven ability triggers, 25 conditions and 21 actions.
+Hit triggers cover receiving damage, receiving contact, dealing damage and
+knocking out an opponent. These run per successful damaging hit; substitute
+hits do not activate them, and a fainted holder cannot activate a reaction.
+Abilities also support opponent targeting and per-action target overrides.
+Conditions include adjustable HP thresholds, specific statuses, weather,
+boosted/lowered stats and the triggering hit's category or contact flag.
+Additional actions copy, swap, invert, set or clear stat stages, remove confusion,
+flinching or trapping, clear weather, and heal or recoil based on hit damage.
+Damage-based HP actions require a damaging move or a hit/knockout trigger.
+Five replaceable presets provide regeneration, contact retaliation, a knockout
+boost, rain on entry and status cleanup on exit. Each behavior supports up to
+eight ordered actions.
+
 **Full Gen 1/2 feature parity is still incomplete.** All tabs are available with
 FireRed-specific editing paths, but multi-stage quest graphs are not adapted,
 and the other limitations listed above

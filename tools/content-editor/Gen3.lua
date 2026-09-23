@@ -28,6 +28,9 @@ function Gen3.load(data, read, list)
   data._g3Animations,data._g3Audio,data._g3Assets=nil,nil,nil
   data._g3ActionMarts=nil
   data._editorGen3Catalog,data._gen3Layouts,data._gen3DerivedLayouts=nil,nil,nil
+  data._editorGen3Report=nil
+  data._modPokemonArt=nil
+  data._editorEvolutionReference=nil
   data._g3PreviewPack=nil
   data._g3TownMap=nil
   data._g3TownMaps=nil
@@ -157,6 +160,9 @@ function Gen3.emit(project, encode)
       local operation = ((project.gen3Modes or {})[name] or {})[id]
       local ok, err, mode = Gen3.check(name, id, records[id], operation)
       assert(ok, tostring(err))
+      -- Expansion mods can edit thousands of records. Keep each payload in
+      -- its own function so the entry point stays within LuaJIT's limits.
+      out[#out+1]="  do local function applyRecord()"
       if mode=="patch" and ((project.gen3Exact or {})[name] or {})[id] then
         out[#out+1]=string.format("  do local value = {}; for k,v in pairs(mod.content.%s:get(%q) or {}) do value[k]=v end",name,id)
         out[#out+1]="    for k,v in pairs(assetPaths("..encode(records[id])..")) do value[k]=v end"
@@ -164,11 +170,13 @@ function Gen3.emit(project, encode)
       else
         out[#out + 1] = string.format("  mod.content.%s:%s(%q, %s)", name, mode, id, "assetPaths(" .. encode(records[id]) .. ")")
       end
+      out[#out+1]="  end; applyRecord() end"
     end
   end
   require("Gen3Map").emit(project, encode, out)
   require("Gen3Starters").emit(project, encode, out)
   require("Gen3Native").emit(project, encode, out)
+  require("Gen3BattlePositions").emit(project,encode,out)
   require("OfflineGifts").emit(project, encode, out, 3)
   require("SafariSettings").emit(project, encode, out, 3)
   if next(project.gen3Layered or {}) then

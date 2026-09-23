@@ -355,6 +355,9 @@ function ModIO.load(modDir)
     local id = modDir:match("[/\\]([^/\\]+)$") or "mod"
     local mf=Json.decode(ModIO.readText(join(modDir,"manifest.json")) or "{}")
     local project = State.blankProject(mf and mf.id or id, mf and mf.name or id)
+    if mf and type(mf.games)=="table" and #mf.games==1 and mf.games[1]~="all" then
+      project.game=mf.games[1]
+    end
     if mainLooksHandWritten(modDir) then
       project._protectMain = true
       return project,

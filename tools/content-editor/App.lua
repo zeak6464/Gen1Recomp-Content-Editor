@@ -216,6 +216,7 @@ local function refreshModsAndEvents()
   snapshotVanillaCatalog()
   local ModLoader = require("src.mods.Loader")
   local mods = ModLoader.new()
+  S.gen3ModError=nil
   if require("Generation").isGen3(S) then
     if S.path and Data._editorGen3 and next(Data.gen3Pokemon or {}) then
       local ok, loaded, err = pcall(require("Gen3Mod").load, Data, S.path, {baseOnly=true})
@@ -224,6 +225,7 @@ local function refreshModsAndEvents()
     end
   else mods:load(Data) end
   S.data = Data
+  if require("Generation").isGen3(S) then require("Gen3ContentAdapter").prepare(S) end
   if require("Generation").isGen3(S) then require("Gen3Workspace").prepare(S) end
   S.mods = mods
   require("Generation").restoreUnownedLiveMaps(S)

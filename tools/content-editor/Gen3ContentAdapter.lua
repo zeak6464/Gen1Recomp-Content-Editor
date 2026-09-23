@@ -62,7 +62,11 @@ function M.newRecord(S,name,id)
   for _,bag in ipairs({base,S.project[name]}) do for _,v in pairs(bag) do max=math.max(max,tonumber(v.index) or 0) end end
   rec.id,rec.name,rec.index,rec._isNew=id,id,max+1,true
   if name=="pokemon" then
-    rec.dex=max+1
+    local dex=0
+    for _,bag in ipairs({base,S.project[name]}) do
+      for _,v in pairs(bag) do dex=math.max(dex,tonumber(v.dex) or 0) end
+    end
+    rec.dex=dex+1
     rec.spriteShinyFront=require("Gen3Forms").spritePath(template,false,true)
     rec.spriteShinyBack=require("Gen3Forms").spritePath(template,true,true)
   end

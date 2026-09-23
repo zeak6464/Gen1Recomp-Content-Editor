@@ -398,6 +398,8 @@ end
 
 -- Prefer authored path; fall back to vanilla when project omitted ROM-cache sprites.
 local function monSpritePath(S, mon, field)
+  local art=require("ModPokemonArt").path(S,mon,field)
+  if art then return art end
   local p = mon and mon[field]
   if type(p) == "string" and p ~= "" then return p end
   local id = (mon and mon.id) or S.pokemonId
@@ -639,6 +641,10 @@ local function drawBasics(S, mon, mutate, App, formX, fy, formW, labelW, fh, s)
   local frontPath = formSpritePath(S, mon, "spriteFront", formId)
   local backPath = formSpritePath(S, mon, "spriteBack", formId)
   if gen3 and shinyPrev then frontPath=require("Gen3Forms").spritePath(mon,false,true,S);backPath=require("Gen3Forms").spritePath(mon,true,true,S) end
+  if gen3 and shinyPrev then
+    frontPath=require("ModPokemonArt").path(S,mon,"spriteShinyFront") or frontPath
+    backPath=require("ModPokemonArt").path(S,mon,"spriteShinyBack") or backPath
+  end
   if not (playAnim and drawAnimPreview(S, anim, frontX, fy, prevSize, drawPal)) then
     Preview.draw(S, frontPath, frontX, fy, prevSize, prevSize, drawPal)
   end
@@ -2015,7 +2021,9 @@ function Pokemon.draw(S, x, y, w, h, App)
     return mon
   end
 
-  Kit.caption(formX, y, "EDIT  " .. (mon.id or "?") .. (owned and "" or "  (vanilla)"))
+  local report=S.data and S.data._editorGen3Report
+  local fromMod=report and report.addedRecords and report.addedRecords.pokemon[mon.id]
+  Kit.caption(formX, y, "EDIT  " .. (mon.id or "?") .. (owned and "" or fromMod and "  (mod)" or "  (vanilla)"))
   local secY = y + 22 * s
   local sx = formX
   S.pokemonSection = S.pokemonSection or "basics"
@@ -2029,6 +2037,7 @@ function Pokemon.draw(S, x, y, w, h, App)
     end
     sx = sx + bw + 4 * s
   end
+  if Generation.isGen3(S) and Kit.chip(sx,secY,90*s,26*s,"Positions",S.pokemonSection=="positions",PAL.green) then S.pokemonSection="positions" end
 
   Kit.card(formX, listY, formW, listH, 12 * s)
   local footerH = 44 * s
@@ -2045,7 +2054,9 @@ function Pokemon.draw(S, x, y, w, h, App)
   local labelW = 110 * s
   local fh = 30 * s
 
-  if S.pokemonSection == "basics" then
+  if S.pokemonSection == "positions" and Generation.isGen3(S) then
+    fy=require("Gen3BattlePositions").draw(S,mon,viewX,fy,viewW,App)
+  elseif S.pokemonSection == "basics" then
     fy, mon = drawBasics(S, mon, mutate, App, viewX, fy, viewW, labelW, fh, s)
   elseif S.pokemonSection == "forms" and Generation.isGen3(S) then
     fy=require("Gen3Forms").draw(S,mon,viewX,fy,viewW,App)

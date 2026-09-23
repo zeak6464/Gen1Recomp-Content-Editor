@@ -397,6 +397,48 @@ function Project.draw(S, x, y, w, h, App)
   end
 
   row = row + overviewH + 16 * s
+  local report=S.data and S.data._editorGen3Report
+  if S.gen3ModError or report then
+    Kit.caption(x,row,"MOD CONTENT")
+    row=row+24*s
+    if S.gen3ModError then
+      Kit.text("micro",Kit.ellipsize("micro","Could not load mod: "..S.gen3ModError,w),x,row,PAL.red)
+      row=row+20*s
+    elseif report.loaded then
+      local mons,moves=report.counts.pokemon or {},report.counts.moves or {}
+      Kit.text("micro",string.format("Available: %d Pokemon (%d added), %d moves (%d added)",
+        mons.total or 0,mons.added or 0,moves.total or 0,moves.added or 0),x,row,PAL.text)
+      row=row+20*s
+    end
+    if report and (#report.messages>0 or #report.rejected>0) then
+      Kit.text("micro",string.format("Partial compatibility: %d rejected registrations, %d runtime messages.",
+        #report.rejected,#report.messages),x,row,PAL.yellow)
+      row=row+20*s
+      if Kit.button(x,row,math.min(w,300*s),30*s,S.showModDiagnostics and "Hide load details" or "Show load details",{}) then
+        S.showModDiagnostics=not S.showModDiagnostics
+      end
+      row=row+36*s
+      if S.showModDiagnostics then
+        if Kit.button(x,row,math.min(w,300*s),30*s,"Copy load details",{}) then
+          local lines={"Mod: "..report.id}
+          for _,entry in ipairs(report.rejected) do
+            lines[#lines+1]=entry.registry.."."..tostring(entry.id).." ("..entry.operation.."): "..entry.error
+          end
+          for _,line in ipairs(report.messages) do lines[#lines+1]=line end
+          love.system.setClipboardText(table.concat(lines,"\n"))
+        end
+        row=row+36*s
+        for _,entry in ipairs(report.rejected) do
+          local line=entry.registry.."."..tostring(entry.id)..": "..entry.error
+          Kit.text("micro",Kit.ellipsize("micro",line,w),x,row,PAL.yellow);row=row+16*s
+        end
+        for _,line in ipairs(report.messages) do
+          Kit.text("micro",Kit.ellipsize("micro",line,w),x,row,PAL.muted);row=row+16*s
+        end
+      end
+    end
+    row=row+12*s
+  end
   Kit.caption(x, row, "VALIDATION RESULT")
   row = row + 24 * s
   if S.validateOutput and S.validateOutput ~= "" then

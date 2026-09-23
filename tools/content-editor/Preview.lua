@@ -197,6 +197,9 @@ function Preview.installAssetCacheFallback()
 end
 
 function Preview.image(S, path)
+  if type(path)=="string" and path:match("^mod%-pokemon%-art/") then
+    return require("ModPokemonArt").image(S,path)
+  end
   local side,index=tostring(path):match("^gen3%-shiny/(%a+)/(%d+)$")
   local formSide,formIndex,frame,palette=tostring(path):match("^gen3%-form%-shiny/(%a+)/(%d+)/(%d+)/(%d+)$")
   side,index=side or formSide,index or formIndex
@@ -256,6 +259,7 @@ function Preview.image(S, path)
 end
 
 function Preview.invalidate()
+  require("ModPokemonArt").invalidate()
   cache = {}
   Preview._rev = (Preview._rev or 0) + 1
 end
@@ -1822,6 +1826,12 @@ end
 -- directly through the palette when one is provided.
 -- paletteName: nil = species default; false = no remap (trueColor); string = that id.
 function Preview.drawPokemonIcon(S, mon, x, y, maxW, maxH, speciesId, paletteName, shiny)
+  local modIcon=require("ModPokemonArt").icon(S,mon,speciesId)
+  if modIcon then
+    local scale=math.min((maxW or 24)/modIcon:getWidth(),(maxH or 24)/modIcon:getHeight())
+    love.graphics.setColor(1,1,1,1);love.graphics.draw(modIcon,x,y,0,scale,scale)
+    return maxH, nil
+  end
   if S and S.data and S.data._editorGen3 then
     local rec=mon or (S.data.pokemon or {})[speciesId]
     local index=rec and rec.index
