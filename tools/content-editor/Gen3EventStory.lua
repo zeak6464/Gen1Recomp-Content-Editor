@@ -75,10 +75,11 @@ function M.rows(S,id,catalog)
         i=i+2
       elseif op=="loadword" and (row.dest or row[1])==0 and nextRow and (nextRow.op=="callstd" or nextRow.op=="gotostd")
         and (nextRow.std or nextRow[1] or -1)>=2 and (nextRow.std or nextRow[1] or 99)<=6 and A.text(S,row) then
-        add((nextRow.std or nextRow[1])==5 and "Ask the player: Yes / No" or "Show dialogue",depth,key,i,A.text(S,row))
+        -- text() also returns its pointer. Keep that second result out of inputs.
+        add((nextRow.std or nextRow[1])==5 and "Ask the player: Yes / No" or "Show dialogue",depth,key,i,(A.text(S,row)))
         i=i+2;if nextRow.op=="gotostd" then break end
       elseif op=="message" and A.text(S,row) then
-        add("Show dialogue",depth,key,i,A.text(S,row));i=i+1
+        add("Show dialogue",depth,key,i,(A.text(S,row)));i=i+1
       elseif op=="setwildbattle" then
         local species=tonumber(row.species or row[1]);local speciesId=speciesIdFor(S,species)
         out[#out+1]={label="Start a wild battle: "..tostring(speciesId or "Pokémon "..species).." Lv. "..tostring(row.level or row[2] or 1),

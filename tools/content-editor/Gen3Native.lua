@@ -7,6 +7,7 @@ function M.used(p)
 end
 function M.emit(p,encode,out)
   require("Gen3TeachyTv").emit(p,encode,out)
+  require("Gen3Banners").emit(p,encode,out)
   if not M.used(p) then return end
   for path in pairs(p.gen3Assets or {}) do
     if path:match("^data/generated/gba/intro/.*%.png$") then

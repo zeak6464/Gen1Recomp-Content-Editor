@@ -162,6 +162,15 @@ The gift-check runner also tests these features and renders their panels.
 
 ## FireRed / Gen 3
 
+**UI → Location banners** edits the arrival name plate for each map. Choose a
+map and turn **Show banner on arrival** on or off (including for new custom
+maps). Enter its banner text; leave the text blank to use the original region
+name. **Export template** saves a 128×24 PNG without text. Edit that image and
+use **Import artwork** to give this map a separate banner background. Other
+windows retain their original artwork. **Use original artwork** removes the
+image override. Save and restart Playtest; existing arrival/suppression rules
+still apply. This changes the arrival banner, not Town Map or save-menu names.
+
 To add a trainer battle sprite, use **Trainers → + Import new sprite** with a
 64×64 PNG, or **+ New trainer sprite** in the native image asset browser.
 The editor assigns a new sprite number and adds it to the trainer sprite

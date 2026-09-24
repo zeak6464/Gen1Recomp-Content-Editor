@@ -161,15 +161,53 @@ function love.load()
   hooks["editor.gen3.ow.resolve"]=resolveHook
   require("Gen3").load(data,read)
   S.project=require("State").ensureProjectFields(S.project);S.version="firered"
+  local Banners=require("Gen3Banners")
+  local banner=assert(Banners.template(S))
+  assert(banner:getWidth()==128 and banner:getHeight()==24)
+  banner:mapPixel(function() return .2,.6,.8,1 end)
+  assert(IO.writeText(dir.."/banner.png",banner:encode("png"):getString()))
+  assert(not Banners.import(S,"FR_CINNABAR_ISLAND",dir.."/trainer.png"),"Wrong banner dimensions accepted")
+  local bannerPath=assert(Banners.import(S,"FR_CINNABAR_ISLAND",dir.."/banner.png"))
+  S.project.gen3Banners.FR_CINNABAR_ISLAND.text="CUSTOM ISLAND"
+  S.project.gen3Banners.FR_ROUTE_49={text="SOUTH ROUTE"}
+  local bannerConfig=assert(loadstring(Writer.serializeProject(S.project)))().gen3Banners
+  assert(bannerConfig.FR_CINNABAR_ISLAND.image==bannerPath)
+  assert(loadstring(require("Gen3").emit({game="firered",gen3Banners=bannerConfig},Writer.encodeLua)))
+  local bannerMod={events={on=function() end},hooks=mod.hooks,assets={image=function(_,rel)
+    return love.graphics.newImage(love.filesystem.newFileData(assert(IO.readText(dir.."/"..rel)),"banner.png"))
+  end}}
+  require("Gen3BannersRuntime").install(bannerMod,bannerConfig)
+  local Popup=require("src.ui.game3.map_name_popup")
+  Popup.dismiss()
+  local island={id="FR_CINNABAR_ISLAND",showMapName=1}
+  assert(Popup.show(island))
+  Popup.update(12/60);assert(Popup._name=="CUSTOM ISLAND" and Popup._tPos==24)
+  local frameCanvas=love.graphics.newCanvas(128,24)
+  love.graphics.setCanvas(frameCanvas);love.graphics.clear();Popup.draw();love.graphics.setCanvas()
+  local red,green=frameCanvas:newImageData():getPixel(0,0)
+  assert(math.abs(red-.2)<.01 and math.abs(green-.6)<.01,"Dedicated banner artwork was not drawn")
+  assert(Popup.show({id="FR_ROUTE_49",showMapName=1}))
+  assert(Popup._pendingName=="SOUTH ROUTE" and Popup._name=="CUSTOM ISLAND")
+  Popup.update(24/60);assert(Popup._name=="SOUTH ROUTE")
+  love.graphics.setCanvas(frameCanvas);love.graphics.clear();Popup.draw();love.graphics.setCanvas()
+  local red2=frameCanvas:newImageData():getPixel(0,0)
+  assert(math.abs(red2-red)>.01,"Custom artwork leaked to a map using original artwork")
+  Popup.dismiss();assert(not Popup.show({id="FR_CINNABAR_ISLAND",showMapName=0}),"Indoor suppression ignored")
+  for _,name in ipairs({"show","draw","update","dismiss"}) do hooks["editor.gen3.banner."..name]=nil end
+  Popup.dismiss();Popup.show(island);assert(Popup._name~="CUSTOM ISLAND","Removing banner hooks retained the custom name")
+  Popup.dismiss()
   local Kit=require("Kit")
   local App={markDirty=function() end,pickFile=function(_,_,callback) callback(dir.."/trainer.png") end}
   local canvas=love.graphics.newCanvas(1360,860)
   local trainer={pic=id,name="TEST",class=0,gender=0,items={}}
-  for _,panel in ipairs({"Trainer","Audio","Gen3Assets","Overworld"}) do
+  for _,panel in ipairs({"Trainer","Audio","Gen3Assets","Overworld","Banners"}) do
     love.graphics.setCanvas({canvas,stencil=true});love.graphics.clear(.06,.07,.1,1)
     Kit.layout(1360,860);Kit.beginFrame(0,0,false,0)
     if panel=="Trainer" then
       require("Gen3TrainerForms").draw(S,trainer,function() return trainer end,App,30,30,600,"basics")
+    elseif panel=="Banners" then
+      S.g3BannerMap="FR_CINNABAR_ISLAND";S.g3UiMode="banners"
+      require("Gen3UiWorkspace").draw(S,20,50,1320,780,App)
     elseif panel=="Overworld" then
       S.g3AssetId=owPath;S.g3GfxMode="ow"
       require("Gen3GfxWorkspace").draw(S,20,50,1320,780,App)
@@ -181,6 +219,6 @@ function love.load()
     Kit.endFrame();love.graphics.setCanvas()
     assert(IO.writeText(dir.."/"..panel..".png",canvas:newImageData():encode("png"):getString()))
   end
-  report("PASS: Sevii surf crossings and synchronized water; new trainer and overworld sprites allocate separate slots, survive serialization, and load in the runtime; overworld metadata, walk frames, map previews, and mod removal verified; new music IDs compile and assign to maps; panels render.")
+  report("PASS: Sevii surf crossings and synchronized water; new trainer/overworld sprites and music; per-map banner text/art, serialization, rapid transitions, suppression and mod removal; all changed panels render.")
   love.event.quit()
 end

@@ -16,6 +16,17 @@ assert(rows[1].label=="If saved switch 2 is ON")
 assert(rows[2].text=="Coming along?" and rows[2].depth==1 and rows[2].script=="branch")
 assert(rows[2].label=="Ask the player: Yes / No")
 assert(rows[3].label=="Otherwise, continue below" and rows[4].text=="Hello there" and #rows==4)
+assert(rows[2].inputs==nil and rows[4].inputs==nil,"Dialogue pointers must not become action input lists")
+-- Numeric ROM pointers and string mod IDs both return a second value from text().
+S.data.text[0x8123456]=D.encode("Native dialogue")
+catalog.numeric={{op="message",ptr=0x8123456},{op="loadword",dest=0,value=0x8123456},
+  {op="callstd",std=2},{op="end"}}
+local numeric=Story.rows(S,"numeric",catalog)
+assert(#numeric==2)
+for _,row in ipairs(numeric) do
+  assert(row.text=="Native dialogue" and row.inputs==nil,"Numeric text pointers must stay out of action inputs")
+end
+catalog.numeric=nil
 assert(Story.rows(S,"loop",catalog)[1].label=="Repeat earlier behavior")
 assert(Story.rows(S,"missing",catalog)[1].label:find("unavailable"))
 assert(encode(catalog)==before,"Reading must preserve native scripts")
