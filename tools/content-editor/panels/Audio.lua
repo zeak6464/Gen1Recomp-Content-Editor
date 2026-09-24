@@ -471,7 +471,7 @@ function Audio.draw(S, x, y, w, h, App)
         local rec = select(1, resolve(S, mode, id))
         return tostring(summarize(rec, mode)):lower():find(ql, 1, true) ~= nil
       end,
-      footerLabel = (mode ~= "map_songs" and not Generation.isGen3(S)) and "+ New" or nil,
+      footerLabel = (mode ~= "map_songs" and (not Generation.isGen3(S) or mode~="cries")) and "+ New" or nil,
       onFooter = function()
         local nid = "MOD_" .. mode:upper() .. "_1"
         local n = 1
@@ -479,8 +479,13 @@ function Audio.draw(S, x, y, w, h, App)
           n = n + 1
           nid = "MOD_" .. mode:upper() .. "_" .. n
         end
+        if Generation.isGen3(S) then
+          local err
+          nid,err=require("Gen3AudioAdapter").nextId(S)
+          if not nid then S.status=err;return end
+        end
         if mode == "music" or mode == "sfx" then
-          proj[nid] = { file = "assets/" .. nid:lower() .. ".ogg", _isNew = true }
+          proj[nid] = { file = "assets/" .. nid:lower() .. ".ogg", name="New "..mode.." "..nid, _isNew = true }
         elseif mode == "cries" then
           proj[nid] = {
             file = "assets/" .. nid:lower() .. ".ogg",
@@ -579,6 +584,10 @@ function Audio.draw(S, x, y, w, h, App)
   else
     local r = type(rec) == "table" and rec or {}
     if Generation.isGen3(S) then
+      row("Name",function(fx,fy_,fw,fh_)
+        local name=Kit.textfield("au_name",fx,fy_,fw,fh_,r.name or "","")
+        if name~=(r.name or "") then local e=ensure();e.name=name;App.markDirty() end
+      end)
       row("Native ID",function(fx,fy_,fw,fh_)
         local cur=tonumber(r.nativeId) or tonumber(id) or 0
         local value=RegList.num(App,"au_native",fx,fy_,120*s,fh_,cur)

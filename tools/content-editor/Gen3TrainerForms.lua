@@ -40,7 +40,7 @@ function M.draw(S,tr,mutate,App,x,y,w,section)
     Preview.draw(S,Preview.trainerPicPath(S,tr),x,y,128*s,128*s,false)
     Kit.caption(x+144*s,y,"Trainer battle sprite")
     local ids,labels={},{}
-    for path in pairs(require("Gen3Resources").assets(S.data)) do
+    for path in pairs(require("Gen3Resources").assets(S.data,S.project)) do
       local id=path:match("/trainers/front/(%d+)%.rgba$")
       if id then ids[#ids+1]=id;labels[id]="Trainer sprite "..id end
     end
@@ -48,6 +48,13 @@ function M.draw(S,tr,mutate,App,x,y,w,section)
     require("ChoicePicker").field(S,{x=x+144*s,y=y+30*s,w=math.max(100*s,w-144*s),h=rh,
       ids=ids,labels=labels,current=tostring(tr.pic or 0),title="CHOOSE TRAINER SPRITE",
       onPick=function(id) tr=mutate();tr.pic=tonumber(id);App.markDirty() end})
+    if Kit.button(x+144*s,y+68*s,math.max(100*s,w-144*s),rh,"+ Import new sprite",{}) then
+      App.pickFile("New trainer battle sprite (64 x 64)","PNG (*.png)|*.png",function(picked)
+        local id,err=require("Gen3Resources").importTrainerPic(S,picked)
+        if not id then S.status=tostring(err);return end
+        tr=mutate();tr.pic=id;App.markDirty();S.status="Added trainer sprite "..id.."; Save to apply"
+      end)
+    end
     y=y+144*s
     Kit.caption(x,y,"Name")
     local name=Kit.textfield("g3_tr_name",x+150*s,y,w-150*s,rh,tr.name or "","")

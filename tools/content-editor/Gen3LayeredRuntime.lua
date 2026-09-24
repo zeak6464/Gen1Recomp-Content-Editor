@@ -65,13 +65,14 @@ return "  local collisionModes="..encode(C.modes).."\n  local paintedCollision="
       end
     end)
     local built,images={},{}
+    local frameClock=0
     local function frameFor(ref)
       local pair=ref.source:match("^@runtime:(.+)$")
       local source=layered.sources[ref.source]
       local frames=pair and (layered.animations[pair] or {})[ref.tile] or source and (source.animations or {})[ref.tile]
       if not frames or #frames==0 then return ref.tile end
       local total=0;for _,f in ipairs(frames) do total=total+math.max(16,f.duration or 200) end
-      local clock=love.timer.getTime()*1000%total
+      local clock=frameClock*1000%total
       for _,f in ipairs(frames) do clock=clock-math.max(16,f.duration or 200);if clock<0 then return f.tile end end
       return ref.tile
     end
@@ -143,7 +144,9 @@ return "  local collisionModes="..encode(C.modes).."\n  local paintedCollision="
         key[#key+1]=tostring(behavior);local signature=table.concat(key,"|")
         local mid=seen[signature]
         if mid==nil then mid=#slots;seen[signature]=mid;slots[#slots+1]=refs;behaviors[mid]=behavior end
-        cells[index]={mid=mid,coll=coll,elev=(source.gen3Elevation or {})[index] or 3}
+        -- New surf tiles must connect to native water at elevation 0/1.
+        -- Preserve explicit elevations (bridges included); only default new water.
+        cells[index]={mid=mid,coll=coll,elev=(source.gen3Elevation or {})[index] or (mode=="water" and 0 or 3)}
       end
       local border=source.gen3Border or {width=1,height=1,mids={0}}
       local borderMids={}
@@ -174,10 +177,16 @@ return "  local collisionModes="..encode(C.modes).."\n  local paintedCollision="
       local now=love.timer.getTime()
       if now-last>=1/30 then
         last=now
-        local id=game and game.session and (game.session.mapId or game.session.map)
-        if type(id)=="table" then id=id.id end
-        local entry=built[id]
-        if entry then render(entry);View._nativeDirty=true end
+        frameClock=now
+        local Map=require("src.core.game3.map")
+        local visible={}
+        if Map.current then visible[Map.current]=true end
+        for _,neighbor in pairs(Map.neighbors or {}) do visible[neighbor.map or neighbor.mapId]=true end
+        for _,neighbor in ipairs(Map.world or {}) do visible[neighbor.id]=true end
+        for id in pairs(visible) do
+          local entry=built[id]
+          if entry then render(entry);View._nativeDirty=true end
+        end
       end
       return proceed(game,...)
     end)

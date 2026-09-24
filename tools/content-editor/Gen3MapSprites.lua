@@ -4,7 +4,7 @@ function M.draw(S,obj,x,y,opts)
   local id=tonumber(obj.graphicsId or obj.graphics)
   if not id then return false end
   local path="data/generated/gba/ow/"..id..".rgba"
-  local meta=require("Gen3Resources").assets(S.data)[path]
+  local meta=require("Gen3Resources").assets(S.data,S.project)[path]
   if not meta or not meta.frameWidth or not meta.frameHeight then return false end
   local override=S.project and (S.project.gen3Assets or {})[path]
   local cache=S._mapOwSprites

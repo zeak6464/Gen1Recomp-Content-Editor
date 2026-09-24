@@ -1,7 +1,7 @@
 local M={}
 local modes={{id="credits",label="End credits"},{id="areas",label="Area previews"},{id="intro",label="Title / Intro"},{id="oak",label="Oak intro"},{id="playback",label="Animation preview"},{id="menus",label="Windows / borders"},{id="bag",label="Bag screens"},{id="party",label="Pokemon menu"},{id="summary",label="Pokemon summary"},{id="backgrounds",label="Battle backgrounds"},{id="minigames",label="Mini-games"},{id="battle",label="Battle"},
   {id="town",label="Town Map"},{id="fonts",label="Fonts"},{id="dex",label="Pokedex"},{id="trainer",label="Trainer Card"},
-  {id="fame",label="Fame Checker"},{id="teachy",label="Teachy TV"},{id="naming",label="Naming"},{id="help",label="Help"},{id="all",label="All assets"}}
+  {id="fame",label="Fame Checker"},{id="teachy",label="Teachy TV"},{id="naming",label="Naming"},{id="help",label="Help"},{id="overworld",label="Overworld sprites"},{id="all",label="All assets"}}
 function M.draw(S,x,y,w,h,App)
   local scale=require("Kit").scale
   local ids,labels={},{}
@@ -21,6 +21,7 @@ function M.draw(S,x,y,w,h,App)
   local function filter(path)
     local mode=S.g3UiMode
     if mode=="all" then return true end
+    if mode=="overworld" then return path:match("/ow/%d+%.rgba$") end
     if mode=="intro" then return path:find("/intro/",1,true) end
     if mode=="menus" then return path:find("/chrome/",1,true) and not path:find("/fonts/",1,true) end
     if mode=="bag" then return path:find("/items/bag/",1,true) and not path:find("/icons/",1,true) end

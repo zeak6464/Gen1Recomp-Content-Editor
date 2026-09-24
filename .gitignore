@@ -53,3 +53,5 @@ tests/content-editor/leafgreen-smoke/*.png
 /tests/content-editor/teachy-smoke/project/
 /tests/content-editor/teachy-smoke/result.txt
 /tests/content-editor/teachy-smoke/*.png
+/tests/content-editor/sevii-smoke/output/
+/tests/content-editor/sevii-smoke/result.txt

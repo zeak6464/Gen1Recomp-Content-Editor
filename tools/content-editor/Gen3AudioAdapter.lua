@@ -44,8 +44,24 @@ end
 function M.label(S,mode,id)
   if mode=="map_songs" then return require("Gen3Labels").map(id) end
   local bucket=mode=="music" and "songs" or mode
-  local rec=((S.data.audio or {})[bucket] or {})[id]
+  local rec=(((S.project or {}).audio or {})[bucket] or {})[id] or ((S.data.audio or {})[bucket] or {})[id]
   return rec and rec.name and (id.." · "..rec.name) or id
+end
+function M.nextId(S)
+  local id=1000
+  local function include(value)
+    local n=tonumber(value)
+    if n and n<65535 then id=math.max(id,n+1) end
+  end
+  for key in pairs(require("Gen3Resources").audio(S.data).songs or {}) do include(key) end
+  for _,audio in ipairs({S.data.audio or {},S.project.audio or {}}) do
+    for _,bucket in ipairs({"songs","sfx","cries"}) do
+      for key in pairs(audio[bucket] or {}) do include(key) end
+    end
+    for _,value in pairs(audio.mapSongs or {}) do include(value) end
+  end
+  if id>=65535 then return nil,"No unused audio IDs remain" end
+  return tostring(id)
 end
 function M.compile(p)
   if not p.gen3AudioWorkspace then return end

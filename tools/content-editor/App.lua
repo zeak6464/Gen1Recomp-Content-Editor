@@ -1399,6 +1399,8 @@ function App.importToMod(picked, destRel, onDone)
   -- Optional explicit destination only if caller passed a full path with ext.
   if type(destRel) == "string" and destRel:match("%.[%w]+$") then
     rel = destRel:match("^assets/") and destRel or ("assets/" .. destRel)
+  else
+    rel = ModIO.uniqueAssetPath(S.path, rel)
   end
   local sep = package.config:sub(1, 1)
   local dest = S.path .. sep .. rel:gsub("/", sep)

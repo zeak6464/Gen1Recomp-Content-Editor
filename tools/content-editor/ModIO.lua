@@ -879,6 +879,16 @@ function ModIO.readText(path)
   return body
 end
 
+function ModIO.uniqueAssetPath(modDir, rel)
+  local stem,ext=rel:match("^(.*)(%.[^./]+)$")
+  stem,ext=stem or rel,ext or ""
+  local candidate,n=rel,1
+  while ModIO.exists(modDir.."/"..candidate) do
+    n=n+1;candidate=stem.."-"..n..ext
+  end
+  return candidate
+end
+
 function ModIO.writeText(path, body)
   local tmp = path .. ".tmp"
   local f, err = io.open(tmp, "wb")

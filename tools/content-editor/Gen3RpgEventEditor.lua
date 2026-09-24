@@ -161,7 +161,7 @@ function M.draw(S,x,y,w,h,App)
   local inside=box(x,gy,half,160*s,"Appearance")
   if target.kind=="objects" then
     require("Gen3MapSprites").draw(S,event,x+half/2-8*s,inside+42*s)
-    local ids,labels={},{};for path in pairs(require("Gen3Resources").assets(S.data)) do local id=path:match("/ow/(%d+)%.rgba$");if id then ids[#ids+1]=id;labels[id]="Sprite "..id end end;table.sort(ids,require("Gen3Labels").natural)
+    local ids,labels={},{};for path in pairs(require("Gen3Resources").assets(S.data,S.project)) do local id=path:match("/ow/(%d+)%.rgba$");if id then ids[#ids+1]=id;labels[id]="Sprite "..id end end;table.sort(ids,require("Gen3Labels").natural)
     choice(S,x+10*s,gy+120*s,half-20*s,event.graphicsId or event.graphics,ids,labels,"CHOOSE GRAPHIC",function(id) mutateEvent(S,target,App,"graphicsId",tonumber(id)) end,
       {rowHeight=48,drawRow=function(state,id,px,py,pw,ph,label,on)
         require("Gen3MapSprites").draw(state,{graphicsId=tonumber(id)},px+8*s,py+8*s,{scale=2})

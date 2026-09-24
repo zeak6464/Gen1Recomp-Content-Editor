@@ -40,7 +40,7 @@ function M.draw(S,ev,kind,indexKey,x,y,w,App,context)
   end
   if kind=="objects" then
     local names={}
-    for path in pairs(require("Gen3Resources").assets(S.data)) do local id=path:match("/ow/(%d+)%.rgba$");if id then names[tonumber(id)]="Overworld sprite "..id end end
+    for path in pairs(require("Gen3Resources").assets(S.data,S.project)) do local id=path:match("/ow/(%d+)%.rgba$");if id then names[tonumber(id)]="Overworld sprite "..id end end
     pick("graphicsId","Character / object sprite",names,"graphics")
     require("Gen3MapSprites").draw(S,ev,x+16*s,y+16*s);y=y+48*s
     pick("movementType","Movement",{[0]="Stay in place",[1]="Look around",[2]="Walk around",[7]="Face up",[8]="Face down",[9]="Face left",[10]="Face right"})

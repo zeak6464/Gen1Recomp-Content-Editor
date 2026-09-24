@@ -27,14 +27,22 @@ end
 function Panel.draw(S,x,y,w,h,App,filter)
   if not S.project then Kit.caption(x,y,"Open a Gen 3 project first");return end
   local s=Kit.scale
-  local catalog=R.assets(S.data)
+  local catalog=R.assets(S.data,S.project)
   local ids={}
   for _,id in ipairs(List.sortedKeys(catalog)) do if not filter or filter(id) then ids[#ids+1]=id end end
   table.sort(ids,require("Gen3Labels").natural)
   local found=false;for _,id in ipairs(ids) do if id==S.g3AssetId then found=true end end
   if not found then S.g3AssetId=nil;S.g3AssetOffset=0 end
   S.g3AssetId=S.g3AssetId or ids[1]
-  local fx,fw=List.drawList(S,App,x,y,w,h,"Native UI / image assets",ids,{selKey="g3AssetId",queryKey="g3AssetQuery",offsetKey="g3AssetOffset",label=assetLabel,listW=math.min(w*.43,510*s)})
+  local fx,fw=List.drawList(S,App,x,y,w,h,"Native UI / image assets",ids,{selKey="g3AssetId",queryKey="g3AssetQuery",offsetKey="g3AssetOffset",label=assetLabel,listW=math.min(w*.43,510*s),
+    footerLabel=(not filter or filter("data/generated/gba/trainers/front/0.rgba")) and "+ New trainer sprite" or nil,
+    onFooter=function()
+      App.pickFile("New trainer battle sprite (64 x 64)","PNG (*.png)|*.png",function(picked)
+        local id,path=R.importTrainerPic(S,picked)
+        if not id then S.status=tostring(path);return end
+        S.g3AssetId=path;S._g3AssetKey=nil;App.markDirty();S.status="Added trainer sprite "..id.."; select it on Trainers"
+      end)
+    end})
   local path=S.g3AssetId
   if not path or not catalog[path] then Kit.caption(fx,y,"Import FireRed or LeafGreen to extract UI and animation assets");return end
   local override=(S.project.gen3Assets or {})[path]
@@ -88,7 +96,9 @@ function Panel.draw(S,x,y,w,h,App,filter)
         IO.ensureDirectory((S.path.."/"..rel):match("^(.*)/"))
         local saved,err=IO.writeText(S.path.."/"..rel,output)
         if not saved then S.status=tostring(err);return end
-        S.project.gen3Assets=S.project.gen3Assets or {};S.project.gen3Assets[path]={file=rel,width=iw,height=ih}
+        local record={file=rel,width=iw,height=ih}
+        if override and override.ow then record.ow=override.ow;record.metaFile=override.metaFile end
+        S.project.gen3Assets=S.project.gen3Assets or {};S.project.gen3Assets[path]=record
         App.markDirty();S.status="Imported native asset; Save to apply"
       end)
     end
@@ -100,6 +110,16 @@ function Panel.draw(S,x,y,w,h,App,filter)
     if Kit.button(fx,by+37*s,130*s,28*s,"Revert asset",{}) then
       if S.project.gen3Assets then S.project.gen3Assets[path]=nil end
       S._g3AssetKey=nil;App.markDirty()
+    end
+    if path:match("/ow/%d+%.rgba$") and catalog[path].frameCount then
+      if Kit.button(fx+142*s,by+37*s,210*s,28*s,"Import as new sprite",{kind="primary"}) then
+        App.pickFile("New overworld sprite ("..iw.." x "..ih..", same frame order)","PNG (*.png)|*.png",function(picked)
+          local id,newPath=require("Gen3Overworld").import(S,picked,path)
+          if not id then S.status=tostring(newPath);return end
+          S.g3AssetId=newPath;S._g3AssetKey=nil;App.markDirty()
+          S.status="Added overworld sprite "..id.."; select it in the map character's Appearance picker"
+        end)
+      end
     end
   end
 end

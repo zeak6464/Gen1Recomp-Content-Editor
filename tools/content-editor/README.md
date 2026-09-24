@@ -60,6 +60,12 @@ and the change supports Undo/Redo. Native ROM metatiles are not included.
 
 ## Tile animations
 
+Gen 3 layered maps refresh native water, sand, and flower animations on the
+current map and visible connected maps using the runtime's shared animation
+counter. Newly painted water without an explicit elevation uses elevation 0,
+so surfing can cross into new routes from native water. Explicit elevations
+are preserved.
+
 Import a 16×16-tile PNG with **+ New PNG**, select the animated starting tile,
 and click **Animate tile**. Choose an initial frame count in the **Animate**
 drawer, then set every frame's source tile and duration independently. Frames
@@ -155,6 +161,27 @@ Gift save data; disabling the mod restores the original opponent behavior.
 The gift-check runner also tests these features and renders their panels.
 
 ## FireRed / Gen 3
+
+To add a trainer battle sprite, use **Trainers → + Import new sprite** with a
+64×64 PNG, or **+ New trainer sprite** in the native image asset browser.
+The editor assigns a new sprite number and adds it to the trainer sprite
+picker; existing sprites remain available. Other native UI image imports
+still replace the selected image.
+
+For additional overworld characters, open **GFX → Overworld**, select a sprite
+with the frame layout you want, and use **Import as new sprite**. Import a PNG
+with the same dimensions and vertically stacked frame order; **Export PNG**
+provides a template. The new sprite gets its own ID, image, and frame metadata.
+Select that ID in a map character's **Appearance** picker. Standing and walking
+frames, frame size, and inanimate status follow the selected template. Save and
+restart Playtest. IDs 240–255 remain reserved for script variables; this runtime
+supports additional ordinary overworld sprites in the unused slots below 240.
+
+Use **Audio → Music → + New**, then **Browse**, to import a new song. The new
+numeric ID is available in **Map songs**; sound effects also support **+ New**.
+Name the track to identify it in the audio list. Ordinary file imports choose
+a unique filename if that filename already exists in the mod. Save and restart
+Playtest to load the changes.
 
 Map events show actions in everyday language. Select an action to edit its
 settings: choose Pokémon, moves, trainers, characters, screen transitions,

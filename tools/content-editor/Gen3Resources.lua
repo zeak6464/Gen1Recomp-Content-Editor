@@ -22,7 +22,22 @@ function M.audio(data)
   if not data._g3Audio then data._g3Audio=M.readTable(data,"data/generated/gba/audio/index.lua") end
   return data._g3Audio
 end
-function M.assets(data)
+function M.assets(data,project)
+  if project then
+    local result={}
+    for path,rec in pairs(M.assets(data)) do result[path]=rec end
+    for path,rec in pairs(project.gen3Assets or {}) do
+      if not result[path] then
+        result[path]={path=path,width=rec.width,height=rec.height}
+        if rec.ow then
+          local meta=rec.ow
+          result[path].frameWidth=meta.width;result[path].frameHeight=meta.height;result[path].frameCount=meta.frameCount
+          result[path].inanimate=meta.inanimate;result[path].paletteTag=meta.paletteTag
+        end
+      end
+    end
+    return result
+  end
   if data._g3Assets then return data._g3Assets end
   local result={}
   local root="data/generated/gba/"
@@ -61,10 +76,12 @@ function M.assets(data)
   end
   for id,meta in pairs(ow.sprites or {}) do
     local path=root.."ow/"..id..".rgba"
+    result[path]=result[path] or {path=path}
     if result[path] then
       result[path].width=meta.atlasW or meta.width
       result[path].height=meta.atlasH or meta.height*meta.frameCount
       result[path].frameWidth=meta.width;result[path].frameHeight=meta.height;result[path].frameCount=meta.frameCount
+      result[path].inanimate=meta.inanimate;result[path].paletteTag=meta.paletteTag
     end
   end
   local card=M.readTable(data,root.."trainer_card/manifest.lua")
@@ -119,6 +136,44 @@ function M.assets(data)
     end
   end
   data._g3Assets=result;return result
+end
+function M.nextTrainerPic(data,project)
+  local catalog=M.assets(data,project)
+  local id=0
+  for path in pairs(catalog) do
+    local n=tonumber(path:match("/trainers/front/(%d+)%.rgba$"))
+    if n then id=math.max(id,n+1) end
+  end
+  -- Include the native manifest even when the cache cannot list directories.
+  local pack=M.readTable(data,"data/generated/gba/trainers.lua")
+  for _,rec in pairs(pack.trainers or {}) do
+    if tonumber(rec.pic) then id=math.max(id,tonumber(rec.pic)+1) end
+  end
+  while data._gen3Read and data._gen3Read("data/generated/gba/trainers/front/"..id..".rgba") do id=id+1 end
+  if id>255 then return nil,"This runtime supports trainer sprite IDs through 255; no new slots remain" end
+  return id
+end
+function M.importTrainerPic(S,picked)
+  local IO=require("ModIO")
+  local bytes,err=IO.readText(picked)
+  if not bytes then return nil,err end
+  local ok,img=pcall(function() return love.image.newImageData(love.filesystem.newFileData(bytes,"trainer.png")) end)
+  if not ok or img:getWidth()~=64 or img:getHeight()~=64 then return nil,"Trainer battle sprites must be 64 x 64 PNGs" end
+  local id,why=M.nextTrainerPic(S.data,S.project)
+  if not id then return nil,why end
+  local path="data/generated/gba/trainers/front/"..id..".rgba"
+  local rel="assets/gen3/trainers/front/"..id..".rgba"
+  -- Retained files from reverted imports must not be overwritten either.
+  while IO.readText(S.path.."/"..rel) do
+    id=id+1;path="data/generated/gba/trainers/front/"..id..".rgba";rel="assets/gen3/trainers/front/"..id..".rgba"
+  end
+  if id>255 then return nil,"This runtime supports trainer sprite IDs through 255; no new slots remain" end
+  IO.ensureDirectory(S.path.."/assets/gen3/trainers/front")
+  local saved,why=IO.writeText(S.path.."/"..rel,img:getString())
+  if not saved then return nil,why end
+  S.project.gen3Assets=S.project.gen3Assets or {}
+  S.project.gen3Assets[path]={file=rel,width=64,height=64}
+  return id,path
 end
 function M.checkAnimation(id,value)
   if type(id)~="string" then return false,"Animation ID must be text" end

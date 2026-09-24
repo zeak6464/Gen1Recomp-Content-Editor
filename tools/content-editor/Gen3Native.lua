@@ -33,6 +33,15 @@ function M.emit(p,encode,out)
   for path,asset in pairs(p.gen3Assets or {}) do
     assert(path:match("^data/generated/gba/") and not path:find("..",1,true),"Invalid native asset path")
     assert(type(asset.file)=="string" and asset.file:match("^assets/") and not asset.file:find("..",1,true),"Invalid mod asset path")
+    if asset.ow then
+      local id=tonumber(path:match("^data/generated/gba/ow/(%d+)%.rgba$"))
+      assert(id and id<240,"Custom overworld sprites must use an ID below 240")
+      assert(type(asset.metaFile)=="string" and asset.metaFile:match("^assets/") and not asset.metaFile:find("..",1,true),"Invalid overworld metadata path")
+      for _,key in ipairs({"width","height","frameCount"}) do
+        local n=asset.ow[key]
+        assert(type(n)=="number" and n%1==0 and n>=1 and n<=(key=="frameCount" and 512 or 256),"Invalid overworld frame layout")
+      end
+    end
   end
   for section,entries in pairs(p.gen3Audio or {}) do
     assert(section=="songs" or section=="sounds" or section=="cries" or section=="mapSongs","Invalid audio section")
@@ -104,6 +113,39 @@ M.source=[=[
     parts[#parts+1]="}";return table.concat(parts)
   end
   local memo={}
+  local customOw={}
+  for path,asset in pairs(native.assets) do
+    if asset.ow then customOw[tonumber(path:match("/ow/(%d+)%.rgba$"))]=true end
+  end
+  if next(customOw) then
+    local Space=require("src.core.game3.scripting.space")
+    if not Space._editorOwDispatch then
+      Space._editorOwDispatch=true
+      local resolve=Space.resolveObjectGraphicsId
+      Space.resolveObjectGraphicsId=function(...) return Runtime.call("editor.gen3.ow.resolve",resolve,...) end
+    end
+    mod.hooks:wrap("editor.gen3.ow.resolve",function(proceed,obj,neighbor)
+      if not obj then return proceed(obj,neighbor) end
+      local id=tonumber(obj.graphics or obj.graphicsId)
+      if obj.graphicsVar or (id and id>=240 and id<=255) then
+        local Flags=require("src.core.game3.scripting.flags")
+        local Ctx=require("src.core.game3.scripting.ctx")
+        local store=(neighbor and neighbor.store) or Space.store or Flags.newStore()
+        local ctx=(Space.vm and Space.vm.ctx) or Ctx.new()
+        if obj.graphicsVar then
+          local value=Flags.getVar(store,ctx,obj.graphicsVar)
+          if type(value)=="number" and value~=0 then id=value end
+        end
+        if id and id>=240 and id<=255 then
+          local varId=Ctx.GFX_VAR_LO+(id-240)
+          if neighbor and store.vars[varId]==nil then return proceed(obj,neighbor) end
+          id=(tonumber(Flags.getVar(store,ctx,varId)) or 0)%256
+        end
+      end
+      if customOw[id] then return id end
+      return proceed(obj,neighbor)
+    end)
+  end
   mod.hooks:wrap("editor.gen3.cache",function(proceed,path)
     local key=path:gsub("^firered/",""):gsub("^leafgreen/","")
     if not key:match("^data/generated/gba/") then key="data/generated/gba/"..key end
@@ -113,6 +155,30 @@ M.source=[=[
       return memo[key]
     end
     local bytes=proceed(path)
+    local owId=key:match("^data/generated/gba/ow/(%d+)%.meta$")
+    local owAsset=owId and native.assets["data/generated/gba/ow/"..owId..".rgba"]
+    if owAsset and owAsset.ow then
+      if not memo[key] then memo[key]=assert(mod:read(owAsset.metaFile),"Missing overworld metadata") end
+      return memo[key]
+    end
+    if key=="data/generated/gba/ow/manifest.lua" then
+      if not memo[key] then
+        local pack=bytes and assert(loadstring(bytes,"@ow/manifest.lua"))() or {sprites={}}
+        pack.sprites=pack.sprites or {}
+        local changed=false
+        for assetPath,rec in pairs(native.assets) do
+          if rec.ow then
+            local id=tonumber(assetPath:match("/ow/(%d+)%.rgba$"))
+            pack.sprites[id]=rec.ow;pack.total=math.max(pack.total or 0,id+1);changed=true
+          end
+        end
+        if changed then
+          local count=0;for _ in pairs(pack.sprites) do count=count+1 end;pack.count=count
+          memo[key]="return "..encode(pack)
+        end
+      end
+      return memo[key] or bytes
+    end
     if key=="data/generated/gba/pokemon/battle_anims/pack.lua" and next(native.animations) then
       if not memo[key] and bytes then
         local pack=assert(loadstring(bytes,"@animation-pack"))()
