@@ -1,11 +1,21 @@
 local M={}
-function M.choose(f,personality)
+function M.choose(f,personality,mon,gender)
   local p=tonumber(personality) or 0
   if f.mode=="unown" then
     local bit=require("bit")
     local letter=bit.bor(bit.rshift(bit.band(p,0x03000000),18),bit.rshift(bit.band(p,0x00030000),12),bit.rshift(bit.band(p,0x00000300),6),bit.band(p,3))%28
     return letter%#f.forms+1
-  elseif f.mode=="personality" then return p%#f.forms+1 end
+  elseif f.mode=="personality" then return p%#f.forms+1
+  elseif f.mode=="held_item" then
+    local held=mon and (mon.item or mon.heldItem)
+    for i,row in ipairs(f.forms) do
+      if i>1 and row.itemIndex and (tonumber(held)==row.itemIndex or held==row.item) then return i end
+    end
+    return 1
+  elseif f.mode=="gender" then
+    for i,row in ipairs(f.forms) do if i>1 and row.gender==gender then return i end end
+    return 1
+  end
   return math.max(1,math.min(#f.forms,f.default or 1))
 end
 function M.install(mod,configs,species,artwork)
@@ -19,7 +29,13 @@ function M.install(mod,configs,species,artwork)
   end
   for _,f in ipairs(configs) do
     local parent=assert(mod.content.pokemon:get(f.parent),"Missing form parent "..f.parent);f.index=parent.index;parents[parent.index]=f
-    for _,row in ipairs(f.forms) do local rec=assert(mod.content.pokemon:get(row.species),"Missing form "..row.species);row.index=rec.index;families[rec.index]=f;records[rec.index]=rec end
+    for _,row in ipairs(f.forms) do
+      local rec=assert(mod.content.pokemon:get(row.species),"Missing form "..row.species)
+      row.index=rec.index;families[rec.index]=f;records[rec.index]=rec
+      if f.mode=="held_item" and row.item then
+        local item=assert(mod.content.items:get(row.item),"Missing form item "..row.item);row.itemIndex=item.index
+      end
+    end
   end
   local function bridge(object,name,key)
     if object[key] then return end;object[key]=true;local original=object[name]
@@ -86,9 +102,13 @@ function M.install(mod,configs,species,artwork)
   P.onReload(function() Runtime.call("editor.gen3.forms.reload",function() end) end,"editor.gen3.forms")
   local function assign(mon)
     if type(mon)~="table" then return end
-    local species=tonumber(mon.species or mon.speciesId);local f=parents[species]
-    if not f or f.mode=="weather" or mon._editorFormAssigned==f.parent then return end
-    local row=f.forms[M.choose(f,mon.personality)]
+    local species=tonumber(mon.species or mon.speciesId);local f=families[species]
+    local dynamic=f and (f.mode=="held_item" or f.mode=="gender")
+    if not f or f.fieldControlled or f.mode=="weather" or f.mode=="fusion" or f.mode=="rules" or mon._editorFusion or mon.isEgg or mon.egg then return end
+    if not dynamic and (not parents[species] or mon._editorFormAssigned==f.parent) then return end
+    local gender=f.mode=="gender" and (mon.gender or P.gender(f.index,mon.personality))
+    local row=f.forms[M.choose(f,mon.personality,mon,gender)]
+    if dynamic and row.index==species then return false end
     mon.species=row.index;mon.speciesId=row.index;mon._editorFormAssigned=f.parent
     mon.ability=P.abilityId(row.index,mon.personality or 0);mon.abilityId=mon.ability
     return row.index~=species
@@ -157,17 +177,35 @@ function M.install(mod,configs,species,artwork)
     return entry
   end)
   bridge(Party,"giveMon","editor.gen3.forms.gift")
-  mod.hooks:wrap("editor.gen3.forms.gift",function(proceed,session,species,level,nickname)
+  mod.hooks:wrap("editor.gen3.forms.gift",function(proceed,session,species,level,nickname,opts)
     local f=parents[tonumber(species)]
     if f and f.mode=="fixed" then species=f.forms[M.choose(f,0)].index end
-    return proceed(session,species,level,nickname)
+    return proceed(session,species,level,nickname,opts)
   end)
   bridge(P,"applyStats","editor.gen3.forms.stats")
-  mod.hooks:wrap("editor.gen3.forms.stats",function(proceed,mon) assign(mon);return proceed(mon) end)
+  mod.hooks:wrap("editor.gen3.forms.stats",function(proceed,mon)
+    local hp,maxHp=mon and mon.hp,mon and mon.maxHp
+    local changed=assign(mon);local result=proceed(mon)
+    if changed and hp and maxHp and mon.maxHp then
+      mon.hp=hp==0 and 0 or math.max(1,math.min(mon.maxHp,hp+mon.maxHp-maxHp))
+    end
+    return result
+  end)
+  local ItemUse=require("src.core.game3.item_use")
+  for _,name in ipairs({"giveToMon","takeFromMon"}) do
+    local hook="editor.gen3.forms."..name;bridge(ItemUse,name,hook)
+    mod.hooks:wrap(hook,function(proceed,session,bag,arg,slot)
+      local ok,reason,message=proceed(session,bag,arg,slot)
+      local mon=session and session.party and session.party[name=="giveToMon" and slot or arg]
+      if ok and mon then P.applyStats(mon) end
+      return ok,reason,message
+    end)
+  end
   local State=require("src.core.game3.battle.state")
   bridge(State,"makeBattler","editor.gen3.forms.battler")
   mod.hooks:wrap("editor.gen3.forms.battler",function(proceed,mon,...)
-    if assign(mon) then P.applyStats(mon) end
+    local f=mon and families[tonumber(mon.species or mon.speciesId)]
+    if f and f.mode~="weather" then P.applyStats(mon) end
     return proceed(mon,...)
   end)
   local Abilities=require("src.core.game3.battle.abilities")

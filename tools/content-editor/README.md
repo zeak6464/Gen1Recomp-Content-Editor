@@ -28,7 +28,93 @@ for a new line and `\f` for a new page; preserve displayed control tokens.
 Save and playtest to see the changes in Teachy TV. Demonstration battles,
 animations and TM Case unlock requirements retain their original behavior.
 
-## LeafGreen
+## Map event templates (FireRed and LeafGreen)
+
+In **Maps → Events**, choose the **Event** tool. Its template picker offers
+**Talking NPC**, **Item pickup**, **One-time reward**, and **Empty event**.
+Set dialogue or the reward item and quantity in the toolbar, then click an
+empty map tile. Each pickup/reward receives a separate persistent completion
+flag. A full Bag leaves the reward available. Item pickups use the Poké Ball
+graphic and disappear after successful collection.
+
+Click an existing event to select it in the sidebar; drag it to move it.
+**Quick event edit** exposes recognized dialogue, item, trainer, and wild-battle
+actions. Choose an action, change its fields, and use **Apply text** for dialogue.
+**Open event window** still provides the complete command editor. Save the mod
+before playtesting. Placement templates configure new events; selecting a
+different template does not replace an existing event's behavior.
+
+## Custom Pokemon, forms, and types (Gen 3)
+
+See [form support and remaining mechanics](FORM_SUPPORT.md) for the coverage
+report, limits, and a move-triggered transformation walkthrough.
+
+Create additional species in **Pokemon**, or open a species' **Forms** section
+and choose **Enable multiple forms → Add custom form**. Fixed forms can represent
+regional variants. Each form can have its own artwork, stats, typing and learnset.
+Import the desired sprites and configure those records; later-generation species
+and their assets are not automatically included.
+
+**Change form while holding an item** assigns an item to each alternate form.
+Giving/taking held items through the party menu updates the form immediately;
+stats calculation and battle entry also check the rule. Without a matching item,
+the Pokemon returns to the original form. This supports an Origin-style form
+rule. It does not implement every later-generation battle transformation or
+mid-battle item-loss transition. Moves, PP, personality and persistent identity
+are retained; HP changes preserve damage, and fainted Pokemon stay fainted.
+
+**Choose form by gender** assigns alternate forms to Male, Female or Genderless.
+Unmatched genders use the original form. Eggs are not transformed.
+
+**Fuse with a partner using a key item** supports reversible, two-Pokemon fusion.
+For Kyurem-style recipes, create Kyurem, Reshiram and Zekrom species, then add
+White and Black forms to Kyurem. Select fusion mode, create a DNA Splicers key
+item, and assign Reshiram as White's partner and Zekrom as Black's partner.
+Configure each form's artwork, stats, typing and ability separately.
+Give the player the key item through an event. In the Bag, use it on the base
+Pokemon, then select the partner. Use it on the fused Pokemon to separate them;
+one party slot must be free. Canceling before partner selection changes nothing.
+
+Fusion retains the base's experience, moves and PP; it applies the resulting
+species' stats and ability while preserving HP damage. The partner's complete
+record is stored inside the fused Pokemon and survives saves and PC storage.
+Trading, releasing, daycare deposit and evolution are blocked while fused.
+Eggs cannot fuse, and the base must not be fainted. The key item is reusable.
+Add **form-specific move changes** for signature-move substitutions. A fused
+form can be the starting form for an additional transformation such as Ultra
+Burst. Later-generation assets and a one-fusion-per-key-item restriction are
+not supplied automatically.
+
+**Transform using move, item or battle rules** adds configurable move-use and
+move-hit changes, known-move selection, persistent item-use changes, HP and
+minimum-level conditions, weather, battle-held-item selection, switch-out,
+end-of-turn, damage-taken and knockout triggers. Add rules to each target form,
+choose the required source form, and choose reversion on switching or battle end.
+Only one rule fires per event. Battle rules preserve the individual's maximum
+HP and moves; they do not implement unrelated ability effects or giant-form
+mechanics. Optional ability IDs restrict a rule to a particular ability.
+
+**Special form mechanic** adds Mega Evolution, Primal Reversion, Ultra Burst,
+Dynamax/Gigantamax, Terastallization (including Stellar), Disguise, Ice Face,
+Gulp Missile and HP-changing Power Construct/boss phases. Configure the source
+form and prerequisites. Press **SELECT** in the battle move menu to choose a
+manual transformation, then choose a move. Primal and reactive mechanics activate
+automatically. G-Max signature effects use a move configured in the project.
+
+**Field / individual form selection** supports maps, hours, monthly seasons,
+nature, personality rarity, story flags, inherited tags and timed grooming items.
+**Form-specific move changes** supplies reversible signature substitutions and
+variable move typing. Species indices now extend through 65535 in exported
+local runtime mods. See [coverage and fidelity boundaries](FORM_SUPPORT.md)
+before relying on a particular later-generation ability or battle interaction.
+
+**Types → + New type** allocates a custom type index (18–63). Set its ID, display
+name, physical/special category and matchups, then assign it to Pokemon or moves.
+New matchups default to neutral. Fairy can be authored this way; its matchup
+chart is not filled automatically. The summary screen displays a text badge
+for custom types. These features target Gen1Recomp mods, not a GBA ROM patch.
+
+## LeafGreen edition support
 
 With a linked runtime that supports LeafGreen, select **Project → Target game →
 LeafGreen**, or start `ContentEditor-LeafGreen.bat`. The shortcut uses the linked
@@ -525,8 +611,8 @@ Fixed default forms given as gifts use the selected form's learnset.
 
 Deoxys templates are editable starting points, **not finished alternate-version
 assets**: they copy the parent's artwork and stats. Import the desired artwork
-and edit each form's stats and moves. Forms do not currently include an in-game
-item or event action for manually switching an existing Pokemon between forms.
+and edit each form's stats and moves. Use an item-use rule to switch an existing
+Pokemon in the field, or a special mechanic for manual battle activation.
 Save exports the form records and runtime hooks together; editor-only names and
 selection settings survive reopening the project.
 

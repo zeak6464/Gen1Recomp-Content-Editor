@@ -52,6 +52,21 @@ local EVENT_TOOLS = {
 local EVENT_TOOL_BY_ID = {}
 for _, tool in ipairs(EVENT_TOOLS) do EVENT_TOOL_BY_ID[tool.id] = tool end
 
+-- These shared tools author legacy engine data, not FR/LG map events.
+local LEGACY_TOOLS = { berry = true, path = true }
+
+function MapBuilder.supportsTool(S, id)
+  return not (Generation.isGen3(S) and LEGACY_TOOLS[id])
+end
+
+local function resetUnsupportedTool(S)
+  if MapBuilder.supportsTool(S, S.builderTool) then return end
+  S.builderTool = S.mapEditMode == "events" and "object" or "pencil"
+  S.builderRangeDraft = nil
+  S.builderWarpDraft = nil
+  S._builderDrag = nil
+end
+
 local function stencilFitScale(source, iw, ih)
   if iw < 1 or ih < 1 then return 1 end
   local mapW = (source.cellWidth or 1) * CELL
@@ -514,8 +529,7 @@ local function paintCollisionCell(S, source, x, y)
     end
   end
   if source.collision[index] == mode then return false end
-  LayeredMap.setCollision(source, x, y, mode)
-  return true
+  return LayeredMap.setCollision(source, x, y, mode)
 end
 
 -- Visit every grid cell crossed by a quick mouse movement. Without this,
@@ -1322,7 +1336,9 @@ local function drawCanvas(S, source, x, y, w, h, App)
       if drag.pathMove or drag.pathAdded then
         -- Path cells stay visible after the click.
       elseif drag.move and not drag.moved then
-        require("Gen3EventWindow").request(S,S.mapId,drag.kind,drag.index)
+        if Generation.isGen3(S) then
+          S.builderPane="details";Maps.selectEvent(S,drag.kind,drag.index)
+        else require("Gen3EventWindow").request(S,S.mapId,drag.kind,drag.index) end
       elseif drag.click and not drag.moved and eventTool.id == "trigger" then
         Maps.placeTriggerCell(S, drag.x, drag.y, App)
       elseif drag.click and not drag.moved and eventTool.id == "berry" then
@@ -2053,8 +2069,8 @@ local function drawToolbar(S, source, x, y, w, App)
     and BASIC_EVENT_TOOLS or BASIC_TERRAIN_TOOLS
   local visibleTools = {}
   for _, tool in ipairs(allTools) do
-    if S.builderAdvancedTools or basicTools[tool.id]
-        or S.builderTool == tool.id then
+    if MapBuilder.supportsTool(S, tool.id) and (S.builderAdvancedTools
+        or basicTools[tool.id] or S.builderTool == tool.id) then
       visibleTools[#visibleTools + 1] = tool
     end
   end
@@ -2098,6 +2114,9 @@ local function drawToolbar(S, source, x, y, w, App)
 
   local barY = toolY + 31 * s
   local barBottom = barY + 24 * s
+  if Generation.isGen3(S) and S.builderTool=="object" then
+    barBottom=require("Gen3MapTemplates").drawPlacement(S,x,barY+29*s,w)
+  end
   if EVENT_TOOL_BY_ID[S.builderTool] then
     local ownBar = S.builderTool == "path"
       or S.builderTool == "trigger"
@@ -2322,13 +2341,21 @@ local function drawToolbar(S, source, x, y, w, App)
       end
     end
   elseif (S.builderTool or "pencil") == "exits" then
+    local gen3 = Generation.isGen3(S)
     Kit.text("micro", "EXIT", x, barY + 5 * s, PAL.caption)
     Kit.offerTooltip(x, barY, 42 * s, 24 * s,
-      "Paint the exit kind so a Gold warp uses the right animation")
+      gen3 and "Paint the native FR/LG exit behavior, then set its destination with Warp"
+        or "Paint the exit kind so a Gold warp uses the right animation")
     local bx = x + 42 * s
     S.builderExitType = S.builderExitType or "door"
     local modeY = barY
-    for _, mode in ipairs(EXIT_TYPES) do
+    local exitTypes = gen3 and require("Gen3Collision").exitTypes or EXIT_TYPES
+    local validExit = false
+    for _, mode in ipairs(exitTypes) do
+      if mode.id == S.builderExitType then validExit = true end
+    end
+    if not validExit then S.builderExitType = "door" end
+    for _, mode in ipairs(exitTypes) do
       local bw = Kit.textWidth("micro", mode.label) + 16 * s
       if bx + bw > x + w and bx > x + 42 * s then
         modeY, bx = modeY + 27 * s, x + 42 * s
@@ -2358,7 +2385,8 @@ local function drawToolbar(S, source, x, y, w, App)
         bx = bx + 27 * s
       end
     end
-    Kit.text("micro", "Paint the cell, then place a Warp. Gold uses this kind.",
+    Kit.text("micro", gen3 and "Paint the cell, then use Warp to set its destination."
+        or "Paint the cell, then place a Warp. Gold uses this kind.",
       x, modeY + 28 * s, PAL.muted)
     barBottom = modeY + 42 * s
   elseif (S.builderTool or "pencil") == "select" then
@@ -3177,6 +3205,7 @@ end
 
 function MapBuilder.keypressed(S, key, App)
   if not S or not S.project then return false end
+  resetUnsupportedTool(S)
   if S.tileDedup then
     if key=="escape" then S.tileDedup=nil end
     return true
@@ -3272,6 +3301,7 @@ function MapBuilder.draw(S, x, y, w, h, App)
     return
   end
   S.builderTool = S.builderTool or "pencil"
+  resetUnsupportedTool(S)
   S.builderTile = S.builderTile or 0
   S.builderCollision = S.builderCollision or "solid"
   S.builderLedgeDir = S.builderLedgeDir or "down"

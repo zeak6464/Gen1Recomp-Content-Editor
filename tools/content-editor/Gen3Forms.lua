@@ -32,7 +32,7 @@ function M.encounterSpecies(S,parent,choice)
   if choice=="automatic" then return parent end
   local family=M.family(S,parent) or M.template(S,parent)
   local row=assert(family.forms[assert(tonumber(choice))],"Choose a form")
-  if row.species==parent and family.mode~="weather" then
+  if row.species==parent and family.mode~="weather" and family.mode~="held_item" and family.mode~="gender" and family.mode~="fusion" and family.mode~="rules" then
     -- A separate species prevents personality/default selection from replacing an explicitly chosen base form.
     for _,r in ipairs(family.forms) do if r.fixedEncounterBase then return r.species end end
     local fixed=M.add(S,parent,row.name.." (fixed encounter)");fixed.fixedEncounterBase=true
@@ -47,7 +47,7 @@ function M.add(S,parent,name)
   while S.project.pokemon[id] or S.data.pokemon[id] do n=n+1;id=parent.."_FORM_"..(#family.forms+1).."_"..n end
   -- 412 is Egg; 413..439 are the ROM's extra Unown pictures.
   local index=439;for _,bag in ipairs({S.data.pokemon,S.project.pokemon}) do for _,rec in pairs(bag) do index=math.max(index,rec.index or 0) end end
-  assert(index<1023,"No free FireRed species slots remain")
+  assert(index<require("Gen3SpeciesCapacity").limit,"No free species slots remain")
   local rec=copy(base);rec.id=id;rec.index=index+1;rec._isNew=true;rec.name=base.name;rec.trueColor=true
   rec.spriteShinyFront=M.spritePath(base,false,true);rec.spriteShinyBack=M.spritePath(base,true,true)
   rec.letters=nil;rec.forms=nil;S.project.pokemon[id]=rec
@@ -165,14 +165,14 @@ function M.draw(S,mon,x,y,w,App)
       if ok then S.project=staged.project;App.markDirty() else S.status=tostring(err) end
     end;y=y+40*s
   end
-  C.field(S,{x=x,y=y,w=w,h=30*s,current=family.mode,ids={"fixed","personality","unown","weather"},
-    labels={fixed="Choose a fixed form",personality="Permanent form based on personality",unown="Unown letter from personality",weather="Change appearance and type with weather (Forecast)"},title="How forms are chosen",
-    tooltip="Fixed forms can be chosen in encounters, gifts and trainer parties. Personality forms are assigned when a Pokemon is created or enters battle. Weather forms keep the original stats and moves.",
+  C.field(S,{x=x,y=y,w=w,h=30*s,current=family.mode,ids={"fixed","personality","unown","weather","held_item","gender","fusion","rules"},
+    labels={fixed="Choose a fixed / regional form",personality="Permanent form based on personality",unown="Unown letter from personality",weather="Change appearance and type with weather (Forecast)",held_item="Change form while holding an item",gender="Choose form by gender",fusion="Fuse with a partner using a key item",rules="Transform using move, item or battle rules"},title="How forms are chosen",
+    tooltip="Fixed forms include regional variants. Held-item forms update when giving/taking items or entering battle. Gender forms use the Pokemon's gender. Existing moves and PP are preserved when changing forms. Weather forms keep the original stats and moves.",
     onPick=function(id) family.mode=id;App.markDirty() end});y=y+40*s
   local ids,names={},{};for i,row in ipairs(family.forms) do ids[#ids+1]=tostring(i);names[tostring(i)]=row.name end
   S.g3FormSelection=S.g3FormSelection or {};local selection=math.min(S.g3FormSelection[parent] or 1,#ids)
-  C.field(S,{x=x,y=y,w=w-180*s,h=30*s,current=tostring(selection),ids=ids,labels=names,title="Form to edit",onPick=function(id) S.g3FormSelection[parent]=tonumber(id) end})
-  if K.button(x+w-170*s,y,170*s,30*s,"Add custom form",{kind="good"}) then M.add(S,parent);S.g3FormSelection[parent]=#family.forms;App.markDirty() end;y=y+42*s
+  C.field(S,{x=x,y=y,w=w-180*s,h=30*s,current=tostring(selection),ids=ids,labels=names,title="Form to edit",tooltip="Select the form whose settings you want to edit. This does not change a Pokemon in the player's party.",onPick=function(id) S.g3FormSelection[parent]=tonumber(id) end})
+  if K.button(x+w-170*s,y,170*s,30*s,"Add custom form",{kind="good",tooltip="Create a new species record for this family, starting with the parent's data. Configure its artwork, stats and selection rules afterward."}) then M.add(S,parent);S.g3FormSelection[parent]=#family.forms;App.markDirty() end;y=y+42*s
   local row=family.forms[selection];local rec=S.project.pokemon[row.species] or S.data.pokemon[row.species]
   if not rec then K.caption(x,y,"This form's Pokemon record was removed.");return y+35*s end
   local value=K.textfield("g3FormName",x,y,w,30*s,row.name,"Form name","A friendly name such as Sunny, Winter, or Attack.")
@@ -181,7 +181,26 @@ function M.draw(S,mon,x,y,w,App)
     C.field(S,{x=x,y=y,w=w,h=30*s,current=tostring(family.default or 1),ids=ids,labels=names,title="Default form for the original Pokemon",tooltip="Used when the original species is given or enters battle. You can choose another named form directly in Pokemon dropdowns.",onPick=function(id) family.default=tonumber(id);App.markDirty() end});y=y+40*s
   elseif family.mode=="weather" and selection>1 then
     C.field(S,{x=x,y=y,w=w,h=30*s,current=row.weather or "NONE",ids={"NONE","SUN","RAIN","HAIL","SANDSTORM"},title="Weather for this form",onPick=function(id) row.weather=id;App.markDirty() end});y=y+40*s
+  elseif family.mode=="held_item" then
+    K.caption(x,y,selection==1 and "Original form is used without a matching held item." or "Held item that activates this form");y=y+30*s
+    if selection>1 then
+      require("ItemPicker").field(S,{x=x,y=y,w=w,h=30*s,current=row.item,title="FORM HELD ITEM",onPick=function(id) row.item=id;App.markDirty() end});y=y+40*s
+    end
+  elseif family.mode=="gender" then
+    K.caption(x,y,selection==1 and "Original form is used for genders without a rule." or "Gender that uses this form");y=y+30*s
+    if selection>1 then
+      C.field(S,{x=x,y=y,w=w,h=30*s,current=row.gender,ids={"F","M","U"},labels={F="Female",M="Male",U="Genderless"},title="FORM GENDER",onPick=function(id) row.gender=id;App.markDirty() end});y=y+40*s
+    end
   end
+  if family.mode=="rules" then y=require("Gen3FormRules").draw(S,family,selection,x,y,w,App) end
+  if family.mode=="fusion" then y=require("Gen3Fusion").draw(S,family,parent,row,selection,x,y,w,App) end
+  if family.mode~="rules" then
+    if K.button(x,y,260*s,28*s,family.extraRules and "Disable additional battle rules" or "Enable additional battle rules",{tooltip="Combine battle-triggered changes with this family's selection mode, including fusion. Disabling preserves the rules for later but stops exporting them."}) then family.extraRules=not family.extraRules;App.markDirty() end;y=y+40*s
+    if family.extraRules then y=require("Gen3FormRules").draw(S,family,selection,x,y,w,App) end
+  end
+  y=require("Gen3AdvancedForms").draw(S,family,selection,x,y,w,App)
+  y=require("Gen3FieldForms").draw(S,family,selection,x,y,w,App)
+  y=require("Gen3FormMoves").draw(S,row,x,y,w,App)
   K.caption(x,y,"Pokemon entry: "..row.species);y=y+30*s
   if K.button(x,y,290*s,30*s,"Edit this form's stats and moves",{}) then S.pokemonId=row.species;S.pokemonSection="basics" end;y=y+44*s
   if row.needsArtwork then K.caption(x,y,"Template uses copied artwork and stats. Import sprites and edit stats for this form.");y=y+30*s end
@@ -218,9 +237,41 @@ function M.emit(p,encode,out)
   end
   for parent,f in pairs(p.gen3Forms or {}) do
     assert(#f.forms>0 and f.forms[1].species==parent,"Invalid form family")
-    assert(f.mode=="fixed" or f.mode=="personality" or f.mode=="unown" or f.mode=="weather","Invalid form selection")
-    local rec=copy(f);rec.parent=parent;configs[#configs+1]=rec
+    assert(f.mode=="fixed" or f.mode=="personality" or f.mode=="unown" or f.mode=="weather" or f.mode=="held_item" or f.mode=="gender" or f.mode=="fusion" or f.mode=="rules","Invalid form selection")
+    if f.mode=="rules" or f.extraRules then require("Gen3FormRules").validate(f) end
+    require("Gen3AdvancedForms").validate(f)
+    require("Gen3FieldForms").validate(f)
+    require("Gen3FormMoves").validate(f)
+    if f.mode=="fusion" then require("Gen3Fusion").validate(p,parent,f) end
+    local seen={}
+    for i,row in ipairs(f.forms) do
+      if i>1 and f.mode=="held_item" then
+        assert(type(row.item)=="string" and row.item~="","Choose a held item for "..row.name)
+        assert(not seen[row.item],"Two forms use the same held item: "..row.item);seen[row.item]=true
+      elseif i>1 and f.mode=="gender" then
+        assert(row.gender=="F" or row.gender=="M" or row.gender=="U","Choose a gender for "..row.name)
+        assert(not seen[row.gender],"Two forms use the same gender");seen[row.gender]=true
+      end
+    end
+    local rec=copy(f);rec.parent=parent
+    for _,row in ipairs(rec.forms) do if row.fieldRule and row.fieldRule.kind~="none" then rec.fieldControlled=true end end
+    configs[#configs+1]=rec
   end
   out[#out+1]="local forms=(function()\n"..assert(love.filesystem.read("tools/content-editor/Gen3FormsRuntime.lua")).."\nend)()\nforms.install(mod,"..encode(configs)..","..encode(species)..","..encode(artwork)..")"
+  local rules={};for _,f in ipairs(configs) do if f.mode=="rules" or f.extraRules then rules[#rules+1]=f end end
+  if #rules>0 then out[#out+1]="local rules=(function()\n"..assert(love.filesystem.read("tools/content-editor/Gen3FormRulesRuntime.lua")).."\nend)()\nrules.install(mod,"..encode(rules)..")" end
+  local fusion={};for _,f in ipairs(configs) do if f.mode=="fusion" then fusion[#fusion+1]=f end end
+  if #fusion>0 then
+    out[#out+1]="local fusion=(function()\n"..assert(love.filesystem.read("tools/content-editor/Gen3FusionRuntime.lua")).."\nend)()\nfusion.install(mod,"..encode(fusion)..")"
+  end
+  local advanced={}
+  for _,f in ipairs(configs) do for _,row in ipairs(f.forms) do if row.mechanic and row.mechanic.kind and row.mechanic.kind~="none" then advanced[#advanced+1]=f;break end end end
+  if #advanced>0 then
+    out[#out+1]="local advanced=(function()\n"..assert(love.filesystem.read("tools/content-editor/Gen3AdvancedFormsRuntime.lua")).."\nend)()\nadvanced.install(mod,"..encode(advanced)..","..encode(require("Gen3Types").ids(p))..")"
+  end
+  local field={};for _,f in ipairs(configs) do if f.fieldControlled then field[#field+1]=f end end
+  if #field>0 then out[#out+1]="local field=(function()\n"..assert(love.filesystem.read("tools/content-editor/Gen3FieldFormsRuntime.lua")).."\nend)()\nfield.install(mod,"..encode(field)..")" end
+  local changes={};for _,f in ipairs(configs) do for _,row in ipairs(f.forms) do if #(row.moveChanges or {})>0 then changes[#changes+1]=f;break end end end
+  if #changes>0 then out[#out+1]="local changes=(function()\n"..assert(love.filesystem.read("tools/content-editor/Gen3FormMovesRuntime.lua")).."\nend)()\nchanges.install(mod,"..encode(changes)..","..encode(require("Gen3Types").ids(p))..")" end
 end
 return M

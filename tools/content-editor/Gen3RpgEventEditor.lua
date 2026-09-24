@@ -97,6 +97,46 @@ local function editTrainerBattle(S,row,catalog,x,y,w,App)
     step[1]=trainer;step.trainer=trainer;saveScript(S,row.script,rows,App)
   end)
 end
+-- Reuse the event window's editors in the map sidebar; browsing never rewrites scripts.
+function M.drawQuick(S,event,x,y,w,App)
+  local _,catalog,key=scriptFor(S,event)
+  if not key then return y end
+  local story=require("Gen3EventStory").rows(S,key,catalog)
+  local ids,labels,rows={},{},{}
+  for _,row in ipairs(story) do
+    if row.text or row.kind=="item" or row.kind=="wild_battle" or row.kind=="trainer_battle" then
+      local id=tostring(#ids+1);ids[#ids+1]=id;labels[id]=row.label;rows[id]=row
+    end
+  end
+  if #ids==0 then return y end
+  local s=K.scale
+  K.caption(x,y,"QUICK EVENT EDIT");y=y+25*s
+  local stateKey="mapQuick/"..key
+  local selected=S[stateKey] or "1";if not rows[selected] then selected="1" end
+  choice(S,x,y,w,selected,ids,labels,"EVENT ACTION",function(id) S[stateKey]=id end);y=y+38*s
+  local row=rows[selected]
+  if row.kind=="item" then editItem(S,row,key,catalog,x,y,w,App);y=y+135*s
+  elseif row.kind=="wild_battle" then editWildBattle(S,row,catalog,x,y,w,App);y=y+135*s
+  elseif row.kind=="trainer_battle" then editTrainerBattle(S,row,catalog,x,y,w,App);y=y+75*s
+  elseif row.text then
+    -- The full event window has room for an inline hint; keep the narrow sidebar clear.
+    local source=((S.project.gen3 or {}).map_scripts or {})[row.script] or catalog[row.script]
+    local step=source[row.index];local text=require("Gen3EventActions").text(S,step) or ""
+    local draftKey=row.script.."/"..row.index
+    if not S._mapQuickText or S._mapQuickText.key~=draftKey or S._mapQuickText.source~=text then
+      S._mapQuickText={key=draftKey,source=text,value=text}
+    end
+    local draft=S._mapQuickText
+    K.caption(x,y,"Dialogue");y=y+23*s
+    draft.value=K.textfield("mapQuickText/"..draftKey,x,y,w,29*s,draft.value,"");y=y+37*s
+    if K.button(x,y,110*s,28*s,"Apply text",{kind="good",enabled=draft.value~=text}) then
+      local edits=copy(source);require("Gen3EventActions").setText(S,edits[row.index],draft.value)
+      saveScript(S,row.script,edits,App);S._mapQuickText=nil
+    end
+    y=y+38*s
+  end
+  return y+12*s
+end
 local function triggerOwner(target,event)
   return target.kind.."/"..tostring(event.localId or target.index)
 end

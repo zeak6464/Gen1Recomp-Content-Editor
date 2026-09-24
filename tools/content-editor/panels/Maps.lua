@@ -4350,7 +4350,7 @@ local function drawMapPreview(S, mapDef, x, y, w, h, App)
       S._mapSelDraft = nil
     elseif S._mapDrag.eventMove then
       if not S._mapDrag.moved and Generation.isGen3(S) then
-        require("Gen3EventWindow").request(S,S.mapId,S._mapDrag.kind,S._mapDrag.index)
+        S.builderPane="details";selectEvent(S,S._mapDrag.kind,S._mapDrag.index)
       end
     elseif S._mapDrag.eventClick and not S._mapDrag.moved then
       applyToolAtCell(S, mapDef, S._mapDrag.cx, S._mapDrag.cy, App)

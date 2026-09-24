@@ -47,6 +47,7 @@ function M.compile(p)
         else
         local value={}
         for key in pairs(Schemas.REGISTRIES[name].gen3Fields) do value[key]=copy(rec[key]) end
+        require("Gen3Types").compileRecord(p,name,value)
         records[id]=value;modes[id]=rec._isNew and "register" or "patch";exact[id]=true
         end
       end
@@ -62,6 +63,7 @@ function M.newRecord(S,name,id)
   for _,bag in ipairs({base,S.project[name]}) do for _,v in pairs(bag) do max=math.max(max,tonumber(v.index) or 0) end end
   rec.id,rec.name,rec.index,rec._isNew=id,id,max+1,true
   if name=="pokemon" then
+    assert(rec.index<=require("Gen3SpeciesCapacity").limit,"No free species slots remain")
     local dex=0
     for _,bag in ipairs({base,S.project[name]}) do
       for _,v in pairs(bag) do dex=math.max(dex,tonumber(v.dex) or 0) end

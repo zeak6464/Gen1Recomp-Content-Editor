@@ -5,6 +5,7 @@ local groups={objects={"Objects","mapObjectIndex"},signs={"Signs","mapSignIndex"
 function M.place(S,tool,x,y,App)
   local kind=({object="objects",sign="signs",trigger="coordEvents",warp="warps"})[tool]
   if not kind then return false end
+  if kind=="objects" and require("Gen3MapTemplates").place(S,x,y,App) then return true end
   local source=assert(require("Gen3Workspace").convert(S,S.mapId))
   local map=S.project.maps[S.mapId]
   local rows=map[kind] or {};map[kind]=rows
@@ -81,11 +82,13 @@ function M.draw(S,x,y,w,h,App)
     fieldTop=fieldTop+35*s
   end
   local top,view=Pane.begin(S,"g3MapEventScroll",x,fieldTop,w,math.max(80*s,bottom-fieldTop-20*s))
+  local controlsTop=top
+  if kind~="warps" then controlsTop=require("Gen3RpgEventEditor").drawQuick(S,ev,x,controlsTop,view.contentW,App) end
   local advanced=S.g3MapEventAdvanced==true
-  if Kit.button(x,top,view.contentW,27*s,advanced and "Show simple controls" or "Advanced fields",{}) then S.g3MapEventAdvanced=not advanced end
+  if Kit.button(x,controlsTop,view.contentW,27*s,advanced and "Show simple controls" or "Advanced fields",{}) then S.g3MapEventAdvanced=not advanced end
   local ending
-  if advanced then ending=require("Gen3Fields").draw(S,identity,x,top+35*s,view.contentW,S._g3EventDraft,{})
-  else ending=require("Gen3MapEventForm").draw(S,ev,kind,key,x,top+35*s,view.contentW,App) end
+  if advanced then ending=require("Gen3Fields").draw(S,identity,x,controlsTop+35*s,view.contentW,S._g3EventDraft,{})
+  else ending=require("Gen3MapEventForm").draw(S,ev,kind,key,x,controlsTop+35*s,view.contentW,App) end
   Pane.finish(S,"g3MapEventScroll",top,ending,view)
 end
 return M

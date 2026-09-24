@@ -48,15 +48,15 @@ end
 function M.emit(p,encode,out)
   if not M.used(p) then return end
   local T=require("src.core.game3.battle.types")
+  local typeIds=require("Gen3Types").ids(p)
   for id,rec in pairs(p.types or {}) do
-    assert(T.ID[id]~=nil,"FireRed type IDs cannot be added or renamed")
     assert(rec.category=="physical" or rec.category=="special","Invalid type category")
   end
   for key,mult in pairs(p.type_matchups or {}) do
     local a,d=key:match("^([^>]+)>([^>]+)$")
-    assert(T.ID[a] and T.ID[d] and (mult==0 or mult==5 or mult==10 or mult==20),"Invalid FireRed matchup")
+    assert(typeIds[a] and typeIds[d] and (mult==0 or mult==5 or mult==10 or mult==20),"Invalid FireRed matchup")
   end
-  out[#out+1]="  local workbench="..encode({boot=p.boot or {},shops=p.marts or {},types=p.types or {},matchups=p.type_matchups or {}})
+  out[#out+1]="  local workbench="..encode({boot=p.boot or {},shops=p.marts or {},types=p.types or {},matchups=p.type_matchups or {},typeIds=typeIds})
   out[#out+1]=M.source
 end
 M.source=[=[
@@ -86,6 +86,23 @@ M.source=[=[
   end)
   local Marts=require("src.core.game3.marts")
   local Types=require("src.core.game3.battle.types")
+  local typeNames={};for name,index in pairs(workbench.typeIds or Types.ID) do typeNames[index]=name end
+  local typeIds=workbench.typeIds or Types.ID
+  local Chrome=require("src.ui.game3.summary_chrome")
+  if not Chrome._editorCustomTypes then
+    Chrome._editorCustomTypes=true;local base=Chrome.drawTypeBadge
+    Chrome.drawTypeBadge=function(...) return Runtime.call("editor.gen3.types.badge",base,...) end
+  end
+  mod.hooks:wrap("editor.gen3.types.badge",function(proceed,id,x,y)
+    local index=tonumber(id) or typeIds[id]
+    local rec=index and index>=18 and workbench.types[typeNames[index]]
+    if not rec then return proceed(id,x,y) end
+    local Font=require("src.ui.game3.frlg_font");local label=(rec.name or typeNames[index]):upper()
+    local width=Font.measure(label,{small=true});local scale=math.min(.75,28/math.max(1,width))
+    love.graphics.push("all");love.graphics.setColor(.64,.35,.65,1);love.graphics.rectangle("fill",x,y,32,12,2,2)
+    love.graphics.translate(x+(32-width*scale)/2,y+1);love.graphics.scale(scale,scale)
+    Font.draw(label,0,0,{small=true,colors=Font.COLOR.WHITE});love.graphics.pop()
+  end)
   if not Marts._editorWorkbench then
     Marts._editorWorkbench=true
     local base=Marts.itemsFor
@@ -111,7 +128,7 @@ M.source=[=[
   end
   for _,method in ipairs({"name","isPhysical"}) do
     mod.hooks:wrap("editor.gen3.types."..method,function(proceed,id)
-      local rec=workbench.types[Types.NAME[tonumber(id)]]
+      local rec=workbench.types[typeNames[tonumber(id)]]
       if rec then
         if method=="name" then return rec.name end
         return rec.category=="physical"
@@ -131,21 +148,21 @@ M.source=[=[
       if a==-1 then after=true end
       if after then tail[#tail+1]={a,d,m}
       else
-        local key=Types.NAME[a]..">"..Types.NAME[d]
+        local key=typeNames[a]..">"..typeNames[d]
         append(a,d,workbench.matchups[key] or m);seen[key]=true
       end
     end
     local tailKeys={}
     for _,row in ipairs(tail) do
-      if row[1]~=-1 then tailKeys[Types.NAME[row[1]]..">"..Types.NAME[row[2]]]=true end
+      if row[1]~=-1 then tailKeys[typeNames[row[1]]..">"..typeNames[row[2]]]=true end
     end
     for key,m in pairs(workbench.matchups) do
       if not seen[key] and not tailKeys[key] then
-        local a,d=key:match("^([^>]+)>([^>]+)$");append(Types.ID[a],Types.ID[d],m)
+        local a,d=key:match("^([^>]+)>([^>]+)$");append(typeIds[a],typeIds[d],m)
       end
     end
     for _,row in ipairs(tail) do
-      local key=row[1]~=-1 and (Types.NAME[row[1]]..">"..Types.NAME[row[2]])
+      local key=row[1]~=-1 and (typeNames[row[1]]..">"..typeNames[row[2]])
       append(row[1],row[2],(key and workbench.matchups[key]) or row[3])
     end
     Types.TABLE=chart

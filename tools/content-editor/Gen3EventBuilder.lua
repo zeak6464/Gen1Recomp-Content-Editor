@@ -8,8 +8,19 @@ function M.create(S,d)
     assert(d.kind=="dialog" or d.kind=="item" or d.kind=="pickup","Choose an event action")
     if d.kind~="pickup" then assert(type(d.text)=="string" and d.text:match("%S"),"Enter dialogue first") end
     require("Gen3ContentAdapter").prepare(T)
-    assert(require("Gen3Workspace").convert(T,d.map))
-    local object=assert((T.project.maps[d.map].objects or {})[tonumber(d.npc)],"Choose an NPC on this map")
+    local source=assert(require("Gen3Workspace").convert(T,d.map))
+    local map=T.project.maps[d.map]
+    local npc=tonumber(d.npc)
+    if d.place then
+      assert(type(d.x)=="number" and type(d.y)=="number" and d.x%1==0 and d.y%1==0
+        and d.x>=0 and d.y>=0 and d.x<source.cellWidth and d.y<source.cellHeight,"Choose a tile inside the map")
+      map.objects=map.objects or {};npc=#map.objects+1
+      local localId=0;for _,row in ipairs(map.objects) do localId=math.max(localId,row.localId or row.index or 0) end
+      local graphics=d.kind=="pickup" and 92 or 1
+      map.objects[npc]={x=d.x,y=d.y,localId=localId+1,index=localId+1,graphicsId=graphics,graphics=graphics,
+        movement="STAY",movementType=8,flag=0,elevation=(source.gen3Elevation or {})[d.y*source.cellWidth+d.x+1] or 3}
+    end
+    local object=assert((map.objects or {})[npc],"Choose an NPC on this map")
     local p=T.project;local script
     if d.kind=="pickup" then
       local rec=(p.items or {})[d.item] or (S.data.items or {})[d.item]
@@ -22,7 +33,8 @@ function M.create(S,d)
       p.gen3=p.gen3 or {};p.gen3.map_scripts=p.gen3.map_scripts or {}
       p.gen3Modes=p.gen3Modes or {};p.gen3Modes.map_scripts=p.gen3Modes.map_scripts or {}
       local base="EditorPickup_"..tostring(p.id):gsub("[^%w_]","_").."_";local n=1
-      repeat script=base..n;n=n+1 until not p.gen3.map_scripts[script]
+      local catalog=require("Gen3").catalog(S.data,"map_scripts")
+      repeat script=base..n;n=n+1 until not p.gen3.map_scripts[script] and not catalog[script]
       p.gen3.map_scripts[script]={{op="setorcopyvar",[1]=0x8000,[2]=rec.index},
         {op="setorcopyvar",[1]=0x8001,[2]=quantity},{op="callstd",std=1},{op="end"}}
       p.gen3Modes.map_scripts[script]="register";object.flag=flag

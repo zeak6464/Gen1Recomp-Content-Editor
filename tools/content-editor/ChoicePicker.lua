@@ -29,6 +29,7 @@ function ChoicePicker.open(S, opts)
     current = cur,
     ids = opts.ids or {},
     labels = opts.labels or {},
+    tooltips = opts.tooltips,
     title = opts.title or "CHOOSE",
     allowClear = opts.allowClear and true or false,
     clearLabel = opts.clearLabel or "(none)",
@@ -69,6 +70,7 @@ function ChoicePicker.field(S, opts)
       current = cur ~= "" and cur or nil,
       ids = opts.ids,
       labels = opts.labels,
+      tooltips = opts.tooltips,
       title = opts.title or "CHOOSE",
       allowClear = opts.allowClear,
       clearLabel = opts.clearLabel or opts.emptyLabel,
@@ -196,6 +198,7 @@ function ChoicePicker.draw(S, x, y, w, h)
         return
       end
       local shown = labels[id] or id
+      if p.tooltips then Kit.offerTooltip(cx,ry,innerW,rowH,p.tooltips[id]) end
       if p.drawRow then p.drawRow(S,id,cx,ry,innerW,rowH,shown,on)
       else Kit.text("small", Kit.ellipsize("small", shown, math.max(8, innerW - 12 * s)),
         cx + 8 * s, ry + (rowH-Kit.textHeight("small"))/2, on and PAL.heading or PAL.text) end

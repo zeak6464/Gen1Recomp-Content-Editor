@@ -207,7 +207,7 @@ function Types.draw(S, x, y, w, h, App)
   S.typeListOffset = Kit.scrollbar(scrollX, scrollY, scrollW, scrollH,
     S.typeListOffset or 0, #ids, perPage)
 
-  if not Generation.isGen3(S) and Kit.button(x, y + h - 36 * s, listW, 32 * s, "+ New type",
+  if Kit.button(x, y + h - 36 * s, listW, 32 * s, "+ New type",
       { kind = "good" }) then
     local nid = "NEW_TYPE"
     local n = 1
@@ -215,9 +215,14 @@ function Types.draw(S, x, y, w, h, App)
     local used = {}
     for _, id in ipairs(all) do used[id] = true end
     while used[nid] do n = n + 1; nid = "NEW_TYPE_" .. n end
+    local index=gen2 and 28 or nil
+    if Generation.isGen3(S) then
+      index=require("Gen3Types").nextIndex(S.project)
+      if not index then S.status="All custom type slots are in use";return end
+    end
     S.project.types[nid] = {
       id = nid, name = nid, category = "special",
-      index = gen2 and 28 or nil,
+      index = index,
       _isNew = true,
     }
     S.typeId = nid
@@ -254,7 +259,7 @@ function Types.draw(S, x, y, w, h, App)
   end
 
   row("ID", function(fx, fy_, fw, fh_)
-    if Generation.isGen3(S) then Kit.caption(fx,fy_,id);return end
+    if Generation.isGen3(S) and isVanillaType(S,id) then Kit.caption(fx,fy_,id);return end
     local v = field(App, "ty_id", fx, fy_, fw, fh_, id, "TYPE_ID")
     if v ~= id and v:match("^[%w_]+$") and not (S.project.types and S.project.types[v]) then
       local taken = false
@@ -275,6 +280,12 @@ function Types.draw(S, x, y, w, h, App)
           return nm
         end
         S.project.type_matchups = rewrite(S.project.type_matchups)
+        if Generation.isGen3(S) then
+          for _,mon in pairs(S.project.pokemon or {}) do
+            for i,t in ipairs(mon.types or {}) do if t==id then mon.types[i]=v end end
+          end
+          for _,move in pairs(S.project.moves or {}) do if move.type==id then move.type=v end end
+        end
         if gen2 then
           S.project.type_foresight = rewrite(S.project.type_foresight)
         end

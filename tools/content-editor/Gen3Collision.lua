@@ -12,6 +12,23 @@ local painted={
   door={0x71,0x69},stairs={0x72,0x61},cave={0x71,0x60},panel={0x72,0x67},
   carpet={0x72,0x65},carpet_right={0x72,0x62},carpet_left={0x72,0x63},
   carpet_up={0x72,0x64},carpet_down={0x72,0x65},
+  fall={0x72,0x66},escalator_up={0x72,0x6A},escalator_down={0x72,0x6B},
+  stair_up_right={0x72,0x6C},stair_up_left={0x72,0x6D},
+  stair_down_right={0x72,0x6E},stair_down_left={0x72,0x6F},
+}
+M.exitTypes={
+  {id="door",label="Door",tip="Animated building door; use a native door graphic"},
+  {id="cave",label="Cave",tip="Entrance without a door animation"},
+  {id="stairs",label="Ladder",tip="Climb between floors"},
+  {id="panel",label="Warp pad",tip="Step onto a teleport pad"},
+  {id="carpet",label="Arrow exit",tip="Leave in the selected direction"},
+  {id="fall",label="Fall",tip="Drop through a hole to the destination"},
+  {id="escalator_up",label="Escalator up",tip="Take an upward escalator"},
+  {id="escalator_down",label="Escalator down",tip="Take a downward escalator"},
+  {id="stair_up_right",label="Stairs up-right",tip="Ascend stairs toward the right"},
+  {id="stair_up_left",label="Stairs up-left",tip="Ascend stairs toward the left"},
+  {id="stair_down_right",label="Stairs down-right",tip="Descend stairs toward the right"},
+  {id="stair_down_left",label="Stairs down-left",tip="Descend stairs toward the left"},
 }
 M.modes=modes
 M.painted=painted
