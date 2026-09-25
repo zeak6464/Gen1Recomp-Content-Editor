@@ -77,15 +77,17 @@ return "  local collisionModes="..encode(C.modes).."\n  local paintedCollision="
       return ref.tile
     end
     local function drawRef(ref,x,y,over)
+      if ref.bridge and not over then return end
       local pair=ref.source:match("^@runtime:(.+)$")
       local tile=frameFor(ref)
       love.graphics.setColor(1,1,1,ref.opacity or 1)
       if pair then
         local ts=assert(T.get(pair),"Missing native tileset "..pair)
         local image=ts.image
-        if over then image=ts.overImage end
-        if image then love.graphics.draw(image,over and T.overQuad(ts,T.slotFor(ts,tile)) or T.quad(ts,T.slotFor(ts,tile)),x,y) end
-      elseif not over then
+        if over and not ref.bridge then image=ts.overImage end
+        if image then love.graphics.draw(image,over and not ref.bridge and T.overQuad(ts,T.slotFor(ts,tile)) or T.quad(ts,T.slotFor(ts,tile)),x,y) end
+        if ref.bridge and ts.overImage then love.graphics.draw(ts.overImage,T.overQuad(ts,T.slotFor(ts,tile)),x,y) end
+      elseif not over or ref.bridge then
         local source=assert(layered.sources[ref.source],"Missing tile source "..ref.source)
         local image=images[ref.source]
         if not image then image=mod.assets:image(source.image);image:setFilter("nearest","nearest");images[ref.source]=image end
@@ -128,6 +130,11 @@ return "  local collisionModes="..encode(C.modes).."\n  local paintedCollision="
             end
           end
         end
+        local bridge=(source.gen3Bridges or {})[index]
+        if bridge and bridge.kind=="deck" and bridge.tile then
+          refs[#refs+1]={source=bridge.tile.source,tile=bridge.tile.tile,opacity=1,bridge=true}
+          key[#key+1]="bridge:"..bridge.tile.source..":"..bridge.tile.tile
+        end
         local mode=(source.collision or {})[index] or "solid"
         local original=(source.gen3Collision or {})[index]
         local nativeMode=collisionModes[original] or (original==0 and "walk" or "solid")
@@ -164,6 +171,7 @@ return "  local collisionModes="..encode(C.modes).."\n  local paintedCollision="
       local entry={ts=ts,slots=slots};render(entry);built[id]=entry
       T._pairs[pair]=ts;Interactions.behaviors[pair]=behaviors
       map.pair=pair;map.width=width;map.height=height
+      map._editorBridges=source.gen3Bridges
       map.midLayout=Layout.fromDecoded({width=width,height=height,cells=cells,
         borderWidth=border.width,borderHeight=border.height,borderMids=borderMids},id,pair)
     end

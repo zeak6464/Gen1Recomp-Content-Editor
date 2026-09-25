@@ -76,3 +76,6 @@ tests/content-editor/leafgreen-smoke/*.png
 /tests/content-editor/connections-smoke/result.txt
 /tests/content-editor/connections-smoke/project/
 /tests/content-editor/connections-smoke/*.png
+/tests/content-editor/bridges-smoke/result.txt
+/tests/content-editor/bridges-smoke/project/
+/tests/content-editor/bridges-smoke/*.png

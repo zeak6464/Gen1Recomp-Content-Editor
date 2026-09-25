@@ -77,8 +77,7 @@ function Kit.beginFrame(mx, my, clicked, wheel)
   Kit.wheelY = wheel or 0
   -- Held-button state is polled, not evented: the editor is hosted both
   -- standalone and inside the launcher, and neither routes mousereleased
-  -- here.  Touch drag scrolling (#715) rides this poll, so it works in both
-  -- hosts without new plumbing.  The stub has no love.mouse.isDown; a frame
+  -- here. The stub has no love.mouse.isDown; a frame
   -- without it simply has no drags.
   local down = false
   if love and love.mouse and love.mouse.isDown then
@@ -95,6 +94,11 @@ function Kit.beginFrame(mx, my, clicked, wheel)
     end
   end
   Kit.mouseDown = down
+  -- LOVE synthesizes mouse input for touches. Only real touches may swipe
+  -- list bodies; desktop mouse drags belong to painting/selection widgets.
+  Kit.touchDown = down and love and love.touch and love.touch.getTouches
+    and #love.touch.getTouches() > 0 or false
+  if not Kit.touchDown then Kit._drag = nil end
   Kit.mouseClicked = clicked and true or false
   if not down then
     Kit._drag = nil
@@ -1265,9 +1269,9 @@ function Kit.scroll(x, y, w, h, offset, total, perPage, step, id)
     })
   end
 
-  -- Touch / click-drag on the list body (not while dragging the thumb).
+  -- Touch-only swipe on the list body (not while dragging the thumb).
   local dragStep = math.max(1, step or 1)
-  if not onBar and Kit.mouseDown and maxOffset > 0 and h > 0
+  if not onBar and Kit.touchDown and maxOffset > 0 and h > 0
       and (perPage or 0) > 0 then
     local hitW = math.max(SB_WIDTH, SB_HIT) * Kit.scale
     local barHit = Kit.hit(x + w - hitW, y, hitW, h)
@@ -1319,7 +1323,7 @@ function Kit.scrollPixels(x, y, w, h, offset, contentH, id)
     })
   end
 
-  if not onBar and Kit.mouseDown and maxOffset > 0 and h > 0 then
+  if not onBar and Kit.touchDown and maxOffset > 0 and h > 0 then
     local hitW = math.max(SB_WIDTH, SB_HIT) * Kit.scale
     local barHit = Kit.hit(x + w - hitW, y, hitW, h)
     local dkey = "px:" .. math.floor(x) .. ":" .. math.floor(y)

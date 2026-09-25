@@ -189,6 +189,7 @@ function Gen3.emit(project, encode)
   require("OfflineGifts").emit(project, encode, out, 3)
   require("SafariSettings").emit(project, encode, out, 3)
   if next(project.gen3Layered or {}) then
+    out[#out+1]="local bridges=(function()\n"..assert(love.filesystem.read("tools/content-editor/Gen3BridgesRuntime.lua")).."\nend)()\nbridges.install(mod)"
     -- Keep large map constructors outside the entry function's early-return
     -- jump span, and give each map its own LuaJIT constant/instruction budget.
     out[#out+1]="  local layered=(function() local data={}"

@@ -114,6 +114,31 @@ New matchups default to neutral. Fairy can be authored this way; its matchup
 chart is not filled automatically. The summary screen displays a text badge
 for custom types. These features target Gen1Recomp mods, not a GBA ROM patch.
 
+## Gen 3 bridges
+
+In the map editor, paint the lower ground first and set its passage to Walk,
+Water or Solid as appropriate. Select a bridge tile from the palette, choose
+**Bridge**, and paint **Deck east/west** or **Deck north/south**. The deck uses
+the selected tile above the untouched lower terrain. Select different tiles
+to paint the deck's edges and middle; this tool does not supply bridge artwork.
+
+Choose the matching **Entrance** mode and mark the approach cell immediately
+beyond each end of the deck. These approach cells should be walkable paths.
+Use one entrance per lane for a bridge more than one cell wide. Entrances are
+marked in green while the Bridge tool is selected; deck cells are yellow.
+
+Approaching an entrance along the bridge's axis selects the upper walking level.
+The player can cross the deck, cannot walk off its sides, and returns to normal
+height after leaving the far entrance. The lower route keeps its own passage:
+walking ground stays walkable and water still requires Surf. The deck is drawn
+above the lower player and below the upper player. No elevation numbers need
+editing. **Remove bridge** removes only the deck/entrance metadata and leaves
+the lower terrain intact. Save and restart the playtest after changes.
+
+These presets support straight player-traversable bridges; they are not a
+multi-floor navigation system for NPCs or stacked bridges. NPC placement and
+scripted movement still require their own elevation setup.
+
 ## Gen 3 map connections
 
 **Map setup → Map connections** supports multiple connections on each side.

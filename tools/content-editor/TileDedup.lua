@@ -23,6 +23,7 @@ function M.sourcesForMaps(project,selected)
       for _,ref in pairs(layer.cells or {}) do add(ref.source) end
     end
     add(((project.maps or {})[id] or {})._borderSource)
+    for _,bridge in pairs(((project.layeredMaps or {})[id] or {}).gen3Bridges or {}) do if bridge.tile then add(bridge.tile.source) end end
   end
   return keys(ids)
 end
@@ -126,6 +127,7 @@ function M.apply(S,plan,App)
   end
   for _,map in pairs(p.layeredMaps or {}) do
     for _,layer in ipairs(map.layers or {}) do for index,cell in pairs(layer.cells or {}) do layer.cells[index]=ref(cell) end end
+    for _,bridge in pairs(map.gen3Bridges or {}) do bridge.tile=ref(bridge.tile) end
   end
   for _,map in pairs(p.maps or {}) do
     local mapping=plan.remap[map._borderSource]

@@ -638,7 +638,7 @@ function LayeredMap.resize(source, newWidth, newHeight)
           and source.collision[y * oldWidth + x + 1] or "solid"
     end
   end
-  for _,key in ipairs({"gen3Elevation","gen3Collision","gen3Behavior"}) do
+  for _,key in ipairs({"gen3Elevation","gen3Collision","gen3Behavior","gen3Bridges"}) do
     if source[key] then
       local values={}
       for y=0,height-1 do for x=0,width-1 do
@@ -917,6 +917,7 @@ function LayeredMap.sourceIds(S, mapId)
   if mapSource and mapSource.baseTileset then
     add(LayeredMap.runtimeSourceId(mapSource.baseTileset))
   end
+  for _,bridge in pairs(mapSource and mapSource.gen3Bridges or {}) do if bridge.tile then add(bridge.tile.source) end end
 
   -- A layered map may paint from any loaded game tileset. Keep the base
   -- source first, then expose the complete runtime registry alphabetically.
@@ -1538,6 +1539,11 @@ local function cellRefs(context, mapSource, index)
       end
     end
   end
+  local bridge=(mapSource.gen3Bridges or {})[index]
+  if bridge and bridge.tile then
+    local ref=bridge.tile
+    refs[#refs+1]={source=assert(LayeredMap.sourceDescriptor(context.S,ref.source),"Unknown bridge tile source"),tile=ref.tile,opacity=1}
+  end
   return refs
 end
 
@@ -1941,6 +1947,8 @@ local function exportedCellsAt(mapSource, index)
       end
     end
   end
+  local bridge=(mapSource.gen3Bridges or {})[index]
+  if bridge and bridge.tile then refs[#refs+1]=bridge.tile end
   return refs
 end
 

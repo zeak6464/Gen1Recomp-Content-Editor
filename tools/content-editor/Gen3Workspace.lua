@@ -141,6 +141,7 @@ function M.drawTile(S,source,tile,x,y,size,alpha)
 end
 function M.compile(S)
   local p=S.project
+  for _,source in pairs(p.layeredMaps or {}) do require("Gen3Bridges").validate(source) end
   p.gen3=p.gen3 or {};p.gen3.maps=p.gen3.maps or {}
   p.gen3Exact=p.gen3Exact or {};p.gen3Exact.maps=p.gen3Exact.maps or {}
   for id in pairs(p.gen3WorkspaceMaps or {}) do

@@ -26,6 +26,7 @@ local TOOLS = {
     tip = "Paint walk, wall, grass, water, ledges, and cliff faces" },
   { id = "exits", label = "Exit type",
     tip = "Paint door, stairs, cave, or pad so the warp uses the right kind" },
+  { id = "bridge", label = "Bridge", tip = "Paint an elevated deck over existing ground, then mark its entrances" },
   { id = "warp", label = "Warp", tip = "Place directed, two-way, or custom-return warps" },
   { id = "pan", label = "Pan", tip = "Drag the map without painting" },
 }
@@ -56,6 +57,7 @@ for _, tool in ipairs(EVENT_TOOLS) do EVENT_TOOL_BY_ID[tool.id] = tool end
 local LEGACY_TOOLS = { berry = true, path = true }
 
 function MapBuilder.supportsTool(S, id)
+  if id=="bridge" then return Generation.isGen3(S) end
   return not (Generation.isGen3(S) and LEGACY_TOOLS[id])
 end
 
@@ -99,7 +101,7 @@ local function drawMapStencil(S, source)
 end
 
 local BASIC_TERRAIN_TOOLS = {
-  pencil = true, eraser = true, fill = true, pan = true, exits = true,
+  pencil = true, eraser = true, fill = true, pan = true, exits = true, bridge = true,
 }
 local BASIC_EVENT_TOOLS = {
   object = true, sign = true, berry = true, path = true, trigger = true,
@@ -624,6 +626,7 @@ local function clearSelections(S, source, App, withinBatch)
           LayeredMap.setCollision(source, x, y, "solid")
           changed = true
         end
+        if source.gen3Bridges and source.gen3Bridges[index] then source.gen3Bridges[index]=nil;changed=true end
       end
     end
   end
@@ -649,7 +652,7 @@ local function copySelection(S, source)
   local x0, y0, x1, y1 = selectionBounds(S)
   if not x0 then return false end
   local clip = { width = x1 - x0 + 1, height = y1 - y0 + 1,
-    layers = {}, collision = {} }
+    layers = {}, collision = {}, gen3Bridges = {} }
   for layerIndex = 1, #source.layers do clip.layers[layerIndex] = {} end
   for y = y0, y1 do
     for x = x0, x1 do
@@ -661,6 +664,7 @@ local function copySelection(S, source)
         end
       end
       clip.collision[ci] = source.collision[y * source.cellWidth + x + 1]
+      clip.gen3Bridges[ci]=require("src.mods.Merge").deepCopy((source.gen3Bridges or {})[y*source.cellWidth+x+1])
     end
   end
   S.builderClip = clip
@@ -689,6 +693,12 @@ local function pasteSelection(S, source, App, destX, destY, withinBatch)
         end
         local collision = clip.collision and clip.collision[ci] or "solid"
         local destIndex = py * source.cellWidth + px + 1
+        if clip.gen3Bridges then
+          source.gen3Bridges=source.gen3Bridges or {}
+          if source.gen3Bridges[destIndex] or clip.gen3Bridges[ci] then
+            source.gen3Bridges[destIndex]=require("src.mods.Merge").deepCopy(clip.gen3Bridges[ci]);changed=true
+          end
+        end
         if source.collision[destIndex] ~= collision then
           LayeredMap.setCollision(source, px, py, collision)
           changed = true
@@ -1100,6 +1110,14 @@ local function drawCanvas(S, source, x, y, w, h, App)
           end
         end
       end
+      local bridge=(source.gen3Bridges or {})[cy*source.cellWidth+cx+1]
+      if bridge then
+        if bridge.tile then drawSourceTile(S,resolveSource(bridge.tile.source),bridge.tile.tile,dx,dy,CELL,1) end
+        if S.builderTool=="bridge" then
+          love.graphics.setColor(bridge.kind=="entrance" and 0 or 1,1,bridge.kind=="entrance" and 0.4 or 0,0.9)
+          love.graphics.rectangle("line",dx+1,dy+1,CELL-2,CELL-2)
+        end
+      end
       if (S.builderTool or "pencil") == "collision"
           or (S.builderTool or "") == "exits"
           or S.mapShowCollision then
@@ -1401,7 +1419,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
       S.builderRangeDraft = {
         x0 = S._builderDrag.x0, y0 = S._builderDrag.y0, x1 = cx, y1 = cy,
       }
-    elseif inMap and (tool == "pencil" or tool == "collision" or tool == "exits") then
+    elseif inMap and (tool == "pencil" or tool == "collision" or tool == "exits" or tool=="bridge") then
       local stroke = S._builderStroke
       if not stroke or stroke.tool ~= tool then
         if stroke then App.endEditBatch() end
@@ -1416,6 +1434,8 @@ local function drawCanvas(S, source, x, y, w, h, App)
             and px < source.cellWidth and py < source.cellHeight then
           if tool == "pencil" then
             changed = paintCell(S, source, px, py, App, false, true) or changed
+          elseif tool=="bridge" then
+            changed=require("Gen3Bridges").paint(source,px,py,S.builderBridgeMode or "deck_horizontal",brushRef(S)) or changed
           else
             changed = paintCollisionCell(S, source, px, py) or changed
           end
@@ -2277,6 +2297,13 @@ local function drawToolbar(S, source, x, y, w, App)
         x + 118 * s, barY + 5 * s, PAL.muted)
       barBottom = barY + 24 * s
     end
+  elseif S.builderTool=="bridge" then
+    local B=require("Gen3Bridges")
+    require("ChoicePicker").field(S,{x=x,y=barY,w=240*s,h=26*s,current=S.builderBridgeMode or "deck_horizontal",ids=B.modes,labels=B.labels,title="BRIDGE PART",
+      tooltip="First paint the lower ground and its collision. Deck adds the selected tile above it. Mark an entrance just beyond each end, aligned with the bridge. Remove restores the untouched lower ground.",
+      onPick=function(id) S.builderBridgeMode=id end})
+    Kit.text("micro",Kit.ellipsize("micro","Entrances go beyond each end.",math.max(1,w-250*s)),x+250*s,barY+5*s,PAL.muted)
+    barBottom=barY+30*s
   elseif (S.builderTool or "pencil") == "collision" then
     Kit.text("micro", "PASSAGE", x, barY + 5 * s, PAL.caption)
     Kit.offerTooltip(x, barY, 56 * s, 24 * s,
