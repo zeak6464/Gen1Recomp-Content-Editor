@@ -21,7 +21,7 @@ function M.layout(data, id, project)
     local border=source.gen3Border or {width=1,height=1,mids={0}}
     local layout={mapId=id,width=source.cellWidth,height=source.cellHeight,
       trueWidth=source.cellWidth,trueHeight=source.cellHeight,pair=source.baseTileset,
-      borderWidth=border.width or 1,borderHeight=border.height or 1,
+      borderPair=border.pair or source.baseTileset,borderWidth=border.width or 1,borderHeight=border.height or 1,
       borderMids=require("src.mods.Merge").deepCopy(border.mids or {0})}
     function layout:cellAt(x,y)
       local i=y*self.width+x+1
@@ -102,7 +102,7 @@ end
 -- Borders repeat outside the map and always remain blocked.
 function M.borderLayout(project,id,base)
   local border=(project.gen3Borders or {})[id] or base
-  local layout={width=border.borderWidth,height=border.borderHeight,pair=base.pair}
+  local layout={width=border.borderWidth,height=border.borderHeight,pair=border.borderPair or base.borderPair or base.pair}
   function layout:cellAt(x,y)
     return {mid=border.borderMids[y*self.width+x+1] or 0,coll=255,elev=0}
   end
@@ -111,12 +111,25 @@ end
 
 local function syncBorder(project,id)
   local border=project.gen3Borders[id]
-  local value={width=border.borderWidth,height=border.borderHeight,
+  local value={pair=border.borderPair,width=border.borderWidth,height=border.borderHeight,
     mids=require("src.mods.Merge").deepCopy(border.borderMids)}
   local source=(project.layeredMaps or {})[id]
   local map=(project.maps or {})[id]
   if source then source.gen3Border=value end
   if map then map._gen3Border=require("src.mods.Merge").deepCopy(value) end
+end
+
+function M.setBorderTileset(project,id,base,pair)
+  if not (project.layeredMaps or {})[id] then return false,"Separate border tilesets require a custom layered map" end
+  assert(type(pair)=="string" and pair~="","Choose a border tileset")
+  local old=M.borderLayout(project,id,base)
+  if old.pair==pair then return false end
+  project.gen3Borders=project.gen3Borders or {}
+  local border=project.gen3Borders[id] or {borderWidth=base.borderWidth,borderHeight=base.borderHeight,
+    borderMids=require("src.mods.Merge").deepCopy(base.borderMids)}
+  border.borderPair=pair;project.gen3Borders[id]=border
+  syncBorder(project,id)
+  return true
 end
 
 function M.resizeBorder(project,id,base,width,height)
@@ -132,7 +145,7 @@ function M.resizeBorder(project,id,base,width,height)
     mids[y*width+x+1]=old:cellAt(x%old.width,y%old.height).mid
   end end
   project.gen3Borders=project.gen3Borders or {}
-  project.gen3Borders[id]={borderWidth=width,borderHeight=height,borderMids=mids}
+  project.gen3Borders[id]={borderPair=old.pair,borderWidth=width,borderHeight=height,borderMids=mids}
   syncBorder(project,id)
   return true
 end
@@ -144,7 +157,7 @@ function M.paintBorder(project,id,base,x,y,mid)
   if layout:cellAt(x,y).mid==mid then return false end
   project.gen3Borders=project.gen3Borders or {}
   if not project.gen3Borders[id] then
-    project.gen3Borders[id]={borderWidth=base.borderWidth,borderHeight=base.borderHeight,
+    project.gen3Borders[id]={borderPair=base.borderPair,borderWidth=base.borderWidth,borderHeight=base.borderHeight,
       borderMids=require("src.mods.Merge").deepCopy(base.borderMids)}
   end
   project.gen3Borders[id].borderMids[y*layout.width+x+1]=mid

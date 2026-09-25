@@ -722,6 +722,10 @@ end
 
 -- Wire A[dir] → B and B[opposite] → A with negated block offset (Tiled/vanilla).
 local function applyConnectionEdit(S, fromId, dir, wantMap, wantOff, App, opts)
+  if Generation.isGen3(S) then
+    local result=require("Gen3ConnectionEditor").edit(S,fromId,dir,1,wantMap,math.floor(tonumber(wantOff) or 0))
+    if App then App.markDirty() end;return result
+  end
   opts = opts or {}
   local from = ensureOwned(S, fromId)
   if not from then return nil end
@@ -2404,7 +2408,7 @@ local function buildWorldLayout(S)
   local placed = { [rootId] = { ox = 0, oy = 0 } }
 
   -- Outgoing neighbors from the current map.
-  for dir, conn in pairs(rootDef.connections or {}) do
+  for dir, conn in require("Gen3Connections").each(rootDef.connections) do
     local dest = connMapId(conn, S)
     if dest then
       local destDef = resolveMapDef(S, dest)
@@ -2428,7 +2432,7 @@ local function buildWorldLayout(S)
     if id ~= rootId then
       local def = resolveMapDef(S, id)
       if def then
-        for dir, conn in pairs(def.connections or {}) do
+        for dir, conn in require("Gen3Connections").each(def.connections) do
           if conn and connMapId(conn, S) == rootId then
             edges[#edges + 1] = {
               from = id, to = rootId, dir = dir,
@@ -2717,6 +2721,9 @@ local function drawWorldView(S, App, vx, vy, vw, vh, propW)
 
   Kit.text("micro", "Connections (auto two-way)", px + 10 * s, y, PAL.caption)
   y = y + 16 * s
+  if Generation.isGen3(S) then
+    return require("Gen3ConnectionEditor").draw(S,S.mapId,px+10*s,y,propW-20*s,py+canvasH-y-16*s,App)
+  end
   map.connections = map.connections or {}
   local fromId = map.id or S.mapId
   local connectionIds, connectionLabels = connectionMapChoices(S, fromId)
@@ -3225,7 +3232,7 @@ end
 local function editorNeighbors(S, rootDef)
   local out = {}
   if not rootDef then return out end
-  for dir, conn in pairs(rootDef.connections or {}) do
+  for dir, conn in require("Gen3Connections").each(rootDef.connections) do
     -- Gold stores the dest name in mapId; numeric map is the group index.
     local dest = connMapId(conn, S)
     local destDef = dest and resolveMapDef(S, dest)

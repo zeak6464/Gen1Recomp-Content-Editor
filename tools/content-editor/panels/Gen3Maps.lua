@@ -33,7 +33,8 @@ function Panel.draw(S,x,y,w,h,App)
   local ids=RegList.sortedKeys(maps)
   S.g3MapId=S.g3MapId or ids[1]
   local fx,fw=RegList.drawList(S,App,x,y,w,h,"Gen 3 maps",ids,
-    {selKey="g3MapId",queryKey="g3MapQuery",offsetKey="g3MapOffset",listW=210*s})
+    {selKey="g3MapId",queryKey="g3MapQuery",offsetKey="g3MapOffset",listW=210*s,
+      label=function(id) local map=(S.project.maps or {})[id];return map and (map.name or map.label) or id end})
   if not S.g3MapId then Kit.caption(fx,y,"Import FireRed or LeafGreen to load native maps"); return end
   local layout,err=Map.layout(S.data,S.g3MapId,S.project)
   if not layout then Kit.caption(fx,y,tostring(err)); return end
@@ -190,6 +191,23 @@ function Panel.draw(S,x,y,w,h,App)
     end
   end
   number(S,"g3Mid",rx,y,rightW,"Metatile",0,1023)
+  if borderMode and (S.project.layeredMaps or {})[S.g3MapId] then
+    local pairsById,labels={},{}
+    for _,info in pairs((S.data.gen3Native or {}).layouts or {}) do
+      if info.pair then pairsById[info.pair]=true end
+    end
+    pairsById[layout.pair]=true
+    for pair in pairs(pairsById) do labels[pair]=pair:gsub("_rom_"," / ") end
+    Kit.caption(rx,y+53*s,"Border tileset")
+    require("ChoicePicker").field(S,{x=rx,y=y+76*s,w=rightW,h=28*s,current=layout.pair,
+      ids=RegList.sortedKeys(pairsById),labels=labels,title="BORDER TILESET",
+      tooltip="Choose the tileset used only by this border. Then select a metatile below and paint the border cells. Existing tile numbers are kept; the map interior is unchanged.",
+      onPick=function(pair)
+        if Map.setBorderTileset(S.project,S.g3MapId,baseLayout,pair) then
+          S.g3PaletteScroll=0;S.g3Tool="Paint";App.markDirty();S.status="Border tileset changed; select a tile and paint the border"
+        end
+      end})
+  end
   if not borderMode then
   number(S,"g3Coll",rx,y+53*s,rightW/2-5*s,"Collision byte",0,255)
   number(S,"g3Elev",rx+rightW/2+5*s,y+53*s,rightW/2-5*s,"Elevation",0,15)

@@ -2,6 +2,16 @@
 -- native; the shared panels edit the same project structures as other games.
 local M={}
 local function copy(v) return require("src.mods.Merge").deepCopy(v) end
+function M.rename(S,id,name)
+  name=tostring(name or ""):gsub("%s+"," "):match("^%s*(.-)%s*$")
+  if name=="" then return false,"Enter a map name" end
+  local source,err=M.convert(S,id)
+  if not source then return false,err end
+  local map=S.project.maps[id]
+  if map.name==name and map.label==name then return false end
+  map.name=name;map.label=name
+  return true
+end
 local function behaviorFor(pair,mid)
   local ok,interactions=pcall(require,"src.core.game3.scripting.interaction_scripts")
   local behaviors=ok and interactions and interactions.behaviors
@@ -23,6 +33,12 @@ function M.prepare(S)
     end
   end
   if S.project then S.project.gen3Workspace=1 end
+  -- Older editor projects may contain an untouched copy of the lossy cache.
+  -- Explicit connection edits made by the new editor are never repaired again.
+  local combined,skip={},{}
+  for id,map in pairs(data.maps or {}) do combined[id]=map end
+  for id,map in pairs(S.project and S.project.maps or {}) do combined[id]=map;skip[id]=map._g3ConnectionsEdited end
+  require("Gen3Connections").recover(combined,skip)
   for _,source in pairs(S.project and S.project.layeredMaps or {}) do
     for i,coll in pairs(source.gen3Collision or {}) do
       if source.collision[i]==(coll==0 and "walk" or "solid") then
@@ -46,7 +62,7 @@ function M.prepare(S)
       local layout=require("Gen3Map").layout(data,id,S.project)
       if layout then
         local border=(S.project.gen3Borders or {})[id] or layout
-        map._gen3Border={width=border.borderWidth,height=border.borderHeight,mids=copy(border.borderMids)}
+        map._gen3Border={pair=border.borderPair or layout.borderPair,width=border.borderWidth,height=border.borderHeight,mids=copy(border.borderMids)}
         if source then source.gen3Border=copy(map._gen3Border) end
       end
     end
@@ -82,7 +98,7 @@ function M.source(S,id)
   local source={id=id,cellWidth=layout.width,cellHeight=layout.height,baseTileset=layout.pair,
     layers={{id="ground",name="Ground",visible=true,export=true,opacity=1,cells=cells}},
     collision=collision,gen3Elevation=elevation,gen3Collision=nativeCollision,gen3Behavior=nativeBehavior,
-    gen3Border={width=border.borderWidth,height=border.borderHeight,mids=copy(border.borderMids)}}
+    gen3Border={pair=border.borderPair or layout.borderPair,width=border.borderWidth,height=border.borderHeight,mids=copy(border.borderMids)}}
   return source
 end
 function M.convert(S,id)

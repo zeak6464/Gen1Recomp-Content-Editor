@@ -1076,6 +1076,8 @@ local function drawCanvas(S, source, x, y, w, h, App)
           local desc = borderDesc
           if mapRec and mapRec._borderExplicit and mapRec._borderSource then
             desc = resolveSource(mapRec._borderSource) or desc
+          elseif mapRec and mapRec._gen3Border and mapRec._gen3Border.pair then
+            desc = resolveSource(LayeredMap.runtimeSourceId(mapRec._gen3Border.pair)) or desc
           end
           drawSourceTile(S, desc, tile, cx * CELL, cy * CELL, CELL, 1)
         end
@@ -1612,7 +1614,10 @@ local function drawMapList(S, x, y, w, h, App)
         end
       end
     end
-    Kit.text("micro", Kit.ellipsize("micro", id, innerW - 42 * Kit.scale),
+    local named=S.project.maps and S.project.maps[id]
+    local shown=named and (named.label or named.name) or id
+    Kit.offerTooltip(x+8*Kit.scale,ry,innerW,rowH,shown.." ("..id..")")
+    Kit.text("micro", Kit.ellipsize("micro", shown, innerW - 42 * Kit.scale),
       x + 14 * Kit.scale, ry + 6 * Kit.scale,
       layered and PAL.heading or PAL.muted)
     if layered then

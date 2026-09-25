@@ -152,7 +152,7 @@ return "  local collisionModes="..encode(C.modes).."\n  local paintedCollision="
       local borderMids={}
       for i,mid in ipairs(border.mids) do
         borderMids[i]=#slots
-        slots[#slots+1]={{source="@runtime:"..source.baseTileset,tile=mid,opacity=1}}
+        slots[#slots+1]={{source="@runtime:"..(border.pair or source.baseTileset),tile=mid,opacity=1}}
       end
       local cols=math.max(1,math.ceil(math.sqrt(#slots)))
       local rows=math.max(1,math.ceil(#slots/cols))

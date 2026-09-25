@@ -2149,7 +2149,7 @@ local function compileRuntimeShared(context, mapId, mapSource, warpRecords,
   local borderGraphic = nil
   do
     local srcId = (map._borderExplicit and map._borderSource)
-      or LayeredMap.runtimeSourceId(mapSource.baseTileset or sharedId)
+      or LayeredMap.runtimeSourceId((map._gen3Border or {}).pair or mapSource.baseTileset or sharedId)
     local source = srcId and LayeredMap.sourceDescriptor(S, srcId)
     if source and source.tileset then
       local graphic = {}
@@ -2487,7 +2487,7 @@ local function compileMap(context, mapId, mapSource, warpRecords, activeWarpCell
   local borderGraphic = nil
   do
     local srcId = (map._borderExplicit and map._borderSource)
-      or LayeredMap.runtimeSourceId(mapSource.baseTileset)
+      or LayeredMap.runtimeSourceId((map._gen3Border or {}).pair or mapSource.baseTileset)
     local source = srcId and LayeredMap.sourceDescriptor(S, srcId)
     if source then
       local graphic = {}

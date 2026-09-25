@@ -60,6 +60,7 @@ function Gen3.load(data, read, list)
     for _, key in ipairs({"bgEvents","coordEvents","mapScripts","music"}) do def[key] = ev[key] end
     data.maps[id] = def
   end
+  require("Gen3Connections").recover(data.maps)
   data.gen3Pokemon = {}
   local parts = { names = "names", types = "types", stats = "stats",
     abilities = "abilities", abilityNames = "ability_names", meta = "meta",
@@ -144,6 +145,12 @@ function Gen3.emit(project, encode)
     "return function(mod)",
     "  if mod.generation ~= 3 then return end" }
   out[#out+1]=require("Gen3SpeciesCapacity").source
+  local authoredConnections={}
+  for id,record in pairs((project.gen3 or {}).maps or {}) do if record.connections~=nil then
+    require("Gen3Connections").validate(record.connections);authoredConnections[id]=true
+  end end
+  out[#out+1]="local connections=(function()\n"..assert(love.filesystem.read("tools/content-editor/Gen3Connections.lua")).."\nend)()"
+  out[#out+1]="local connectionRuntime=(function()\n"..assert(love.filesystem.read("tools/content-editor/Gen3ConnectionsRuntime.lua")).."\nend)()\nconnectionRuntime.install(mod,connections,"..encode(authoredConnections)..")"
   out[#out+1] = [[  local function assetPaths(value)
     if type(value) ~= "table" then return value end
     for key, child in pairs(value) do

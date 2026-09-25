@@ -72,3 +72,7 @@ tests/content-editor/leafgreen-smoke/*.png
 /tests/content-editor/advanced-forms-smoke/project/
 /tests/content-editor/advanced-forms-smoke/result.txt
 /tests/content-editor/advanced-forms-smoke/*.png
+/tests/content-editor/border-tileset-smoke/result.txt
+/tests/content-editor/connections-smoke/result.txt
+/tests/content-editor/connections-smoke/project/
+/tests/content-editor/connections-smoke/*.png

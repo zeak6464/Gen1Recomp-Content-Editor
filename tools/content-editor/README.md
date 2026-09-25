@@ -114,6 +114,19 @@ New matchups default to neutral. Fairy can be authored this way; its matchup
 chart is not filled automatically. The summary screen displays a text badge
 for custom types. These features target Gen1Recomp mods, not a GBA ROM patch.
 
+## Gen 3 map connections
+
+**Map setup → Map connections** supports multiple connections on each side.
+Use **+ Add** under North, South, East or West, then set the destination and
+offset in 16-pixel cells. Editing or removing one connection updates only its
+matching return link. Offsets run horizontally for North/South and vertically
+for East/West. Gaps between destination spans remain blocked.
+
+Legacy stock caches that lost Water Path's additional west connections are
+repaired to Green Path (0), Six Island (40) and Ruin Valley (80). Explicit edits
+made with this connection editor are preserved, including deleted links.
+Save the project and restart its playtest to use the exported runtime support.
+
 ## LeafGreen edition support
 
 With a linked runtime that supports LeafGreen, select **Project → Target game →
