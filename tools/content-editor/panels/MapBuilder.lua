@@ -467,7 +467,7 @@ local COLLISION_LABEL = {
   solid = "Wall", walk = "Land", grass = "Grass", water = "Water",
   shore = "Shore", ledge = "Ledge", face = "Cliff", cut = "Cut",
   door = "Door", stairs = "Stairs", cave = "Cave", panel = "Pad",
-  carpet = "Carpet",
+  carpet = "Carpet", whirlpool = "Whirlpool",
 }
 
 local COLLISION_TIP = {
@@ -484,6 +484,7 @@ local COLLISION_TIP = {
   cave = "Cave mouth (COLL_CAVE)",
   panel = "Warp panel / floor pad (COLL_WARP_PANEL)",
   carpet = "Carpet — walk in the chosen direction to take the warp",
+  whirlpool = "Whirlpool — blocked; surf up and press A to cross with WHIRLPOOL",
 }
 
 local FACE_DIR_TIP = {
@@ -1137,6 +1138,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
           face_up = { 0.95, 0.45, 0.2 }, face_down = { 0.95, 0.45, 0.2 },
           face_left = { 0.95, 0.45, 0.2 }, face_right = { 0.95, 0.45, 0.2 },
           face = { 0.95, 0.45, 0.2 },
+          whirlpool = { 0.55, 0.35, 1 },
         }
         local color = colors[mode] or colors.solid
         love.graphics.setColor(color[1], color[2], color[3], 0.28)
@@ -2332,6 +2334,36 @@ local function drawToolbar(S, source, x, y, w, App)
         end
       end
       bx = bx + bw + 3 * s
+      end
+    end
+    -- FireRed only: whirlpools (Gen3Whirlpool), crossed with WHIRLPOOL.
+    if Generation.isGen3(S) then
+      local label = COLLISION_LABEL.whirlpool
+      local bw = Kit.textWidth("micro", label) + 16 * s
+      if bx + bw > x + w and bx > x + 56 * s then
+        modeY, bx = modeY + 27 * s, x + 56 * s
+        barBottom = modeY + 24 * s
+      end
+      if Kit.chip(bx, modeY, bw, 24 * s, label, S.builderCollision == "whirlpool",
+          PAL.green, PAL.steel, COLLISION_TIP.whirlpool) then
+        S.builderCollision = "whirlpool"
+      end
+      bx = bx + bw + 3 * s
+      if S.builderCollision == "whirlpool" then
+        local sw = Kit.textWidth("micro", "Crossing settings") + 16 * s
+        if bx + sw > x + w and bx > x + 56 * s then
+          modeY, bx = modeY + 27 * s, x + 56 * s
+          barBottom = modeY + 24 * s
+        end
+        if Kit.chip(bx, modeY, sw, 24 * s, "Crossing settings", S.builderWhirlSettings == true,
+            PAL.blue, PAL.steel, "Move, badge, messages and sound for every whirlpool") then
+          S.builderWhirlSettings = not S.builderWhirlSettings
+        end
+        bx = bx + sw + 3 * s
+        if S.builderWhirlSettings then
+          barBottom = require("Gen3WhirlpoolPanel").settings(S, App, x, math.max(barBottom, modeY + 24 * s) + 8 * s,
+            math.min(w, 720 * s))
+        end
       end
     end
     if LayeredMap.collisionBase(S.builderCollision or "solid") == "ledge" then

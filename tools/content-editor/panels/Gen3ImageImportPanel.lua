@@ -37,12 +37,12 @@ local function refresh(S, st, pair)
   if not st.frames then st.plan, st.planErr = nil, st.framesErr return end
   local bgKey = st.bg and (st.bg .. "|" .. Blocks.signature(Blocks.definition(S, pair, st.bg) or { slots = {} })) or "none"
   local key = table.concat({ fkey, st.blocksW, st.blocksH, bgKey, tostring(st.avoidBg),
-    tostring(st.palette), st.bright, tostring(st.over) }, "|")
+    tostring(st.palette), st.bright, tostring(st.over), tostring(st.whirlpool) }, "|")
   if st._planKey == key then return end
   st._planKey = key
   st.plan, st.planErr = Import.plan(S, pair, { frames = st.frames, blocksW = st.blocksW,
     blocksH = st.blocksH, bg = st.bg, palette = st.palette, bright = st.bright,
-    avoidBg = st.avoidBg, over = st.over })
+    avoidBg = st.avoidBg, over = st.over, whirlpool = st.whirlpool })
   st.previews = nil
   if st.plan then st.blockCount, st.tileCount = Import.cost(st.plan) end
 end

@@ -185,6 +185,12 @@ still showing around a merged tile keeps animating in game -- also when the
 merge moved the slot to another palette, and when the water is in the top
 layer of a *Covered* block.
 
+**Swap layers** (under the slot grids) swaps the bottom and top layers
+corner for corner. **Merge top into bottom** draws each top-layer tile onto
+the bottom tile in the same corner (the same way as *Merge a tile on top*,
+keeping colours where a palette has room) and empties the top layer, ready
+for more edits.
+
 **Import PNG...** (above the block strip) turns a picture into blocks: one
 PNG, or a strip of animation frames side by side (the way the game keeps its
 own animated tiles). Choose how many blocks it covers (bigger pictures are
@@ -195,6 +201,17 @@ it). *Create blocks* makes the blocks and your tiles, and for several frames
 a tile animation per block, then shows which first-frame blocks to paint on
 the map. Importing again under the same name replaces it and keeps its block
 numbers; *Remove* deletes an import's blocks, tiles and animation.
+
+**Whirlpools.** In the map editor, the Collision tool has a **Whirlpool**
+brush (FireRed projects). Painted cells can't be surfed into; facing one
+while surfing and pressing A asks to use WHIRLPOOL when a party Pokémon
+knows the move (and the chosen badge is owned), then carries the player
+across in the direction they face to the first water past it, still
+surfing, with the whirlpool sound, like Waterfall. Otherwise it says the
+currents are too strong. **Crossing settings** (next to the brush) sets the
+move, badge, messages and sound for every whirlpool in the project. The
+cells get behaviour 0x1F0, the editor's own; `Gen3WhirlpoolRuntime` adds the
+crossing in game.
 
 Animated ground keeps animating: where a block's bottom layer uses tiles of
 an animated game block (water, sand, flowers) and nothing covers them, those

@@ -213,6 +213,11 @@ function Gen3.emit(project, encode)
     out[#out+1]="    return data end)()"
     out[#out+1]=require("Gen3LayeredRuntime")
   end
+  -- Whirlpools (map editor collision): crossed with WHIRLPOOL while surfing.
+  local whirlpool = require("Gen3Whirlpool").compile(project)
+  if whirlpool then
+    out[#out+1]=require("Gen3WhirlpoolRuntime")(whirlpool,encode)
+  end
   out[#out + 1] = "end\n"
   return table.concat(out, "\n")
 end

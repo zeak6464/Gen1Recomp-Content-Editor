@@ -302,6 +302,31 @@ local function drawBlockEditor(S, App, pair, mid, x, y, w)
   end
   y = rowBottom + 12 * s
 
+  -- Whole-block layer tools.
+  if Kit.button(x, y, 150 * s, 24 * s, "Swap layers", { kind = "ghost", font = "small",
+      tooltip = "Top layer to the bottom and bottom to the top" }) then
+    Blocks.swapLayers(def)
+    save(S, App, pair, mid, def, "Swapped the top and bottom layers")
+    S.g3BlockMerge = nil
+  end
+  local anyTop = false
+  for i = 5, 8 do if def.slots[i].tile then anyTop = true end end
+  if Kit.button(x + 158 * s, y, 220 * s, 24 * s, "Merge top into bottom", { kind = "ghost", font = "small",
+      enabled = anyTop,
+      tooltip = "Draw the top layer onto the bottom layer and empty the top for more edits" }) and anyTop then
+    local n, approx = Blocks.flattenLayers(S, pair, def)
+    if n then
+      save(S, App, pair, mid, def)
+      App.markDirty()
+      S.g3BlockMerge = nil
+      S.status = ("Merged %d corner%s into the bottom layer; the top layer is empty"):format(n, n == 1 and "" or "s")
+        .. ((approx or 0) > 0 and (" (%d colour%s approximated)"):format(approx, approx == 1 and "" or "s") or "")
+    else
+      S.status = tostring(approx)
+    end
+  end
+  y = y + 34 * s
+
   -- The selected slot.
   local si = S.g3BlockSlot
   if si and def.slots[si] then

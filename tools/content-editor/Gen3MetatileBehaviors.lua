@@ -28,6 +28,7 @@ M.NAMES = {
   [0x13] = "Waterfall",
   [0x15] = "Ocean water",
   [0x1A] = "Water (unused variant)",
+  [0x1F0] = "Whirlpool (cross with WHIRLPOOL)", -- editor-defined, Gen3Whirlpool
   [0x1B] = "Water by the abandoned ship",
   [0x50] = "Water (50)",
   [0x51] = "Water (51)",

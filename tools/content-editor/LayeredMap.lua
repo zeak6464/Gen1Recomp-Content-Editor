@@ -752,7 +752,7 @@ function LayeredMap.setCollision(source, x, y, mode)
   for _, value in ipairs(LayeredMap.COLLISION_MODES) do
     if value == mode or value == base then valid = true; break end
   end
-  if not valid and source.gen3Collision then
+  if not valid and (source.gen3Collision or mode == "whirlpool") then
     valid = require("Gen3Collision").painted[mode] ~= nil
   end
   if not valid then return false end

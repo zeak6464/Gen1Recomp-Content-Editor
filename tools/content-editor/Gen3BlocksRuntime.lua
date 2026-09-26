@@ -109,11 +109,20 @@ return function(data, encode)
     end
 
     -- Where each bottom-layer pixel of a block comes from in the game's
-    -- saved pictures: [pixel 1-256] = {block, pixel}. Only pixels that are
-    -- still visible in the finished block are listed. The tileset animation
-    -- (water, sand, flowers) uses this to keep a block built on animated
-    -- ground animating.
-    local function sources(all,blk)
+    -- saved pictures: [pixel 1-256] = {block, pixel, colour change}. Only
+    -- pixels that are still visible in the finished block are listed. The
+    -- tileset animation (water, sand, flowers) uses this to keep a block
+    -- built on animated ground animating. A tile drawn in another palette
+    -- than its own (dark water from light, a recolour, a merge) names the
+    -- change, so its animated frames take the block's colours, not the
+    -- source block's.
+    local function change(conv,from,to,recolour,near)
+      if from==nil or (from==to and not recolour) then return nil end
+      local key=from..">"..to..(near and "n" or ":"..(recolour or ""))
+      conv[key]=conv[key] or {from=from,to=to,recolour=recolour,near=near}
+      return key
+    end
+    local function sources(all,blk,conv)
       local covered=blk.layerType=="covered"
       local out={}
       -- Bottom layer, then (covered blocks draw both under the player) the
@@ -123,22 +132,27 @@ return function(data, encode)
         local key=slot and slot.key
         local own=key and g3blocks.tiles[key]
         local srcKey=own and own.base or key
-        local mid,_,q=TS.parseKey(srcKey)
-        local omid,_,oq=TS.parseKey(own and own.over)
+        -- the animation's frames are bottom-layer pictures
+        local mid,layer,q,pal=TS.parseKey(srcKey)
+        if layer~="u" then mid=nil end
+        local omid,olayer,oq,opal=TS.parseKey(own and own.over)
+        if olayer~="u" then omid=nil end
         local px=key and all[key]
         if px then
           local ox,oy=((s-1)%4%2)*8,math.floor((s-1)%4/2)*8
+          local base=mid and change(conv,pal,slot.pal,own and own.recolour)
+          local merged=omid and change(conv,opal,slot.pal,nil,true)
           for y=0,7 do for x=0,7 do
             local ty,tx=slot.vflip and 7-y or y,slot.hflip and 7-x or x
             local t=ty*8+tx+1
             if (px[t] or 0)~=0 then
               local di=(oy+y)*16+ox+x+1
               if mid and (not own or own.px:sub(t,t)==".") then
-                out[di]={mid,(math.floor(q/2)*8+ty)*16+(q%2)*8+tx+1}
+                out[di]={mid,(math.floor(q/2)*8+ty)*16+(q%2)*8+tx+1,base}
               elseif omid and own.overMask:sub(t,t)=="1" then
                 -- a merged game tile's pixel: animates with that tile's block
                 local bx,by=own.overH and 7-tx or tx,own.overV and 7-ty or ty
-                out[di]={omid,(math.floor(oq/2)*8+by)*16+(oq%2)*8+bx+1}
+                out[di]={omid,(math.floor(oq/2)*8+by)*16+(oq%2)*8+bx+1,merged}
               else
                 out[di]=nil
               end
@@ -165,12 +179,12 @@ return function(data, encode)
       local all=tilesFor(pair)
       if not all then return end
       local changed=false
-      ts._g3Sources={}
+      ts._g3Sources,ts._g3Conv={},{}
       for _,mid in ipairs(mids) do
         local blk=blocks[mid]
         local u,o=TS.compose(all,{slots=blk.slots,layerType=blk.layerType})
         if u then
-          local src=sources(all,blk)
+          local src=sources(all,blk,ts._g3Conv)
           if src and not over then
             for i=1,256 do if o[i]~=0 then src[i]=nil end end
           end
@@ -200,6 +214,7 @@ return function(data, encode)
       if over then over.atlasCols,over.atlasRows=cols,rows end
       -- Colours the modder added to free colour numbers of this tileset's palettes.
       local added=g3blocks.palettes[pair]
+      ts._g3GameRgb=NativePack.palsToRgb8(ts.bgr or {})
       if added and ts.bgr then
         for pal,cols in pairs(added) do
           local row=ts.bgr[pal]
@@ -207,6 +222,7 @@ return function(data, encode)
         end
       end
       local rgb=NativePack.palsToRgb8(ts.bgr or {})
+      ts._g3Rgb=rgb
       local function bake(tbl,transparentZero)
         local rgba,w,h=NativePack.bakeRgba(tbl,rgb,{transparentZero=transparentZero})
         local imageData=love.image.newImageData(w,h,"rgba8",rgba)
@@ -242,12 +258,51 @@ return function(data, encode)
     -- animation, so the edit stays visible.
     local okA,Anim=pcall(require,"src.core.game3.tileset_anim")
     local MID=1024
+    -- An animated pixel from a tile drawn in another palette: find its colour
+    -- number in the source block's palette, then that number (recoloured,
+    -- or for a merged tile the nearest colour) in the block's own palette.
+    local function recolourer(ts)
+      local done={}
+      return function(key,rgba)
+        local memo=done[key]
+        if not memo then memo={};done[key]=memo end
+        local v=memo[rgba]
+        if v then return v end
+        v=rgba
+        local c=(ts._g3Conv or {})[key]
+        local from=c and (ts._g3GameRgb or {})[c.from]
+        local to=c and (ts._g3Rgb or {})[c.to]
+        if from and to then
+          local r,g,b,a=rgba:byte(1,4)
+          local idx
+          for k=1,15 do local p=from[k];if p[1]==r and p[2]==g and p[3]==b then idx=k;break end end
+          if not idx and from[0][1]==r and from[0][2]==g and from[0][3]==b then idx=0 end
+          if idx then
+            local d=idx
+            if idx~=0 and c.near then
+              local best=math.huge
+              for k=1,15 do
+                local q=to[k];local dist=(q[1]-r)^2+(q[2]-g)^2+(q[3]-b)^2
+                if dist<best then best,d=dist,k end
+              end
+            elseif idx~=0 and c.recolour then
+              d=tonumber(c.recolour:sub(idx+1,idx+1),16) or idx
+            end
+            local q=to[d]
+            if q then v=string.char(q[1],q[2],q[3],a) end
+          end
+        end
+        memo[rgba]=v
+        return v
+      end
+    end
     local function animate(pair,ts)
       if not okA or type(Anim)~="table" then return end
       local entry=(Anim._pairs or {})[pair]
       if type(entry)~="table" or entry._g3==ts or not ts._g3Sources or not ts.imageData then return end
       entry._g3=ts;entry.atlas=ts;entry.frames={}
       local placed,restore={},{}
+      local recolour=recolourer(ts)
       for _,kind in ipairs({"water","sand","flower"}) do
         local bank=entry.banks and entry.banks[kind]
         if bank and bank.frames and bank.frames>0 then
@@ -282,6 +337,7 @@ return function(data, encode)
                   if si then
                     local off=(f*n+si)*MID+(s[2]-1)*4
                     px[i]=bank.rgba:sub(off+1,off+4)
+                    if s[3] then px[i]=recolour(s[3],px[i]) end
                   else
                     px[i]=statics[mid][i]
                   end

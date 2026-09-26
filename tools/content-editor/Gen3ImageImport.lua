@@ -315,7 +315,7 @@ function M.plan(S, pair, opts)
   end
   local allowed = M.usable(pack.rgb[pal], avoid)
   return {
-    pair = pair, w = bw, h = bh, bg = opts.bg, over = opts.over == true,
+    pair = pair, w = bw, h = bh, bg = opts.bg, over = opts.over == true, whirlpool = opts.whirlpool == true,
     pal = pal, best = best, scores = scores, scale = scale, bright = bright,
     frames = M.quantize(fitted, pack.rgb[pal], allowed, bright),
   }
@@ -450,6 +450,8 @@ function M.create(S, pair, plan, name, duration)
     return nil, ("No room for %d more blocks in this tileset (ids stop at %d)"):format(count, Blocks.MAX_MID)
   end
   local bottom, behavior = backgroundSlots(S, pair, plan.bg)
+  local plainBehavior = behavior
+  if plan.whirlpool then behavior = require("Gen3Whirlpool").BEHAVIOR end
   local layerType
   if plan.bg then layerType = plan.over and "normal" or "covered" else layerType = "normal" end
   local imageOnTop = plan.bg ~= nil or plan.over
@@ -493,7 +495,8 @@ function M.create(S, pair, plan, name, duration)
       S.project.runtimeTileAnims[pair][base + p * F] = frames
     end
   end
-  local rec = { name = name, base = base, count = count, w = plan.w, h = plan.h, frames = F, grid = grid }
+  local rec = { name = name, base = base, count = count, w = plan.w, h = plan.h, frames = F, grid = grid,
+    behavior = plainBehavior }
   local list = imports(S.project, pair, true)
   list[#list + 1] = rec
   return rec

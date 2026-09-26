@@ -347,6 +347,7 @@ function M.validate(project)
         "Tile " .. key .. ": bad base tile")
     end
   end
+  require("Gen3Whirlpool").validate(project)
 end
 
 -- Tiles ------------------------------------------------------------------------
@@ -563,7 +564,7 @@ function M.mergeTile(S, pair, slot, tile, tilePal, hflip, vflip, newPal)
   local used = {}
   for i = 1, 64 do if top[i] ~= 0 then used[top[i]] = true end end
   for c in pairs(used) do
-    if M.isCustom(tile) or (tilePal or slot.pal) == slot.pal or not from[c] then
+    if (tilePal or slot.pal) == slot.pal or not from[c] then
       map[c] = c
     else
       local best, bestD = c, math.huge
@@ -731,7 +732,7 @@ function M.merge(S, pair, def, si, tile, tilePal, hflip, vflip)
     def.layerType = "covered"
     return tile, "layer", 0
   end
-  if M.isCustom(tile) or tilePal == slot.pal then
+  if tilePal == slot.pal then
     local n, approx = M.mergeTile(S, pair, slot, tile, tilePal, hflip, vflip)
     if not n then return nil, approx end
     return n, "same", approx
@@ -783,6 +784,39 @@ function M.merge(S, pair, def, si, tile, tilePal, hflip, vflip)
   local n, approx = M.mergeTile(S, pair, slot, tile, tilePal, hflip, vflip)
   if not n then return nil, approx end
   return n, "nearest", approx
+end
+
+--- Swap a block definition's two layers, corner for corner.
+function M.swapLayers(def)
+  for q = 1, 4 do
+    def.slots[q], def.slots[q + 4] = def.slots[q + 4], def.slots[q]
+  end
+  return def
+end
+
+--- Draw the top layer into the bottom one, corner by corner, and empty the
+-- top layer for more edits. Each corner merges the way "Merge a tile on
+-- top" does (its own colours where a palette has room). Returns how many
+-- corners were merged and how many colours had to be approximated, or nil
+-- and a message.
+function M.flattenLayers(S, pair, def)
+  local merged, approx = 0, 0
+  local empty = function() return { tile = false, pal = 0, hflip = false, vflip = false } end
+  for q = 1, 4 do
+    local top, bottom = def.slots[q + 4], def.slots[q]
+    if top.tile then
+      if not bottom.tile then
+        def.slots[q] = { tile = top.tile, pal = top.pal, hflip = top.hflip, vflip = top.vflip }
+      else
+        local n, how, a = M.merge(S, pair, def, q, top.tile, top.pal, top.hflip, top.vflip)
+        if not n then return nil, how end
+        approx = approx + (a or 0)
+      end
+      def.slots[q + 4] = empty()
+      merged = merged + 1
+    end
+  end
+  return merged, approx
 end
 
 --- Undo every stroke on your tile (back to its base, or blank).

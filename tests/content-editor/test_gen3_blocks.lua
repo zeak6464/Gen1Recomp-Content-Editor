@@ -405,6 +405,48 @@ run("merge remembers where merged game pixels came from; hand painting forgets",
   assert(pcall(Blocks.validate, S.project))
 end)
 
+run("layers: swap round-trips; merging top into bottom keeps the look", function()
+  local S = fresh()
+  local pack = Blocks.pack(S, PAIR)
+  local function rgbOf(u, o)
+    local out = {}
+    for i = 1, 256 do
+      local v = (o and o[i] ~= 0) and o[i] or u[i]
+      local c = v ~= 0 and pack.rgb[math.floor(v / 16)][v % 16]
+      out[i] = c and (c[1] .. "," .. c[2] .. "," .. c[3]) or "-"
+    end
+    return out
+  end
+  local tried, exact = 0, 0
+  for _, mid in ipairs(pack.mids) do
+    local d = Blocks.definition(S, PAIR, mid)
+    local tops = 0
+    for i = 5, 8 do if d.slots[i].tile then tops = tops + 1 end end
+    local bottoms = 0
+    for i = 1, 4 do if d.slots[i].tile then bottoms = bottoms + 1 end end
+    if tops > 0 and bottoms == 4 and d.layerType == "normal" and tried < 25 then
+      tried = tried + 1
+      -- swap twice = unchanged
+      local sw = Blocks.normalize(d)
+      Blocks.swapLayers(Blocks.swapLayers(sw))
+      assert(Blocks.signature(sw) == Blocks.signature(d), "swap twice changed block " .. mid)
+      local before = rgbOf(Blocks.composeBlock(S, PAIR, d))
+      local n, approx = assert(Blocks.flattenLayers(S, PAIR, d))
+      assert(n == tops, "merged " .. n .. " of " .. tops)
+      for i = 5, 8 do assert(not d.slots[i].tile, "top layer not emptied") end
+      if approx == 0 then
+        exact = exact + 1
+        local u = Blocks.composeBlock(S, PAIR, d)
+        local after = rgbOf(u)
+        for i = 1, 256 do assert(after[i] == before[i], ("block %d pixel %d changed"):format(mid, i)) end
+      end
+      S.project = {}
+    end
+  end
+  assert(tried > 0 and exact > 0, ("tried %d, exact %d"):format(tried, exact))
+  print(("      %d blocks flattened, %d with every colour exact"):format(tried, exact))
+end)
+
 -- Import PNG ------------------------------------------------------------------
 local Import = require("Gen3ImageImport")
 -- A sheet of `n` frames of 24 x 24: a moving bright square on nothing.
