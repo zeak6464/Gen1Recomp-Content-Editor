@@ -245,5 +245,226 @@ run("validate refuses malformed blocks and tiles", function()
   assert(pcall(Blocks.validate, { gen3Tiles = { p = { ["4096"] = { px = string.rep("a", 64), base = "20/u/0/2" } } } }))
 end)
 
+run("merge: a tile drawn over a slot's tile, in the same slot", function()
+  local S = fresh()
+  local tiles = Blocks.gameTiles(S, PAIR)
+  -- a base tile, and a top tile with some see-through pixels, same palette
+  local base, top
+  for _, t in ipairs(tiles) do
+    local n0 = 0
+    for _, v in ipairs(t.px) do if v == 0 then n0 = n0 + 1 end end
+    if not base and n0 == 0 then base = t end
+    if base and not top and t.pal == base.pal and n0 > 8 and n0 < 56 then top = t end
+  end
+  assert(base and top, "no suitable tiles")
+  local d = Blocks.definition(S, PAIR, 20)
+  local slot = d.slots[1]
+  slot.tile, slot.pal, slot.hflip, slot.vflip = base.key, base.pal, true, false
+  local n, approx = assert(Blocks.mergeTile(S, PAIR, slot, top.key, top.pal, false, false))
+  assert(approx == 0 and slot.tile == n and Blocks.customTile(S.project, PAIR, n).base == base.key)
+  Blocks.store(S, PAIR, 20, d)
+  -- What shows in the slot (with its H-flip) is the top tile over the base.
+  local px = Blocks.tilePixels(S, PAIR, n)
+  for y = 0, 7 do for x = 0, 7 do
+    local shown = px[y * 8 + (7 - x) + 1]
+    local want = top.px[y * 8 + x + 1] ~= 0 and top.px[y * 8 + x + 1] or base.px[y * 8 + (7 - x) + 1]
+    assert(shown == want, ("pixel %d,%d"):format(x, y))
+  end end
+  -- Only the merged pixels are stored.
+  local painted = Blocks.paintedCount(S.project, PAIR, n)
+  local nonzero = 0
+  for _, v in ipairs(top.px) do if v ~= 0 then nonzero = nonzero + 1 end end
+  assert(painted <= nonzero, "stored more than the merged pixels")
+  -- Merging again paints the same tile of yours (used only here).
+  assert(Blocks.mergeTile(S, PAIR, slot, top.key, top.pal, true, true) == n)
+  -- A tile of yours used twice is copied, not changed under the other slot.
+  local d2 = Blocks.definition(S, PAIR, 21); d2.slots[2].tile, d2.slots[2].pal = n, slot.pal
+  Blocks.store(S, PAIR, 21, d2); Blocks.store(S, PAIR, 20, d)
+  local copy = assert(Blocks.mergeTile(S, PAIR, d2.slots[2], top.key, top.pal))
+  assert(copy ~= n, "shared tile was changed in place")
+end)
+
+run("merge: colours from another palette move to the nearest in the slot's", function()
+  local S = fresh()
+  local pack = Blocks.pack(S, PAIR)
+  local other
+  for _, t in ipairs(Blocks.gameTiles(S, PAIR)) do if t.pal ~= 2 then other = t break end end
+  local slot = { tile = false, pal = 2, hflip = false, vflip = false }
+  local n = assert(Blocks.mergeTile(S, PAIR, slot, other.key, other.pal))
+  local px = Blocks.tilePixels(S, PAIR, n)
+  for i = 1, 64 do
+    local v = other.px[i]
+    if v ~= 0 then
+      local src, got = pack.rgb[other.pal][v], pack.rgb[2][px[i]]
+      local dGot = (src[1]-got[1])^2 + (src[2]-got[2])^2 + (src[3]-got[3])^2
+      for k = 1, 15 do
+        local c = pack.rgb[2][k]
+        assert(dGot <= (src[1]-c[1])^2 + (src[2]-c[2])^2 + (src[3]-c[3])^2, "not the nearest colour")
+      end
+    end
+  end
+end)
+
+run("merge keeps colours: other layer, or a palette with both tiles' colours", function()
+  local S = fresh()
+  local pack = Blocks.pack(S, PAIR)
+  local tiles = Blocks.gameTiles(S, PAIR)
+  -- Free corner on the other layer: layered, own palette, under the player.
+  local d = Blocks.definition(S, PAIR, 21)
+  for i = 5, 8 do d.slots[i] = { tile = false, pal = 0, hflip = false, vflip = false } end
+  d.slots[1] = { tile = tiles[1].key, pal = tiles[1].pal, hflip = false, vflip = false }
+  local other
+  for _, t in ipairs(tiles) do if t.pal ~= tiles[1].pal then other = t break end end
+  local n, how = Blocks.merge(S, PAIR, d, 1, other.key, other.pal)
+  assert(how == "layer" and d.slots[5].tile == other.key and d.slots[5].pal == other.pal
+    and d.layerType == "covered", "not layered: " .. tostring(how))
+  -- Other layer taken: exact whenever it isn't "nearest".
+  local exact, palette, moved = 0, 0, 0
+  for i = 1, #tiles, 7 do
+    for j = 2, #tiles, 11 do
+      local a, b = tiles[i], tiles[j]
+      if a.pal ~= b.pal then
+        local def = Blocks.definition(S, PAIR, 21)
+        def.layerType = "normal"
+        def.slots[1] = { tile = a.key, pal = a.pal, hflip = false, vflip = false }
+        def.slots[5] = { tile = tiles[3].key, pal = tiles[3].pal, hflip = false, vflip = false }
+        local got, kind = Blocks.merge(S, PAIR, def, 1, b.key, b.pal)
+        assert(got, kind)
+        if kind ~= "nearest" then
+          exact = exact + 1
+          if kind == "palette" or kind == "added" then palette = palette + 1; Blocks.store(S, PAIR, 21, def) end
+          if def.slots[1].pal ~= a.pal then
+            -- Moved palette: the base's pixels stay the base's (so they keep
+            -- animating in game), recoloured rather than repainted.
+            moved = moved + 1
+            local t = Blocks.customTile(S.project, PAIR, got)
+            for k = 1, 64 do
+              if b.px[k] == 0 and a.px[k] ~= 0 then assert(t.px:sub(k, k) == ".", "base pixel repainted") end
+            end
+          end
+          local px = Blocks.tilePixels(S, PAIR, got)
+          for k = 1, 64 do
+            local want = b.px[k] ~= 0 and pack.rgb[b.pal][b.px[k]] or (a.px[k] ~= 0 and pack.rgb[a.pal][a.px[k]])
+            if want then
+              local c = pack.rgb[def.slots[1].pal][px[k]]
+              assert(c[1] == want[1] and c[2] == want[2] and c[3] == want[3], "colour changed in " .. kind)
+            end
+          end
+        end
+      end
+      if palette > 0 and exact > 3 then break end
+    end
+    if palette > 0 and exact > 3 then break end
+  end
+  assert(palette > 0, "never kept colours through another palette or added colours")
+  -- Added colours reach the game as 15-bit BGR.
+  local data = Blocks.compileRuntime(S)
+  local added = S.project.gen3Palettes and S.project.gen3Palettes[PAIR]
+  assert(added and data.palettes and data.palettes[PAIR], "added colours not compiled")
+  for pk, cols in pairs(added) do
+    if pk ~= "rev" then
+      for ck, hex in pairs(cols) do
+        local v = data.palettes[PAIR][tonumber(pk)][tonumber(ck)]
+        local r, g, b = v % 32, math.floor(v / 32) % 32, math.floor(v / 1024) % 32
+        local c = pack.rgb[tonumber(pk)][tonumber(ck)]
+        assert(r * 8 + math.floor(r / 4) == c[1] and g * 8 + math.floor(g / 4) == c[2] and b * 8 + math.floor(b / 4) == c[3],
+          "colour changed on the way to the game")
+      end
+    end
+  end
+  assert(pcall(Blocks.validate, S.project))
+end)
+
+run("merge remembers where merged game pixels came from; hand painting forgets", function()
+  local S = fresh()
+  local tiles = Blocks.gameTiles(S, PAIR)
+  local a, b = tiles[1], nil
+  for _, t in ipairs(tiles) do if t.pal == a.pal and t.key ~= a.key then b = t break end end
+  local d = Blocks.definition(S, PAIR, 21)
+  for i = 5, 8 do d.slots[i] = { tile = tiles[3].key, pal = tiles[3].pal, hflip = false, vflip = false } end
+  d.layerType = "normal"
+  d.slots[1] = { tile = a.key, pal = a.pal, hflip = true, vflip = false }
+  local n = assert(Blocks.merge(S, PAIR, d, 1, b.key, b.pal, false, true))
+  local t = Blocks.customTile(S.project, PAIR, n)
+  assert(t.over == b.key and t.overH == true and t.overV == true, "source not remembered")
+  -- every remembered pixel really is that tile's pixel, flipped
+  local px = Blocks.tilePixels(S, PAIR, n)
+  for i = 1, 64 do
+    if t.overMask:sub(i, i) == "1" then
+      local x, y = (i - 1) % 8, math.floor((i - 1) / 8)
+      assert(px[i] == b.px[(7 - y) * 8 + (7 - x) + 1], "mask/flip mismatch at " .. i)
+    end
+  end
+  Blocks.store(S, PAIR, 21, d)
+  local data = Blocks.compileRuntime(S)
+  local rt = data.tiles["y:" .. PAIR .. ":" .. n]
+  assert(rt and rt.over == b.key and rt.overMask == t.overMask, "not compiled")
+  local first = t.overMask:find("1", 1, true)
+  Blocks.setPixel(S, PAIR, n, first, (px[first] % 15) + 1)
+  assert(t.overMask:sub(first, first) == "0" or not t.over, "hand-painted pixel still animates")
+  assert(pcall(Blocks.validate, S.project))
+end)
+
+-- Import PNG ------------------------------------------------------------------
+local Import = require("Gen3ImageImport")
+-- A sheet of `n` frames of 24 x 24: a moving bright square on nothing.
+local function sheet(n)
+  local w, h, px = 24 * n, 24, {}
+  for i = 1, w * h * 4 do px[i] = 0 end
+  for f = 0, n - 1 do
+    for y = 4, 19 do for x = 4 + f, 19 do
+      local i = (y * w + f * 24 + x) * 4
+      px[i + 1], px[i + 2], px[i + 3], px[i + 4] = 200, 230, 255, 255
+    end end
+  end
+  return { w = w, h = h, px = px }
+end
+
+run("import: a sheet splits into frames, fits and becomes animated blocks", function()
+  local S = fresh()
+  local pic = sheet(3)
+  local across, down = Import.guessFrames(pic)
+  assert(across == 3 and down == 1, "strip not recognised")
+  local frames = assert(Import.split(pic, across, down))
+  assert(#frames == 3)
+  local bw, bh = Import.suggestSize(frames)
+  assert(bw == 1 and bh == 1, "16px content should suggest 1 x 1")
+  local plan = assert(Import.plan(S, "general__rom_082d4af4",
+    { frames = frames, blocksW = 1, blocksH = 1, bg = 299, palette = "auto" }))
+  assert(plan.scale == 1, "16 x 16 content fits a block as it is")
+  local rec = assert(Import.create(S, "general__rom_082d4af4", plan, "square", 100))
+  assert(rec.count == 3 and rec.grid[1][1] == rec.base)
+  local anim = S.project.runtimeTileAnims["general__rom_082d4af4"][rec.base]
+  assert(#anim == 3 and anim[2].tile == rec.base + 1 and anim[1].duration == 100)
+  for mid = rec.base, rec.base + 2 do
+    assert(#Blocks.problems(S, "general__rom_082d4af4", mid) == 0, "block " .. mid)
+    local d = Blocks.definition(S, "general__rom_082d4af4", mid)
+    assert(d.layerType == "covered" and d.slots[1].tile == "299/u/0/" .. d.slots[1].pal,
+      "background not the game's own block")
+  end
+  -- Same name: replaced in place. Remove: gone, tiles too.
+  local again = assert(Import.create(S, "general__rom_082d4af4", plan, "square", 100))
+  assert(again.base == rec.base and #Import.list(S.project, "general__rom_082d4af4") == 1)
+  assert(Import.remove(S, "general__rom_082d4af4", 1))
+  assert(not Blocks.own(S.project, "general__rom_082d4af4") and not S.project.gen3Tiles
+    and not next(S.project.runtimeTileAnims["general__rom_082d4af4"]), "left something behind")
+end)
+
+run("import: background colours are kept out of the picture", function()
+  local S = fresh()
+  local frames = assert(Import.split(sheet(1), 1, 1))
+  local plan = assert(Import.plan(S, "general__rom_082d4af4",
+    { frames = frames, blocksW = 1, blocksH = 1, bg = 299, palette = 4, avoidBg = true }))
+  local pack = Blocks.pack(S, "general__rom_082d4af4")
+  local sea = {}
+  for _, c in ipairs(Import.blockColours(S, "general__rom_082d4af4", 299)) do sea[c[1] .. "," .. c[2] .. "," .. c[3]] = true end
+  for _, v in ipairs(plan.frames[1].idx) do
+    if v ~= 0 then
+      local c = pack.rgb[4][v]
+      assert(not sea[c[1] .. "," .. c[2] .. "," .. c[3]], "picture uses a sea colour")
+    end
+  end
+end)
+
 print(("\n%d passed, %d failed"):format(pass, fail))
 os.exit(fail == 0 and 0 or 1)

@@ -124,6 +124,14 @@ local function drawStrip(S, App, pair, ids, x, y, w)
     end
   end
 
+  local importing = S.g3Import and S.g3Import.pair == pair
+  if Kit.button(gx + 118 * s, y, 120 * s, btnH, importing and "Close import" or "Import PNG...",
+      { kind = importing and "ghost" or "accent", font = "small",
+        tooltip = "Turn a picture or an animation sheet into blocks" }) then
+    if importing then S.g3Import = nil
+    else S.g3Import = { pair = pair, bg = S.g3BlockId, avoidBg = true, palette = "auto", bright = 0, duration = 120 } end
+  end
+
   local startRow = math.max(0, math.min(maxStart, tonumber(S.g3BlockStripRow) or 0))
   if Kit.chip(x + w - 70 * s, y, 32 * s, btnH, "^", false, PAL.blue, nil, "Scroll up")
       and startRow > 0 then
@@ -216,6 +224,7 @@ local function drawSlotGrid(S, pair, def, firstSlot, x, y, cell, label, bad)
       .. ((bad and bad[slotIndex]) and " -- the game can't draw this tile" or ""))
     if Kit.press(cx, cy, cell, cell) then
       if selected then S.g3BlockSlot = nil else S.g3BlockSlot = slotIndex end
+      S.g3BlockMerge = nil
     end
   end
   return y + 2 * (cell + 3 * s)
@@ -330,6 +339,28 @@ local function drawBlockEditor(S, App, pair, mid, x, y, w)
       end
     end
     y = y + 34 * s
+    local merging = S.g3BlockMerge == si
+    if Kit.button(x, y, 170 * s, 24 * s, merging and "Stop merging" or "Merge a tile on top",
+        { kind = merging and "good" or "ghost", font = "small",
+          tooltip = "Draw a tile from the sheet over this slot's tile, in the same slot" }) then
+      S.g3BlockMerge = (not merging) and si or nil
+      merging = not merging
+    end
+    if merging then
+      local mh, mhc = Kit.checkbox(x + 180 * s, y, 130 * s, 24 * s, S.g3MergeH == true, "H-flipped")
+      if mhc then S.g3MergeH = mh end
+      local mv, mvc = Kit.checkbox(x + 316 * s, y, 130 * s, 24 * s, S.g3MergeV == true, "V-flipped")
+      if mvc then S.g3MergeV = mv end
+      y = y + 30 * s
+      Kit.text("small", "Click a tile in the sheet: it's drawn over this slot's tile.", x, y, PAL.green)
+      y = y + 18 * s
+      Kit.text("micro", "Keeps its colours: other layer if free, else free palette spaces, else the nearest.",
+        x, y, PAL.muted)
+      y = y + 22 * s
+    else
+      Kit.text("small", "Combine two tiles in one slot", x + 180 * s, y + 5 * s, PAL.faint)
+      y = y + 34 * s
+    end
   else
     Kit.text("small", "Click a slot above, then a tile in the sheet below.", x, y, PAL.muted)
     y = y + 24 * s
@@ -362,6 +393,12 @@ local function drawBlockEditor(S, App, pair, mid, x, y, w)
       local c = colours[i] or { 0, 0, 0 }
       love.graphics.setColor(c[1], c[2], c[3], 1)
       love.graphics.rectangle("fill", sx, y, sw, sw)
+      local mine = S.project.gen3Palettes and S.project.gen3Palettes[pair]
+      if mine and mine[tostring(current)] and mine[tostring(current)][tostring(i)] then
+        Theme.col(PAL.heading, 1)
+        love.graphics.circle("fill", sx + sw / 2, y + sw + 3 * s, 2 * s)
+        Kit.offerTooltip(sx, y, sw, sw, ("Colour %d: added by a merge"):format(i))
+      end
     end
   end
   love.graphics.setColor(1, 1, 1, 1)
@@ -553,10 +590,38 @@ local function drawSheetPart(S, App, pair, mid, which, pal, x, y, w, cols, cell)
       Kit.offerTooltip(tx, ty, cell, cell, ("Tile %s"):format(Blocks.tileLabel(S, pair, tile))
         .. (ok and "" or " -- its base tile is missing"))
       if slot and Kit.press(tx, ty, cell, cell) then
-        -- Game tiles come in the palette they were found in; yours in the
-        -- palette you're viewing them in. Palette chips recolour afterwards.
-        slot.tile, slot.pal = tile, game and game[index + 1].pal or pal
-        save(S, App, pair, mid, def)
+        local tilePal = game and game[index + 1].pal or pal
+        if S.g3BlockMerge == si then
+          -- Draw it over what's in the slot, as one of your tiles.
+          local n, how, approx, added, usedPal = Blocks.merge(S, pair, def, si, tile, tilePal, S.g3MergeH, S.g3MergeV)
+          if n then
+            save(S, App, pair, mid, def)
+            App.markDirty()
+            local label = Blocks.tileLabel(S, pair, tile)
+            if how == "layer" then
+              S.status = ("Tile %s layered over slot %d on the other layer -- its own colours (palette %d)")
+                :format(label, si, tilePal)
+            elseif how == "added" then
+              S.status = ("Tile %s merged into slot %d with its own colours -- added %d colour%s to palette %d's free spaces")
+                :format(label, si, added, added == 1 and "" or "s", usedPal)
+            elseif how == "palette" then
+              S.status = ("Tile %s merged into slot %d; moved the slot to palette %d, which has both tiles' colours")
+                :format(label, si, def.slots[si].pal)
+            elseif approx > 0 then
+              S.status = ("Tile %s merged into slot %d -- %d colour%s not in palette %d, nearest used")
+                :format(label, si, approx, approx == 1 and "" or "s", def.slots[si].pal)
+            else
+              S.status = ("Tile %s merged into slot %d with its own colours"):format(label, si)
+            end
+          else
+            S.status = tostring(how)
+          end
+        else
+          -- Game tiles come in the palette they were found in; yours in the
+          -- palette you're viewing them in. Palette chips recolour afterwards.
+          slot.tile, slot.pal = tile, tilePal
+          save(S, App, pair, mid, def)
+        end
       end
     end
   end
@@ -574,8 +639,11 @@ local function drawSheet(S, App, pair, mid, x, y, w)
   local cell = math.max(12 * s, math.min(28 * s, math.floor(w / cols)))
   Kit.text("micro", ("TILES IN THIS TILESET'S BLOCKS  (%d)"):format(#Blocks.gameTiles(S, pair)),
     x, y, PAL.caption)
-  Kit.text("small", si and ("Click a tile to put it in slot %d"):format(si)
-    or "Select a slot above to place tiles", x + 260 * s, y - 2 * s, si and PAL.yellow or PAL.muted)
+  local merging = si and S.g3BlockMerge == si
+  Kit.text("small", merging and ("Click a tile to merge it over slot %d"):format(si)
+    or si and ("Click a tile to put it in slot %d"):format(si)
+    or "Select a slot above to place tiles", x + 260 * s, y - 2 * s,
+    merging and PAL.green or si and PAL.yellow or PAL.muted)
   y = y + 18 * s
   y = drawSheetPart(S, App, pair, mid, "game", pal, x, y, w, cols, cell)
   y = y + 14 * s
@@ -671,8 +739,12 @@ function M.draw(S, x, y, w, h, App)
 
   fy = drawStrip(S, App, pair, blockIds, vx, fy, vw)
   fy = fy + 6 * s
-  fy = drawBlockEditor(S, App, pair, S.g3BlockId, vx, fy, vw)
-  fy = drawSheet(S, App, pair, S.g3BlockId, vx, fy, vw)
+  if S.g3Import and S.g3Import.pair == pair then
+    fy = require("Gen3ImageImportPanel").draw(S, App, pair, vx, fy, vw, drawBlock, checker)
+  else
+    fy = drawBlockEditor(S, App, pair, S.g3BlockId, vx, fy, vw)
+    fy = drawSheet(S, App, pair, S.g3BlockId, vx, fy, vw)
+  end
   FormPane.finish(S, "g3BlockFormScroll", top, fy, view)
 end
 

@@ -15,7 +15,7 @@ return function(data, encode)
   local out = {}
   -- One constructor per bag / per tileset, so no single function grows past
   -- LuaJIT's constant limits on big projects.
-  out[#out + 1] = "  local g3blocks=(function() local d={pairs={},tiles={}}"
+  out[#out + 1] = "  local g3blocks=(function() local d={pairs={},tiles={},palettes=" .. encode(data.palettes or {}) .. "}"
   local function sortedKeys(t)
     local keys = {}
     for k in pairs(t or {}) do keys[#keys + 1] = k end
@@ -92,7 +92,11 @@ return function(data, encode)
             px={}
             for i=1,64 do
               local ch=own.px:sub(i,i)
-              if ch=="." then px[i]=base[i] else px[i]=tonumber(ch,16) or 0 end
+              if ch=="." then
+                local v=base[i]
+                if own.recolour and v~=0 then v=tonumber(own.recolour:sub(v+1,v+1),16) or v end
+                px[i]=v
+              else px[i]=tonumber(ch,16) or 0 end
             end
           end
         else
@@ -102,6 +106,47 @@ return function(data, encode)
         return px
       end
       return setmetatable({},{__index=function(_,key) return get(key) or nil end})
+    end
+
+    -- Where each bottom-layer pixel of a block comes from in the game's
+    -- saved pictures: [pixel 1-256] = {block, pixel}. Only pixels that are
+    -- still visible in the finished block are listed. The tileset animation
+    -- (water, sand, flowers) uses this to keep a block built on animated
+    -- ground animating.
+    local function sources(all,blk)
+      local covered=blk.layerType=="covered"
+      local out={}
+      -- Bottom layer, then (covered blocks draw both under the player) the
+      -- top layer over it: each pixel's source is the last tile drawn there.
+      for s=1,covered and 8 or 4 do
+        local slot=blk.slots[s]
+        local key=slot and slot.key
+        local own=key and g3blocks.tiles[key]
+        local srcKey=own and own.base or key
+        local mid,_,q=TS.parseKey(srcKey)
+        local omid,_,oq=TS.parseKey(own and own.over)
+        local px=key and all[key]
+        if px then
+          local ox,oy=((s-1)%4%2)*8,math.floor((s-1)%4/2)*8
+          for y=0,7 do for x=0,7 do
+            local ty,tx=slot.vflip and 7-y or y,slot.hflip and 7-x or x
+            local t=ty*8+tx+1
+            if (px[t] or 0)~=0 then
+              local di=(oy+y)*16+ox+x+1
+              if mid and (not own or own.px:sub(t,t)==".") then
+                out[di]={mid,(math.floor(q/2)*8+ty)*16+(q%2)*8+tx+1}
+              elseif omid and own.overMask:sub(t,t)=="1" then
+                -- a merged game tile's pixel: animates with that tile's block
+                local bx,by=own.overH and 7-tx or tx,own.overV and 7-ty or ty
+                out[di]={omid,(math.floor(oq/2)*8+by)*16+(oq%2)*8+bx+1}
+              else
+                out[di]=nil
+              end
+            end
+          end end
+        end
+      end
+      return next(out) and out or nil
     end
 
     -- Write a tileset's blocks into its atlas: replace edited ones in place,
@@ -120,10 +165,16 @@ return function(data, encode)
       local all=tilesFor(pair)
       if not all then return end
       local changed=false
+      ts._g3Sources={}
       for _,mid in ipairs(mids) do
         local blk=blocks[mid]
         local u,o=TS.compose(all,{slots=blk.slots,layerType=blk.layerType})
         if u then
+          local src=sources(all,blk)
+          if src and not over then
+            for i=1,256 do if o[i]~=0 then src[i]=nil end end
+          end
+          ts._g3Sources[mid]=src or false
           if not over then -- flat atlas: one picture, top drawn over bottom
             for i=1,256 do if o[i]~=0 then u[i]=o[i] end end
           end
@@ -147,6 +198,14 @@ return function(data, encode)
       local rows=math.max(1,math.ceil(under.midCount/cols))
       under.atlasCols,under.atlasRows=cols,rows
       if over then over.atlasCols,over.atlasRows=cols,rows end
+      -- Colours the modder added to free colour numbers of this tileset's palettes.
+      local added=g3blocks.palettes[pair]
+      if added and ts.bgr then
+        for pal,cols in pairs(added) do
+          local row=ts.bgr[pal]
+          if row then for c,v in pairs(cols) do row[c]=v end end
+        end
+      end
       local rgb=NativePack.palsToRgb8(ts.bgr or {})
       local function bake(tbl,transparentZero)
         local rgba,w,h=NativePack.bakeRgba(tbl,rgb,{transparentZero=transparentZero})
@@ -161,7 +220,95 @@ return function(data, encode)
       if over then ts.overBlob=NativePack.encodeIdx(over) end
       ts.cols,ts.rows,ts.midCount=cols,rows,under.midCount
       ts.quads,ts.overQuads,ts.slotPix={}, {}, {}
+      -- Each block's finished under-picture, for the tileset animation.
+      ts._g3Static={}
+      for mid in pairs(ts._g3Sources) do
+        local slot=ts.midToSlot[mid]
+        local ax,ay=slot%cols*16,math.floor(slot/cols)*16
+        local px={}
+        for i=0,255 do
+          local r,g,b,a=ts.imageData:getPixel(ax+i%16,ay+math.floor(i/16))
+          px[i+1]=string.char(math.floor(r*255+.5),math.floor(g*255+.5),math.floor(b*255+.5),math.floor(a*255+.5))
+        end
+        ts._g3Static[mid]=px
+      end
       View._nativeDirty=true
+    end
+
+    -- Tileset animation. The engine pastes a saved picture per animation
+    -- frame over each animated block. Give our blocks their own frames:
+    -- the animated source pixels from that frame, everything else as
+    -- composed. An edited block with nothing animated under it leaves the
+    -- animation, so the edit stays visible.
+    local okA,Anim=pcall(require,"src.core.game3.tileset_anim")
+    local MID=1024
+    local function animate(pair,ts)
+      if not okA or type(Anim)~="table" then return end
+      local entry=(Anim._pairs or {})[pair]
+      if type(entry)~="table" or entry._g3==ts or not ts._g3Sources or not ts.imageData then return end
+      entry._g3=ts;entry.atlas=ts;entry.frames={}
+      local placed,restore={},{}
+      for _,kind in ipairs({"water","sand","flower"}) do
+        local bank=entry.banks and entry.banks[kind]
+        if bank and bank.frames and bank.frames>0 then
+          local old,oldIndex,n=bank.mids,bank.midIndex,#bank.mids
+          local mids,own={},{}
+          for _,mid in ipairs(old) do
+            if ts._g3Sources[mid]==nil then mids[#mids+1]=mid end
+          end
+          for mid,src in pairs(ts._g3Sources) do
+            if src and not placed[mid] then
+              for _,s in pairs(src) do
+                if oldIndex[s[1]] then own[mid]=src;placed[mid]=true;mids[#mids+1]=mid;break end
+              end
+            end
+          end
+          local statics=ts._g3Static or {}
+          for _,mid in ipairs(old) do -- edited: back to its own picture unless re-added below
+            if ts._g3Sources[mid]~=nil then restore[mid]=true end
+          end
+          local chunks={}
+          for f=0,bank.frames-1 do
+            for _,mid in ipairs(mids) do
+              local src=own[mid]
+              if not src then
+                local off=(f*n+oldIndex[mid])*MID
+                chunks[#chunks+1]=bank.rgba:sub(off+1,off+MID)
+              else
+                local px={}
+                for i=1,256 do
+                  local s=src[i]
+                  local si=s and oldIndex[s[1]]
+                  if si then
+                    local off=(f*n+si)*MID+(s[2]-1)*4
+                    px[i]=bank.rgba:sub(off+1,off+4)
+                  else
+                    px[i]=statics[mid][i]
+                  end
+                end
+                chunks[#chunks+1]=table.concat(px)
+              end
+            end
+          end
+          local index={}
+          for i,mid in ipairs(mids) do index[mid]=i-1 end
+          bank.mids,bank.midIndex,bank.rgba=mids,index,table.concat(chunks)
+        end
+      end
+      -- The engine may already have pasted its own frames over blocks that
+      -- have left the animation: put the edited pictures back.
+      for mid in pairs(placed) do restore[mid]=nil end
+      local cols=ts.cols or 16
+      for mid in pairs(restore) do
+        local slot,static=ts.midToSlot[mid],ts._g3Static and ts._g3Static[mid]
+        if slot and static then
+          ts.imageData:paste(love.image.newImageData(16,16,"rgba8",table.concat(static)),slot%cols*16,math.floor(slot/cols)*16)
+        end
+      end
+      if next(restore) and ts.image and ts.image.replacePixels then ts.image:replacePixels(ts.imageData) end
+      for _,kind in ipairs({"water","sand","flower"}) do
+        pcall(Anim._applyKind,entry,kind,Anim["_"..kind.."Frame"] or 0)
+      end
     end
 
     -- Every tileset the engine loads from now on, and any already loaded.
@@ -172,11 +319,14 @@ return function(data, encode)
     end
     mod.hooks:wrap("editor.gen3.blocks.get",function(proceed,pair,...)
       local ts=proceed(pair,...)
-      if ts and g3blocks.pairs[pair] and not ts._g3Blocks then patch(pair,ts) end
+      if ts and g3blocks.pairs[pair] then
+        if not ts._g3Blocks then patch(pair,ts) end
+        animate(pair,ts)
+      end
       return ts
     end)
     for pair,ts in pairs(T._pairs or {}) do
-      if g3blocks.pairs[pair] then patch(pair,ts) end
+      if g3blocks.pairs[pair] then patch(pair,ts);animate(pair,ts) end
     end
   end,0)
 ]=]

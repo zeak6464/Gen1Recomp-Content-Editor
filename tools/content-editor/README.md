@@ -168,9 +168,42 @@ flips — plus your painted pixels; no game graphics. In game the blocks are
 rebuilt from the player's own saved data and written into that tileset's
 atlas, so ROM maps and maps built in the editor both show them.
 
+**Merge a tile on top** (under a selected slot) combines two tiles in one
+slot: click it, then click tiles in the sheet (optionally flipped). The
+merged tile keeps its own colours wherever the hardware allows:
+
+1. the same corner of the other layer is free: it goes there, in its own
+   palette (the block becomes *Covered*, both layers under the player);
+2. otherwise the two tiles become one of yours in a palette that has every
+   colour of both, putting missing colours into colour numbers of that
+   palette no block uses (dots under the swatches mark them; the game gets
+   them for this tileset only, so nothing it already shows changes);
+3. only when no palette has room, the nearest colours of the slot's palette.
+
+See-through pixels keep what's there, and the water (or sand, flowers)
+still showing around a merged tile keeps animating in game -- also when the
+merge moved the slot to another palette, and when the water is in the top
+layer of a *Covered* block.
+
+**Import PNG...** (above the block strip) turns a picture into blocks: one
+PNG, or a strip of animation frames side by side (the way the game keeps its
+own animated tiles). Choose how many blocks it covers (bigger pictures are
+shrunk to fit), a block to show behind it (select it in the strip first; e.g.
+the sea), under or over the player, and a palette (*Auto* picks the closest;
+the background's own colours are kept out so the picture doesn't melt into
+it). *Create blocks* makes the blocks and your tiles, and for several frames
+a tile animation per block, then shows which first-frame blocks to paint on
+the map. Importing again under the same name replaces it and keeps its block
+numbers; *Remove* deletes an import's blocks, tiles and animation.
+
+Animated ground keeps animating: where a block's bottom layer uses tiles of
+an animated game block (water, sand, flowers) and nothing covers them, those
+pixels follow the game's animation frames; everything else stays as you
+built it. An edited block with nothing animated left under it drops out of
+the animation, so your edit stays.
+
 Limits: tiles that no saved block uses aren't available; a behaviour change
-doesn't alter collision already baked into vanilla maps; edits to animated
-blocks (water, flowers) are overwritten by the animation; palettes can't be
+doesn't alter collision already baked into vanilla maps; palettes can't be
 edited yet. Tests: `tests/content-editor/run-block-checks.ps1 -Runtime <runtime>`.
 
 ## Gen 3 map connections
