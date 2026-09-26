@@ -9,9 +9,10 @@ require("Gen3").load(data,function(path)
 end)
 local C=require("Gen3Collision")
 local S={data=data,project={maps={},layeredMaps={}},version="firered"}
-local maps,cells=0,0
+local maps,cells,repairs=0,0,0
 for id in pairs(data.maps) do
   local layout=assert(require("Gen3Map").layout(data,id))
+  for _ in pairs(layout._editorWaterRepairs or {}) do repairs=repairs+1 end
   local source=assert(require("Gen3Workspace").source(S,id))
   for i=1,layout.width*layout.height do
     local cell=layout:cellAt((i-1)%layout.width,math.floor((i-1)/layout.width))
@@ -63,4 +64,5 @@ assert(L.setCollision(source,9,0,"walk"))
 assert(source.gen3Collision[10]==nil,"Explicit paint must replace native passage")
 assert(C.resolve("walk",nil,0x10)==0)
 print(string.format("PASS: %d FireRed maps / %d cells preserve collision and elevation; painted runtime collisions and directions verified",maps,cells))
+print("Blocked water cells recovered from raw ROM permissions: "..repairs)
 

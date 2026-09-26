@@ -46,6 +46,7 @@ function M.layout(data, id, project)
   local decoded, err = require("src.import.gba.native_pack").decodeMidLayout(blob)
   if not decoded then return nil, err end
   local layout = require("src.core.game3.layout_native").fromDecoded(decoded, id, info.pair)
+  require("Gen3WaterCollision").repair(data,id,layout)
   data._gen3Layouts[id] = layout
   return layout
 end

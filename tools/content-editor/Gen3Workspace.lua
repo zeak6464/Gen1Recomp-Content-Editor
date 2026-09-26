@@ -44,7 +44,8 @@ function M.prepare(S)
   for id,map in pairs(data.maps or {}) do combined[id]=map end
   for id,map in pairs(S.project and S.project.maps or {}) do combined[id]=map;skip[id]=map._g3ConnectionsEdited end
   require("Gen3Connections").recover(combined,skip)
-  for _,source in pairs(S.project and S.project.layeredMaps or {}) do
+  for id,source in pairs(S.project and S.project.layeredMaps or {}) do
+    require("Gen3WaterCollision").migrate(data,id,source)
     for i,coll in pairs(source.gen3Collision or {}) do
       if source.collision[i]==(coll==0 and "walk" or "solid") then
         source.collision[i]=require("Gen3Collision").mode(coll)

@@ -2406,7 +2406,13 @@ end
 
 local function drawWorldView(S, App, vx, vy, vw, vh, propW)
   local s = Kit.scale
-  local layout = buildWorldLayout(S)
+  local key=tostring(S.mapId)..":"..tostring(S.worldScope)..":"..tostring(S.uiPreviewTick)
+  local cached=S._worldLayoutCache
+  if not cached or cached.key~=key or cached.project~=S.project or cached.data~=S.data or not S._worldFitKey then
+    cached={key=key,project=S.project,data=S.data,layout=buildWorldLayout(S)}
+    S._worldLayoutCache=cached
+  end
+  local layout=cached.layout
   local canvasW = math.max(40 * s, vw - propW - 12 * s)
   local canvasH = vh
   Kit.card(vx, vy, canvasW, canvasH, 12 * s)
@@ -2475,11 +2481,26 @@ local function drawWorldView(S, App, vx, vy, vw, vh, propW)
     return p.x+p.w>=S.worldCamX and p.y+p.h>=S.worldCamY
       and p.x<=S.worldCamX+viewW/z and p.y<=S.worldCamY+viewH/z
   end
+  local WorldPreview=require("WorldPreview")
+  local previews=WorldPreview.cache(S)
+  local baked=0
   for id,p in pairs(layout.positions) do
-    local def = layout.maps[id] or resolveMapDef(S, id)
-    if def and visible(p) then
-      prepareLiveMap(S, id, def)
-      Maps.loadEditorMap(S, id)
+    local def=layout.maps[id]
+    if def and visible(p) and not previews.images[id] and baked<2 then
+      prepareLiveMap(S,id,def)
+      local ok,loaded=Maps.loadEditorMap(S,id)
+      if ok and loaded and loaded.renderer then
+        local renderer=loaded.renderer
+        WorldPreview.bake(previews,id,p,function()
+          local pal=mapPreviewPalette(S,def,renderer)
+          local shaded=pal and Preview.pushPaletteShader(S,pal)
+          love.graphics.setColor(1,1,1,1)
+          local draw=renderer.drawMapOnly or renderer.draw
+          draw(renderer,0,0,p.w,p.h)
+          Preview.popPaletteShader(shaded)
+        end)
+        baked=baked+1
+      end
     end
   end
 
@@ -2497,28 +2518,15 @@ local function drawWorldView(S, App, vx, vy, vw, vh, propW)
   for id, p in pairs(layout.positions) do
     local def = layout.maps[id] or resolveMapDef(S, id)
     local sel = S.mapId == id
-    if def and visible(p) then
-      prepareLiveMap(S, id, def)
-      local ok, loaded = Maps.loadEditorMap(S, id)
-      if ok and loaded and loaded.renderer
-          and (loaded.renderer.drawMapOnly or loaded.renderer.draw) then
-        love.graphics.push()
-        love.graphics.translate(p.x, p.y)
-        local pal = mapPreviewPalette(S, def, loaded.renderer)
-        local shaded = pal and Preview.pushPaletteShader(S, pal)
-        love.graphics.setColor(1, 1, 1, sel and 1 or 0.92)
-        -- Full map body in local space; cam 0,0 shows the whole sheet.
-        local draw = loaded.renderer.drawMapOnly or loaded.renderer.draw
-        draw(loaded.renderer, 0, 0, p.w, p.h)
-        Preview.popPaletteShader(shaded)
-        love.graphics.pop()
+    local preview=previews.images[id]
+    if visible(p) then
+      if preview then
+        love.graphics.setColor(1,1,1,sel and 1 or 0.92)
+        love.graphics.draw(preview.image,p.x,p.y,0,1/preview.scale,1/preview.scale)
       else
-        Theme.col(PAL.rowBg, 0.9)
-        love.graphics.rectangle("fill", p.x, p.y, p.w, p.h)
+        Theme.col(PAL.rowBg,0.9)
+        love.graphics.rectangle("fill",p.x,p.y,p.w,p.h)
       end
-    else
-      Theme.col(PAL.rowBg, 0.9)
-      love.graphics.rectangle("fill", p.x, p.y, p.w, p.h)
     end
     Theme.stroke(p.x, p.y, p.w, p.h, 2,
       sel and PAL.green or PAL.cardBorder,

@@ -23,6 +23,24 @@ return function(data,root,mount,game)
   love.graphics.setCanvas({canvas,stencil=true});love.graphics.clear(.04,.06,.12,1)
   K.layout(1360,960);K.beginFrame(0,0,false,0)
   MapsView.drawWorld(S,{markDirty=function() end},20,30,1320,900)
+  for frame=1,math.ceil(region.count/2) do
+    love.graphics.clear(.04,.06,.12,1)
+    K.beginFrame(0,0,false,0)
+    MapsView.drawWorld(S,{markDirty=function() end},20,30,1320,900)
+  end
+  local nativeLoad=MapsView.loadEditorMap
+  MapsView.loadEditorMap=function() error("Warm world view rebuilt a map") end
+  local start=love.timer.getTime()
+  for frame=1,30 do
+    love.graphics.clear(.04,.06,.12,1)
+    K.beginFrame(0,0,false,0)
+    MapsView.drawWorld(S,{markDirty=function() end},20,30,1320,900)
+  end
+  print(string.format("World view warm CPU frame: %.2f ms",(love.timer.getTime()-start)*1000/30))
+  MapsView.loadEditorMap=nativeLoad
+  local beforeCache=S._worldPreviews
+  S.uiPreviewTick=(S.uiPreviewTick or 0)+1
+  assert(require("WorldPreview").cache(S)~=beforeCache,"Edits failed to invalidate previews")
   K.endFrame();love.graphics.setCanvas()
   local image=assert(io.open(root.."/tests/content-editor/connections-smoke/world.png","wb"))
   image:write(canvas:newImageData():encode("png"):getString());image:close()
