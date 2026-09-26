@@ -34,6 +34,31 @@ M.exitTypes={
 }
 M.modes=modes
 M.painted=painted
+-- Infer only unambiguous defaults from the ROM's actual cell permissions.
+-- The same graphic can legitimately be walkable in one location and blocked
+-- in another; those tiles keep the destination's existing collision.
+function M.forRef(data,ref)
+  local pair=ref.source and ref.source:match("^@runtime:(.+)$")
+  if not pair then return nil end
+  data._g3CollisionDefaults=data._g3CollisionDefaults or {}
+  local defaults=data._g3CollisionDefaults[pair]
+  if not defaults then
+    defaults={};data._g3CollisionDefaults[pair]=defaults
+    for id,info in pairs((data.gen3Native or {}).layouts or {}) do
+      if info.pair==pair then
+        local layout=require("Gen3Map").layout(data,id)
+        if layout then
+          for y=0,layout.height-1 do for x=0,layout.width-1 do
+            local c=layout:cellAt(x,y);local mode=M.mode(c.coll)
+            if defaults[c.mid]==nil then defaults[c.mid]=mode
+            elseif defaults[c.mid]~=mode then defaults[c.mid]=false end
+          end end
+        end
+      end
+    end
+  end
+  return defaults[ref.tile] or nil
+end
 function M.mode(coll)
   return modes[coll] or (coll==0 and "walk" or "solid")
 end

@@ -13,7 +13,8 @@ local maps,cells=0,0
 for id in pairs(data.maps) do
   local layout=assert(require("Gen3Map").layout(data,id))
   local source=assert(require("Gen3Workspace").source(S,id))
-  for i,cell in ipairs(layout.cells) do
+  for i=1,layout.width*layout.height do
+    local cell=layout:cellAt((i-1)%layout.width,math.floor((i-1)/layout.width))
     assert(source.collision[i]==C.mode(cell.coll),id..":"..i)
     assert(C.resolve(source.collision[i],source.gen3Collision[i],123)==cell.coll)
     assert(source.gen3Elevation[i]==cell.elev)
@@ -48,6 +49,16 @@ for i,c in ipairs(captured.cells) do
 end
 assert(captured.cells[10].elev==7)
 local L=require("LayeredMap")
+-- Painting uses this shared lookup for single tiles and multi-tile stamps.
+local sea=assert(require("Gen3Map").layout(data,"FR_ROUTE_21_NORTH"))
+local blocked,water=0,0
+for i=1,sea.width*sea.height do
+  local cell=sea:cellAt((i-1)%sea.width,math.floor((i-1)/sea.width))
+  local mode=L.collisionForRef(S,{source="@runtime:"..sea.pair,tile=cell.mid})
+  if mode=="solid" then blocked=blocked+1;assert(C.mode(cell.coll)=="solid") end
+  if mode=="water" then water=water+1;assert(cell.coll==0x29) end
+end
+assert(blocked>0 and water>0,"Sea route needs distinct blocked and surfable defaults")
 assert(L.setCollision(source,9,0,"walk"))
 assert(source.gen3Collision[10]==nil,"Explicit paint must replace native passage")
 assert(C.resolve("walk",nil,0x10)==0)
