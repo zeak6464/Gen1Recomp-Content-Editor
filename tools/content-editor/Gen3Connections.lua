@@ -4,7 +4,13 @@ M.opposite={north="south",south="north",east="west",west="east"}
 M.alias={up="north",down="south",left="west",right="east"}
 function M.list(connections,dir)
   local value=(connections or {})[dir]
-  if not value then return {} end
+  if not value then
+    local rows={}
+    for _,c in ipairs(connections or {}) do
+      if (M.alias[c.dir] or c.dir)==dir then rows[#rows+1]=c end
+    end
+    return rows
+  end
   if type(value)~="table" then return {{map=value,offset=0}} end
   if value.map or value.mapId then return {value} end
   return value
@@ -22,6 +28,17 @@ end
 function M.copy(value)
   if type(value)~="table" then return value end
   local out={};for k,v in pairs(value) do out[k]=M.copy(v) end;return out
+end
+-- New ROM caches use ordered {dir,map,offset} records. Authoring and export
+-- use direction buckets, including a list when a side has several exits.
+function M.normalize(connections)
+  local out={}
+  for _,dir in ipairs(M.directions) do
+    local rows=M.copy(M.list(connections,dir))
+    for _,c in ipairs(rows) do c.dir=nil end
+    if #rows>0 then M.put(out,dir,rows) end
+  end
+  return out
 end
 function M.validate(connections)
   for dir,value in pairs(connections or {}) do

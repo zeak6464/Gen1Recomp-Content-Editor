@@ -225,6 +225,14 @@ edited yet. Tests: `tests/content-editor/run-block-checks.ps1 -Runtime <runtime>
 
 ## Gen 3 map connections
 
+The map connections viewer defaults to **Full region**, following all edge
+connections from the selected map. **Nearby** shows immediate neighbors;
+**All maps** includes disconnected regions and interiors in separate areas.
+Use **Fit**, the mouse wheel to zoom, and drag empty space or hold WASD to pan.
+Click a map to select it, then **Open in Editor** to edit it. Placement uses
+existing connection offsets; the viewer does not create connections between
+unconnected maps or infer geographical placement from door warps.
+
 **Map setup → Map connections** supports multiple connections on each side.
 Use **+ Add** under North, South, East or West, then set the destination and
 offset in 16-pixel cells. Editing or removing one connection updates only its

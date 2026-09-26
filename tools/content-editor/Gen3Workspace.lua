@@ -20,6 +20,11 @@ end
 function M.prepare(S)
   local data=S.data
   if not data or not data._gen3Read then return end
+  for _,map in pairs(S.project and S.project.maps or {}) do
+    if map.connections and #map.connections>0 then
+      map.connections=require("Gen3Connections").normalize(map.connections)
+    end
+  end
   if not data._editorMaps then
     data._editorMaps={};data._editorTilesets={}
     for id,native in pairs(data.maps or {}) do

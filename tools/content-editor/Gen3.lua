@@ -51,7 +51,7 @@ function Gen3.load(data, read, list)
     local spec = okV and Versions.MAPS and Versions.MAPS[id] or {}
     def.id, def.name = id, def.name or id
     def.width, def.height = info.width, info.height
-    def.pair, def.warps, def.connections = info.pair, warps[id] or {}, connections[id] or {}
+    def.pair, def.warps, def.connections = info.pair, warps[id] or {}, require("Gen3Connections").normalize(connections[id])
     for _, key in ipairs({"kind","environment","weather","mapType","regionMapSectionId","showMapName"}) do
       if def[key] == nil then def[key] = spec[key] end
     end

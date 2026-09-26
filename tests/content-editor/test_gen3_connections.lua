@@ -5,6 +5,28 @@ return function(data,root,mount,game)
   assert(#west==3 and west[1].offset==0 and west[2].offset==40 and west[3].offset==80,"Stock Water Path recovery failed")
   local S={data=data,version=game,project=require("State").blankProject("connections_test")};S.project.game=game
   G.prepare(S);assert(G.convert(S,id))
+  local vermilion=require("Maps").resolveMap(S,"FR_VERMILION_CITY")
+  assert(C.list(vermilion.connections,"north")[1].map=="FR_ROUTE_6")
+  assert(C.list(vermilion.connections,"east")[1].map=="FR_ROUTE_11")
+  assert(#require("Maps").directNeighbors(S,vermilion)==2,"Vermilion connections missing from editor")
+  S.mapId="FR_VERMILION_CITY"
+  local MapsView=require("Maps")
+  S.worldScope="neighbors";local nearby=MapsView.worldLayout(S)
+  S.worldScope="connected";local region=MapsView.worldLayout(S)
+  assert(region.count>nearby.count,"Full region did not traverse beyond direct neighbors")
+  assert(region.positions.FR_PALLET_TOWN,"Full Kanto region missing Pallet Town")
+  S.worldScope="all";local all=MapsView.worldLayout(S)
+  assert(all.count>region.count and all.components>1,"Disconnected areas missing")
+  for key in pairs(data._editorMaps) do assert(all.positions[key],"World view missing "..key) end
+  S.worldScope="connected"
+  local K=require("Kit");local canvas=love.graphics.newCanvas(1360,960)
+  love.graphics.setCanvas({canvas,stencil=true});love.graphics.clear(.04,.06,.12,1)
+  K.layout(1360,960);K.beginFrame(0,0,false,0)
+  MapsView.drawWorld(S,{markDirty=function() end},20,30,1320,900)
+  K.endFrame();love.graphics.setCanvas()
+  local image=assert(io.open(root.."/tests/content-editor/connections-smoke/world.png","wb"))
+  image:write(canvas:newImageData():encode("png"):getString());image:close()
+  S.mapId=id
   -- Edit only the middle connection, preserving both siblings and return links.
   E.edit(S,id,"west",2,"FR_SIX_ISLAND",42)
   local rows=C.list(S.project.maps[id].connections,"west")

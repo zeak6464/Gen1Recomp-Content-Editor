@@ -2206,7 +2206,7 @@ local function clampZoom(z)
 end
 
 local function clampWorldZoom(z)
-  if z < 0.04 then return 0.04 end
+  if z < 0.001 then return 0.001 end
   if z > 2 then return 2 end
   return z
 end
@@ -2362,7 +2362,7 @@ end
 -- Forward declare: World view draws live tiles before this is assigned.
 local prepareLiveMap
 
--- World view: current map + its direct N/S/E/W neighbors only
+-- World view: nearby, connected region, or every disconnected area
 -- (same strip math as OverworldState.computeNeighbors).
 local WORLD_BLOCK = 32
 
@@ -2378,116 +2378,17 @@ local function worldConnDelta(dir, offset, curDef, destDef)
   return curDef.width * WORLD_BLOCK, off
 end
 
--- Place `other` when `other.connections[dir]` points at `cur`.
-local function worldReverseDelta(dir, offset, curDef, otherDef)
-  local off = (offset or 0) * (curDef._gen3Native and 16 or WORLD_BLOCK)
-  if dir == "north" then
-    return -off, curDef.height * WORLD_BLOCK
-  elseif dir == "south" then
-    return -off, -otherDef.height * WORLD_BLOCK
-  elseif dir == "west" then
-    return curDef.width * WORLD_BLOCK, -off
-  end
-  return -otherDef.width * WORLD_BLOCK, -off
-end
-
 local function buildWorldLayout(S)
-  local rootId = S.mapId
-  local rootDef = rootId and resolveMapDef(S, rootId) or nil
-  local maps, positions, edges = {}, {}, {}
-  if not (rootDef and type(rootDef.width) == "number"
-      and type(rootDef.height) == "number") then
-    return {
-      positions = positions, edges = edges, maps = maps,
-      bounds = { x = 0, y = 0, w = WORLD_BLOCK, h = WORLD_BLOCK },
-      rootId = rootId,
-    }
-  end
-
-  maps[rootId] = rootDef
-  local placed = { [rootId] = { ox = 0, oy = 0 } }
-
-  -- Outgoing neighbors from the current map.
-  for dir, conn in require("Gen3Connections").each(rootDef.connections) do
-    local dest = connMapId(conn, S)
-    if dest then
-      local destDef = resolveMapDef(S, dest)
-      edges[#edges + 1] = {
-        from = rootId, to = dest, dir = dir,
-        offset = conn.offset or 0,
-        ok = destDef ~= nil,
-      }
-      if destDef and type(destDef.width) == "number"
-          and type(destDef.height) == "number" and not placed[dest] then
-        maps[dest] = destDef
-        local dx, dy = worldConnDelta(dir, conn.offset, rootDef, destDef)
-        placed[dest] = { ox = dx, oy = dy }
-      end
-    end
-  end
-
-  -- Inbound: other maps that connect into the current map (show if not
-  -- already placed via an outbound link).
-  for _, id in ipairs(allMapIds(S)) do
-    if id ~= rootId then
-      local def = resolveMapDef(S, id)
-      if def then
-        for dir, conn in require("Gen3Connections").each(def.connections) do
-          if conn and connMapId(conn, S) == rootId then
-            edges[#edges + 1] = {
-              from = id, to = rootId, dir = dir,
-              offset = conn.offset or 0, ok = true,
-            }
-            if type(def.width) == "number" and type(def.height) == "number"
-                and not placed[id] then
-              maps[id] = def
-              local dx, dy = worldReverseDelta(dir, conn.offset, rootDef, def)
-              placed[id] = { ox = dx, oy = dy }
-            end
-          end
-        end
-      end
-    end
-  end
-
-  local minX, minY = math.huge, math.huge
-  local maxX, maxY = -math.huge, -math.huge
-  for id, p in pairs(placed) do
-    local def = maps[id]
-    local w = def.width * WORLD_BLOCK
-    local h = def.height * WORLD_BLOCK
-    if p.ox < minX then minX = p.ox end
-    if p.oy < minY then minY = p.oy end
-    if p.ox + w > maxX then maxX = p.ox + w end
-    if p.oy + h > maxY then maxY = p.oy + h end
-  end
-  if minX == math.huge then
-    minX, minY = 0, 0
-    maxX = rootDef.width * WORLD_BLOCK
-    maxY = rootDef.height * WORLD_BLOCK
-  end
-
-  for id, p in pairs(placed) do
-    local def = maps[id]
-    positions[id] = {
-      x = p.ox - minX,
-      y = p.oy - minY,
-      w = def.width * WORLD_BLOCK,
-      h = def.height * WORLD_BLOCK,
-    }
-  end
-
-  return {
-    positions = positions,
-    edges = edges,
-    maps = maps,
-    bounds = { x = 0, y = 0, w = maxX - minX, h = maxY - minY },
-    rootId = rootId,
-  }
+  return require("WorldLayout").build(allMapIds(S),
+    function(id) return resolveMapDef(S,id) end,
+    function(conn) return connMapId(conn,S) end,
+    worldConnDelta,S.mapId,S.worldScope or "connected")
 end
+
+Maps.worldLayout = buildWorldLayout
 
 local function worldFitKey(S, layout)
-  return tostring(layout.rootId or "") .. ":"
+  return tostring(S.worldScope or "connected") .. ":" .. tostring(layout.rootId or "") .. ":"
     .. tostring(layout.bounds.w) .. "x" .. tostring(layout.bounds.h)
 end
 
@@ -2569,9 +2470,14 @@ local function drawWorldView(S, App, vx, vy, vw, vh, propW)
     S._g2MapBaker = nil
     S._g2UnclippedBake = true
   end
-  for id in pairs(layout.positions) do
+  local function visible(p)
+    local z=S.worldZoom
+    return p.x+p.w>=S.worldCamX and p.y+p.h>=S.worldCamY
+      and p.x<=S.worldCamX+viewW/z and p.y<=S.worldCamY+viewH/z
+  end
+  for id,p in pairs(layout.positions) do
     local def = layout.maps[id] or resolveMapDef(S, id)
-    if def then
+    if def and visible(p) then
       prepareLiveMap(S, id, def)
       Maps.loadEditorMap(S, id)
     end
@@ -2591,7 +2497,7 @@ local function drawWorldView(S, App, vx, vy, vw, vh, propW)
   for id, p in pairs(layout.positions) do
     local def = layout.maps[id] or resolveMapDef(S, id)
     local sel = S.mapId == id
-    if def then
+    if def and visible(p) then
       prepareLiveMap(S, id, def)
       local ok, loaded = Maps.loadEditorMap(S, id)
       if ok and loaded and loaded.renderer
@@ -2689,12 +2595,23 @@ local function drawWorldView(S, App, vx, vy, vw, vh, propW)
   local y = py + 10 * s
   Kit.text("micro", "MAP CONNECTIONS", px + 10 * s, y, PAL.caption)
   y = y + 18 * s
-  Kit.text("micro", "Current map and its N/S/E/W neighbors.",
+  Kit.text("micro", tostring(layout.count).." maps / "..tostring(layout.components).." separate areas",
     px + 10 * s, y, PAL.faint)
   y = y + 22 * s
 
+  local scopes={{"neighbors","Nearby"},{"connected","Full region"},{"all","All maps"}}
+  local bw=(propW-24*s)/3
+  for i,scope in ipairs(scopes) do
+    if Kit.button(px+10*s+(i-1)*(bw+2*s),y,bw,28*s,scope[2],{
+        kind=(S.worldScope or "connected")==scope[1] and "accent" or "ghost",
+        tooltip=scope[1]=="all" and "Show every map. Areas without edge connections are placed separately."
+          or scope[1]=="connected" and "Follow every edge connection across the entire region"
+          or "Show this map and its immediate neighbors",
+      }) then S.worldScope=scope[1];S._worldFitKey=nil end
+  end
+  y=y+34*s
   if Kit.button(px + 10 * s, y, propW - 20 * s, 28 * s, "Fit", {
-      kind = "ghost", tooltip = "Zoom to this map and its neighbors",
+      kind = "ghost", tooltip = "Fit all maps in the selected viewing scope",
     }) then
     fitWorldCamera(S, layout, viewW, viewH)
   end
