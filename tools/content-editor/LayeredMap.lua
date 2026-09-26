@@ -2756,6 +2756,11 @@ end
 
 function LayeredMap.compileProject(S)
   if not (S and S.project and S.path) then return false, "no open mod" end
+  -- GFX > Blocks: gather what the game needs to show them.
+  if require("Generation").isGen3(S) then
+    local ok,err=require("Gen3Blocks").compileInto(S)
+    if not ok then return false,err end
+  end
   if require("Generation").isGen3(S) and S.project.gen3Workspace then return require("Gen3Workspace").compile(S) end
   local project = ensureProject(S.project)
   local okTilesets, tilesetErr = LayeredMap.ensureMissingMapTilesets(S, project)
@@ -2943,7 +2948,10 @@ function LayeredMap.uniqueTiles(S, source)
   if not source then return {} end
   if source.nativePair then
     local ts=require("Gen3Map").tileset(S.data,source.nativePair)
-    local result={};for id in pairs(ts and ts.midToSlot or {}) do result[#result+1]=id end;table.sort(result);return result
+    local result={};for id in pairs(ts and ts.midToSlot or {}) do result[#result+1]=id end;table.sort(result)
+    -- Blocks made or changed in GFX > Blocks aren't in the cache; list them too.
+    result=require("Gen3Blocks").mapPickerIds(S,source.nativePair,result)
+    return result
   end
   local count = math.max(0, tonumber(source.count) or 0)
   local sig = tostring(source.image) .. ":" .. tostring(count) .. ":"

@@ -1841,9 +1841,13 @@ local function drawTilePalette(S, source, x, y, w, h, App)
   local count = assembly and runtime and blockCount
     or (uniqueTiles and #uniqueTiles or (descriptor.count or 0))
   local scrollKey = assembly and "builderAssemblyOffset" or "builderTileOffset"
-  local offset = clamp(S[scrollKey] or 0, 0, math.max(0, count - perPage))
+  -- Scroll over whole rows: offsets snap to a row start, so
+  -- with count - perPage not a multiple of `columns` the last, partial row
+  -- was never reachable -- and new blocks sort last.
+  local scrollCount = math.ceil(count / columns) * columns
+  local offset = clamp(S[scrollKey] or 0, 0, math.max(0, scrollCount - perPage))
   offset = Kit.scroll(x + 8 * Kit.scale, gridY, w - 16 * Kit.scale, gridH,
-    offset, count, perPage, columns, scrollKey)
+    offset, scrollCount, perPage, columns, scrollKey)
   offset = math.floor(offset / columns) * columns
 
   local function stampHasTile(tile)
@@ -1940,7 +1944,7 @@ local function drawTilePalette(S, source, x, y, w, h, App)
   end
   Kit.popClip()
   S[scrollKey] = Kit.scrollbar(x + w - 18 * Kit.scale, gridY,
-    10 * Kit.scale, gridH, offset, count, perPage, scrollKey)
+    10 * Kit.scale, gridH, offset, scrollCount, perPage, scrollKey)
 
   local fy = y + h - footerH + 4 * Kit.scale
   local bw = (w - 20 * Kit.scale) / 2

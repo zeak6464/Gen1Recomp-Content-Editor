@@ -139,6 +139,40 @@ These presets support straight player-traversable bridges; they are not a
 multi-floor navigation system for NPCs or stacked bridges. NPC placement and
 scripted movement still require their own elevation setup.
 
+## Gen 3 blocks (FireRed)
+
+**GFX → Blocks** edits FireRed metatiles the way the Gen 1/2 block editor
+does: pick a block, click one of its eight slots (bottom layer and top layer,
+2×2 each), then click a tile in the sheet. Each slot has its own palette
+(0–12) and H/V flip; each block has a layer type (Normal, Covered, Split) and
+a behaviour. **+ New block** adds blocks after the tileset's own (up to id
+1023); **Duplicate**, **Revert** and **Delete block** do what they say.
+
+No ROM is needed — not by the modder, not by players. Tiles come from the
+block pictures the game saved when FireRed was imported (the same data the
+maps are drawn from): the sheet shows every distinct tile found in the
+tileset's blocks, each in its own colours, and every existing block is shown
+as those tiles, drawing back exactly as in the game.
+
+**Your own tiles.** *Paint on a copy* turns the selected slot's tile into one
+of your own tiles (Y1, Y2, …) and opens an 8×8 pixel editor beside the
+preview: left button paints, right button (or **Pick**) picks a colour, colour
+0 is see-through. *+ New blank tile* under the sheet starts from scratch.
+Only the pixels you paint are saved; unpainted pixels of a copy come from the
+player's game.
+
+New and edited blocks appear in the map editor's tile picker (after the
+saved ones) and draw as edited on the map. On save, `main.lua` gets only
+definitions — which tile (by where it sits in the saved blocks), palette and
+flips — plus your painted pixels; no game graphics. In game the blocks are
+rebuilt from the player's own saved data and written into that tileset's
+atlas, so ROM maps and maps built in the editor both show them.
+
+Limits: tiles that no saved block uses aren't available; a behaviour change
+doesn't alter collision already baked into vanilla maps; edits to animated
+blocks (water, flowers) are overwritten by the animation; palettes can't be
+edited yet. Tests: `tests/content-editor/run-block-checks.ps1 -Runtime <runtime>`.
+
 ## Gen 3 map connections
 
 **Map setup → Map connections** supports multiple connections on each side.
