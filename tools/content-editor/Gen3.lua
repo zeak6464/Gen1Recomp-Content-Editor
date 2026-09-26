@@ -188,6 +188,11 @@ function Gen3.emit(project, encode)
   require("Gen3BattlePositions").emit(project,encode,out)
   require("OfflineGifts").emit(project, encode, out, 3)
   require("SafariSettings").emit(project, encode, out, 3)
+  -- GFX > Blocks. Registers at game.ready priority 0, ahead
+  -- of the layered-map runtime (-100), which draws from the same atlases.
+  if project.gen3BlockRuntime and next(project.gen3BlockRuntime.pairs or {}) then
+    out[#out+1]=require("Gen3BlocksRuntime")(project.gen3BlockRuntime,encode)
+  end
   if next(project.gen3Layered or {}) then
     out[#out+1]="local bridges=(function()\n"..assert(love.filesystem.read("tools/content-editor/Gen3BridgesRuntime.lua")).."\nend)()\nbridges.install(mod)"
     -- Keep large map constructors outside the entry function's early-return
@@ -207,6 +212,11 @@ function Gen3.emit(project, encode)
     end
     out[#out+1]="    return data end)()"
     out[#out+1]=require("Gen3LayeredRuntime")
+  end
+  -- Whirlpools (map editor collision): crossed with WHIRLPOOL while surfing.
+  local whirlpool = require("Gen3Whirlpool").compile(project)
+  if whirlpool then
+    out[#out+1]=require("Gen3WhirlpoolRuntime")(whirlpool,encode)
   end
   out[#out + 1] = "end\n"
   return table.concat(out, "\n")

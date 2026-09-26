@@ -15,6 +15,8 @@ local painted={
   fall={0x72,0x66},escalator_up={0x72,0x6A},escalator_down={0x72,0x6B},
   stair_up_right={0x72,0x6C},stair_up_left={0x72,0x6D},
   stair_down_right={0x72,0x6E},stair_down_left={0x72,0x6F},
+  -- Editor-defined (Gen3Whirlpool.BEHAVIOR): blocked, crossed with WHIRLPOOL.
+  whirlpool={0xFF,0x1F0},
 }
 M.exitTypes={
   {id="door",label="Door",tip="Animated building door; use a native door graphic"},

@@ -122,6 +122,8 @@ function M.descriptor(S,pair)
   local ts=require("Gen3Map").tileset(S.data,pair)
   if not ts then return end
   local count=0;for mid in pairs(ts.midToSlot) do count=math.max(count,mid+1) end
+  -- Blocks made in GFX > Blocks extend the sheet.
+  count=math.max(count,require("Gen3Blocks").maxProjectMid(S,pair)+1)
   if S.project then
     S.project.runtimeTileAnims=S.project.runtimeTileAnims or {}
     S.project.runtimeTileAnims[pair]=S.project.runtimeTileAnims[pair] or {}
@@ -131,6 +133,8 @@ function M.descriptor(S,pair)
     animations=S.project and S.project.runtimeTileAnims and S.project.runtimeTileAnims[pair] or {}}
 end
 function M.drawTile(S,source,tile,x,y,size,alpha)
+  -- Blocks made or changed in GFX > Blocks draw as edited.
+  if require("Gen3Blocks").drawMapTile(S,source.nativePair,tile,x,y,size,alpha) then return true end
   local ts,T=require("Gen3Map").tileset(S.data,source.nativePair)
   if not ts then return false end
   local slot=T.slotFor(ts,tile)

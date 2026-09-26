@@ -139,6 +139,90 @@ These presets support straight player-traversable bridges; they are not a
 multi-floor navigation system for NPCs or stacked bridges. NPC placement and
 scripted movement still require their own elevation setup.
 
+## Gen 3 blocks (FireRed)
+
+**GFX → Blocks** edits FireRed metatiles the way the Gen 1/2 block editor
+does: pick a block, click one of its eight slots (bottom layer and top layer,
+2×2 each), then click a tile in the sheet. Each slot has its own palette
+(0–12) and H/V flip; each block has a layer type (Normal, Covered, Split) and
+a behaviour. **+ New block** adds blocks after the tileset's own (up to id
+1023); **Duplicate**, **Revert** and **Delete block** do what they say.
+
+No ROM is needed — not by the modder, not by players. Tiles come from the
+block pictures the game saved when FireRed was imported (the same data the
+maps are drawn from): the sheet shows every distinct tile found in the
+tileset's blocks, each in its own colours, and every existing block is shown
+as those tiles, drawing back exactly as in the game.
+
+**Your own tiles.** *Paint on a copy* turns the selected slot's tile into one
+of your own tiles (Y1, Y2, …) and opens an 8×8 pixel editor beside the
+preview: left button paints, right button (or **Pick**) picks a colour, colour
+0 is see-through. *+ New blank tile* under the sheet starts from scratch.
+Only the pixels you paint are saved; unpainted pixels of a copy come from the
+player's game.
+
+New and edited blocks appear in the map editor's tile picker (after the
+saved ones) and draw as edited on the map. On save, `main.lua` gets only
+definitions — which tile (by where it sits in the saved blocks), palette and
+flips — plus your painted pixels; no game graphics. In game the blocks are
+rebuilt from the player's own saved data and written into that tileset's
+atlas, so ROM maps and maps built in the editor both show them.
+
+**Merge a tile on top** (under a selected slot) combines two tiles in one
+slot: click it, then click tiles in the sheet (optionally flipped). The
+merged tile keeps its own colours wherever the hardware allows:
+
+1. the same corner of the other layer is free: it goes there, in its own
+   palette (the block becomes *Covered*, both layers under the player);
+2. otherwise the two tiles become one of yours in a palette that has every
+   colour of both, putting missing colours into colour numbers of that
+   palette no block uses (dots under the swatches mark them; the game gets
+   them for this tileset only, so nothing it already shows changes);
+3. only when no palette has room, the nearest colours of the slot's palette.
+
+See-through pixels keep what's there, and the water (or sand, flowers)
+still showing around a merged tile keeps animating in game -- also when the
+merge moved the slot to another palette, and when the water is in the top
+layer of a *Covered* block.
+
+**Swap layers** (under the slot grids) swaps the bottom and top layers
+corner for corner. **Merge top into bottom** draws each top-layer tile onto
+the bottom tile in the same corner (the same way as *Merge a tile on top*,
+keeping colours where a palette has room) and empties the top layer, ready
+for more edits.
+
+**Import PNG...** (above the block strip) turns a picture into blocks: one
+PNG, or a strip of animation frames side by side (the way the game keeps its
+own animated tiles). Choose how many blocks it covers (bigger pictures are
+shrunk to fit), a block to show behind it (select it in the strip first; e.g.
+the sea), under or over the player, and a palette (*Auto* picks the closest;
+the background's own colours are kept out so the picture doesn't melt into
+it). *Create blocks* makes the blocks and your tiles, and for several frames
+a tile animation per block, then shows which first-frame blocks to paint on
+the map. Importing again under the same name replaces it and keeps its block
+numbers; *Remove* deletes an import's blocks, tiles and animation.
+
+**Whirlpools.** In the map editor, the Collision tool has a **Whirlpool**
+brush (FireRed projects). Painted cells can't be surfed into; facing one
+while surfing and pressing A asks to use WHIRLPOOL when a party Pokémon
+knows the move (and the chosen badge is owned), then carries the player
+across in the direction they face to the first water past it, still
+surfing, with the whirlpool sound, like Waterfall. Otherwise it says the
+currents are too strong. **Crossing settings** (next to the brush) sets the
+move, badge, messages and sound for every whirlpool in the project. The
+cells get behaviour 0x1F0, the editor's own; `Gen3WhirlpoolRuntime` adds the
+crossing in game.
+
+Animated ground keeps animating: where a block's bottom layer uses tiles of
+an animated game block (water, sand, flowers) and nothing covers them, those
+pixels follow the game's animation frames; everything else stays as you
+built it. An edited block with nothing animated left under it drops out of
+the animation, so your edit stays.
+
+Limits: tiles that no saved block uses aren't available; a behaviour change
+doesn't alter collision already baked into vanilla maps; palettes can't be
+edited yet. Tests: `tests/content-editor/run-block-checks.ps1 -Runtime <runtime>`.
+
 ## Gen 3 map connections
 
 **Map setup → Map connections** supports multiple connections on each side.
