@@ -224,7 +224,7 @@ function MapsWorkspace.draw(S, x, y, w, h, App)
   -- A FireRed map's layout under a new name, without its events or story
   -- (used by GAME PATCHES > Clean Project, handy in any Gen 3 mod).
   if Generation.isGen3(S) and Kit.button(x+614*s,actionY,150*s,28*s,"Import template map",{kind="ghost",
-      enabled=S.project~=nil,tooltip="Copy a FireRed map's layout into a new map: tiles, collision, heights and border -- no events, scripts or warps"}) then
+      enabled=S.project~=nil,tooltip="Copy a game map's layout into a new map: tiles, collision, heights and border -- no events, scripts or warps"}) then
     local Clean=require("Gen3Clean")
     local ids,labels=Clean.templateMaps(S)
     require("ChoicePicker").open(S,{ids=ids,labels=labels,title="IMPORT TEMPLATE MAP",onPick=function(id)

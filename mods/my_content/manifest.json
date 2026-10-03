@@ -5,7 +5,7 @@
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
-  "game_version": ">=0.0.0-dev+cd5beadfb5f7 <1.0.0",
+  "game_version": ">=0.0.0-dev+bf3171d580c2 <1.0.0",
   "games": ["emerald"],
   "gen2compat": false,
   "category": "GAMEPLAY",

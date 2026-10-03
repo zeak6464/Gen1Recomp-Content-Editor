@@ -1812,6 +1812,28 @@ local function drawMapList(S, x, y, w, h, App)
     x + 8 * Kit.scale, fy + (S.mapWorkspace and 8 or 34) * Kit.scale, PAL.faint)
 end
 
+-- Gen 3 tile images are read like PNG maps (LayeredMap.importTileImage):
+-- any size, blown-up images shrunk, pixels kept in the project.
+local function gen3TileImage(S, App, stem, imported, existing)
+  App.beginEditBatch()
+  local source, info = LayeredMap.importTileImage(S, stem, imported, existing)
+  if not source then
+    App.endEditBatch()
+    S.status = "Tile image import failed: " .. tostring(info)
+    return
+  end
+  S.builderSourceId = source.id
+  S.builderTile = existing and clamp(S.builderTile or 0, 0, source.count - 1) or 0
+  App.markDirty()
+  App.endEditBatch()
+  S.status = string.format("%s %s — %d x %d tiles%s%s", existing and "Replaced" or "Imported", source.id,
+    info.columns, info.rows,
+    info.scale > 1 and string.format(" (image was %dx size, shrunk)", info.scale) or "",
+    info.padded and " (last row / column filled out to whole tiles)" or "")
+  local cleanup = LayeredMap.describeImageCleanup(pcall(LayeredMap.removeUnusedMapImages, S))
+  if cleanup then S.status = S.status .. ". " .. cleanup:gsub("^%l", string.upper) .. "." end
+end
+
 local function importTileset(S, App)
   if not (S.project and S.path) then return end
   App.pickFile("Import 16x16 tileset PNG",
@@ -1821,13 +1843,14 @@ local function importTileset(S, App)
       local rel = "assets/mapbuilder/sources/" .. base
       App.importToMod(picked, rel, function(imported)
         Preview.invalidatePath(imported)
+        local stem = base:gsub("%.[Pp][Nn][Gg]$", "")
+        if Generation.isGen3(S) then return gen3TileImage(S, App, stem, imported) end
         local image = Preview.image(S, imported)
         if not image then
           S.status = "Imported PNG could not be decoded"
           return
         end
         local width, height = image:getDimensions()
-        local stem = base:gsub("%.[Pp][Nn][Gg]$", "")
         local source, err = LayeredMap.addTileSource(
           S.project, stem, imported, width, height)
         if not source then
@@ -1853,6 +1876,10 @@ local function replaceTileSource(S, App, source)
       if not base:lower():match("%.png$") then base = base .. ".png" end
       local rel = "assets/mapbuilder/sources/" .. base
       App.importToMod(picked, rel, function(imported)
+        if Generation.isGen3(S) then
+          Preview.invalidatePath(imported)
+          return gen3TileImage(S, App, source.id, imported, S.project.mapTileSources[source.id] or source)
+        end
         local image = Preview.image(S, imported)
         if not image then S.status = "Replacement PNG could not be decoded"; return end
         local width, height = image:getDimensions()

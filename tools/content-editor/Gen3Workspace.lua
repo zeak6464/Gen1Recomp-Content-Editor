@@ -39,9 +39,9 @@ function M.prepare(S)
       if native.pair then data._editorTilesets[native.pair]={id=native.pair,_gen3Pair=native.pair,image="@gen3/"..native.pair,blocks={},trueColor=true} end
     end
     -- GAME PATCHES > FireRed Maps (Emerald): every FireRed tileset too.
-    local FrLink=require("Gen3FrLink")
-    if FrLink.enabled(S.project) and FrLink.editor() then
-      for _,pair in ipairs((FrLink.pairs())) do
+    local FrLink=require("Gen3Link")
+    if FrLink.enabled(S.project) and FrLink.editor(S.project) then
+      for _,pair in ipairs((FrLink.pairs(S.project))) do
         data._editorTilesets[pair]={id=pair,_gen3Pair=pair,image="@gen3/"..pair,blocks={},trueColor=true}
       end
     end
@@ -143,7 +143,7 @@ function M.descriptor(S,pair)
     S.project.runtimeTileAnims=S.project.runtimeTileAnims or {}
     S.project.runtimeTileAnims[pair]=S.project.runtimeTileAnims[pair] or {}
   end
-  return {id=require("LayeredMap").runtimeSourceId(pair),name=require("Gen3FrLink").label(pair).." (Gen 3 metatiles)",nativePair=pair,
+  return {id=require("LayeredMap").runtimeSourceId(pair),name=require("Gen3Link").label(pair).." (Gen 3 metatiles)",nativePair=pair,
     image="@gen3/"..pair,colorMode="true_color",columns=8,count=count,
     animations=S.project and S.project.runtimeTileAnims and S.project.runtimeTileAnims[pair] or {}}
 end
@@ -216,6 +216,31 @@ function M.compile(S)
       end
       p.gen3.maps[mapId].warps=warps
     end
+  end
+  -- Maps without an editable copy name a door on another map by its number.
+  -- When an editable map's doors are deleted, added or reordered its numbers
+  -- move, so those maps follow: each endpoint remembers the number it had
+  -- when last saved (originalIndex), which is the number they still hold.
+  local renumber={}
+  for mapId,rows in pairs(byMap) do
+    local moved,now=false,{}
+    for i,node in ipairs(rows) do
+      if node.originalIndex then now[node.originalIndex]=i;if node.originalIndex~=i then moved=true end end
+    end
+    if moved then renumber[mapId]=now end
+  end
+  if next(renumber) then
+    for id,def in pairs(p.gen3.maps) do
+      if not (p.layeredMaps or {})[id] then
+        for _,w in ipairs(def.warps or {}) do
+          local now=renumber[w.destMap]
+          if now and now[w.destWarp] then w.destWarp=now[w.destWarp] end
+        end
+      end
+    end
+  end
+  for _,rows in pairs(byMap) do
+    for i,node in ipairs(rows) do node.originalIndex=i end
   end
   -- Keep PNG tile sheets as pixel data, so the mod needs no image files.
   require("LayeredMap").bakeTileSources(S)

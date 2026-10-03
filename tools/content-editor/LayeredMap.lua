@@ -914,6 +914,50 @@ function LayeredMap.applyPngAsMap(S, mapId, imagePath, pixelWidth, pixelHeight)
   return tileSource, cellWidth, cellHeight, scale or 1, blockErr
 end
 
+-- Gen 3: a tile image for the map builder, read the way a PNG map is --
+-- an image blown up 2x, 3x ... is shrunk to the game's size, a size that
+-- isn't whole 16x16 tiles gets its last row / column filled out with
+-- transparent pixels, colours stay as drawn, and the pixels go into the
+-- project (no PNG is needed in the mod). `existing` replaces that source's
+-- picture, keeping painted cells. Returns the source and
+-- { scale, padded, columns, rows } (or nil, why).
+function LayeredMap.importTileImage(S, wantedId, imagePath, existing)
+  local project = ensureProject(assert(S and S.project, "no project"))
+  local ok, imageData = pcall(LayeredMap.readImageData, S, imagePath)
+  if not ok then return nil, imageData end
+  local m = require("PixelScale").measure(imageData)
+  local pixels = require("PixelScale").shrink(imageData, m.scale, m.phaseX, m.phaseY)
+  local pw, ph = pixels:getDimensions()
+  if pw < 8 or ph < 8 then return nil, "the image is smaller than one tile" end
+  local cols, rows = math.max(1, math.ceil(pw / 16)), math.max(1, math.ceil(ph / 16))
+  local padded = cols * 16 ~= pw or rows * 16 ~= ph
+  if padded then
+    local full = love.image.newImageData(cols * 16, rows * 16)
+    full:paste(pixels, 0, 0, 0, 0, pw, ph)
+    pixels = full
+  end
+  local source = existing
+  if source then
+    source.pixels, source.imageFile = nil, nil
+    source.columns, source.count = cols, cols * rows
+    for tile in pairs(source.animations or {}) do
+      if tile >= source.count then source.animations[tile] = nil end
+    end
+  else
+    local err
+    source, err = LayeredMap.addTileSource(project, wantedId, imagePath, cols * 16, rows * 16)
+    if not source then return nil, err end
+  end
+  source.image = imagePath
+  source.colorMode = "true_color"
+  local baked, bakeErr = LayeredMap.bakeTileSource(S, source, pixels)
+  if not baked then
+    if not existing then project.mapTileSources[source.id] = nil end
+    return nil, bakeErr
+  end
+  return source, { scale = m.scale, padded = padded, columns = cols, rows = rows }
+end
+
 function LayeredMap.sourceDescriptor(S, sourceId)
   if require("Generation").isGen3(S) and LayeredMap.isRuntimeSource(sourceId) then
     return require("Gen3Workspace").descriptor(S,LayeredMap.runtimeTilesetId(sourceId))

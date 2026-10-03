@@ -16,8 +16,14 @@ function M.prepare(S)
       S.data._gen3EditorContent[name]=base
     end
     -- GAME PATCHES > FireRed Maps > Import region: Kanto's wild Pokemon.
-    if name=="encounters" then require("Gen3FrLink").addWild(S,base) end
+    if name=="encounters" then require("Gen3FrLink").addWild(S,base);require("Gen3EmLink").addWild(S,base) end
+    -- GAME PATCHES > Hoenn Region > Import region: Hoenn's wild Pokemon.
+    if name=="encounters" then require("Gen3HoennRegion").addWild(S,base) end
+    -- GAME PATCHES > Kanto Region > Import region: Kanto's wild Pokemon.
+    if name=="encounters" then require("Gen3KantoRegion").addWild(S,base) end
     S.data[name]=base
+    -- ... and its signs' and people's words (Dialog, Events).
+    if name=="text" then require("Gen3FrLink").addTalk(S);require("Gen3EmLink").addTalk(S) end
     p[name]=p[name] or {}
     if not p.gen3ContentWorkspaces[name] then
       for id,patch in pairs((p.gen3 or {})[name] or {}) do

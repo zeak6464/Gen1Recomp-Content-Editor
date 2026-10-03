@@ -64,4 +64,51 @@ function M.configure(scene)
   return scene
 end
 
+--- Emerald (pokeemerald/src/main_menu.c birch speech): the same short intro
+-- -- the player fades in at once, is asked boy or girl and a name, then
+-- shrinks into the game. No professor or Pokemon, and no moving truck.
+function M.configureBirch(scene)
+  if type(scene) ~= "table" or rawget(scene, "_cleanIntroConfigured") then return scene end
+  scene._cleanIntroConfigured = true
+  local remap = {}
+  -- the scene is set up: straight to the player (the platform already
+  -- slid aside, nothing fading)
+  remap.WaitToShowBirch = function(self, m)
+    m.timer, m.bg1hofs, m.doneFading = 0, -60, true
+    self.showDialogue = true
+    self:clearWindow()
+    m.func = "StartPlayerFadeIn"
+  end
+  -- the name confirmed: the player comes back to the middle and goes
+  remap.ReshowBirchLotad = function(self, m)
+    if not m.doneFading then return end
+    local sprites = self.sprites
+    sprites.brendan.invisible, sprites.may.invisible = true, true
+    local key = self.gender ~= 0 and "may" or "brendan"
+    local s = sprites[key]
+    s.x, s.y, s.invisible, s.blend = 120, 60, false, true
+    m.player = key
+    self:startFadeInTarget1OutTarget2(2)
+    self:startFadePlatformOut(1)
+    self:clearWindow()
+    self.showDialogue = false
+    m.func = "ShrinkPlayer"
+  end
+  -- the scene's own steps are swapped for ours only while this scene runs
+  -- a frame (its tasks, sprites and fades run as always)
+  local frame = scene.frame
+  scene.frame = function(self, inp)
+    local steps = getmetatable(self).TASKS or {}
+    local kept = {}
+    for name, fn in pairs(remap) do kept[name] = steps[name]; steps[name] = fn end
+    local ok, result = pcall(frame, self, inp)
+    for name in pairs(remap) do steps[name] = kept[name] end
+    if not ok then error(result, 0) end
+    -- the game starts on the start map, not in the truck
+    if type(result) == "table" then result.fieldCallback = nil end
+    return result
+  end
+  return scene
+end
+
 return M

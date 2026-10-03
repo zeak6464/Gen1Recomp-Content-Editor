@@ -225,7 +225,10 @@ mod-owned replacement without modifying the imported cache. Custom sources
 and replacements are stored with the project and can be edited or removed.
 
 **+ Custom PNG** copies a sheet into `assets/mapbuilder/sources/`. Its width and
-height must be multiples of 16 pixels. Use the arrow buttons to switch between
+height must be multiples of 16 pixels (Gen 1 and 2). In Gen 3 games it is read
+the way a PNG map is: any size (a last row or column that isn't a whole tile is
+filled out), images blown up 2x, 3x ... are shrunk to the game's size, colours
+stay as drawn and the pixels are kept in the project. Use the arrow buttons to switch between
 the original game block source and any number of imported sheets; maps may
 paint tiles from all of them.
 

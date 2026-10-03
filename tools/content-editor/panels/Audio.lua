@@ -568,18 +568,33 @@ function Audio.draw(S, x, y, w, h, App)
   if mode == "map_songs" then
     row("Song", function(fx, fy_, fw, fh_)
       local cur = tostring((owned and proj[id]) or rec or "")
-      ChoicePicker.songField(S, {
-        x = fx, y = fy_, w = fw, h = fh_,
-        current = cur,
-        emptyLabel = gen2 and "Music_NewBarkTown" or "Music_PalletTown",
-        allowClear = true,
-        tooltip = "Song that plays on this map",
-        onPick = function(songId)
-          proj[id] = (type(songId) == "string" and songId ~= "") and songId or nil
-          owned = proj[id] ~= nil
-          App.markDirty()
-        end,
-      })
+      local function onPick(songId)
+        proj[id] = (type(songId) == "string" and songId ~= "") and songId or nil
+        owned = proj[id] ~= nil
+        App.markDirty()
+      end
+      if Generation.isGen3(S) then
+        -- this game's songs and, with its import, the other Gen 3 game's
+        local Foreign = require("Gen3ForeignMusic")
+        local ids, labels = Foreign.pickList(S)
+        ChoicePicker.field(S, {
+          x = fx, y = fy_, w = fw, h = fh_,
+          current = cur, ids = ids, labels = labels,
+          emptyLabel = "(game default)", allowClear = true, title = "SONG",
+          tooltip = Foreign.other(S) and "Song that plays on this map: this game's or the other Gen 3 game's"
+            or "Song that plays on this map (import the other Gen 3 game to pick its music too)",
+          onPick = onPick,
+        })
+      else
+        ChoicePicker.songField(S, {
+          x = fx, y = fy_, w = fw, h = fh_,
+          current = cur,
+          emptyLabel = gen2 and "Music_NewBarkTown" or "Music_PalletTown",
+          allowClear = true,
+          tooltip = "Song that plays on this map",
+          onPick = onPick,
+        })
+      end
     end)
   else
     local r = type(rec) == "table" and rec or {}

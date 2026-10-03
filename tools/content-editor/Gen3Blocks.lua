@@ -50,6 +50,10 @@ local HEX = "0123456789abcdef"
 -- The game's cache ----------------------------------------------------------
 
 local function read(S, path)
+  -- A FireRed tileset in an Emerald project (frlg__<pair>, Gen3FrLink) is
+  -- read from the FireRed or LeafGreen import.
+  local FrLink = require("Gen3Link")
+  if FrLink.redirect(path) then return FrLink.read(path) end
   local data = S.data or {}
   if type(data._gen3Read) ~= "function" then return nil end
   local ok, bytes = pcall(data._gen3Read, path)
@@ -89,7 +93,7 @@ function M.pack(S, pair)
     local bgr = NativePack.decodePalettes(read(S, NATIVE .. from .. "/palettes.bin"))
     pack.baseRgb = NativePack.palsToRgb8(bgr or {})
     pack.rgb = pack.baseRgb
-    pack.behaviors = behaviourTable(S)[from] or {}
+    pack.behaviors = behaviourTable(S)[from] or require("Gen3Link").behaviors(from) or {}
     pack.sheet = TS.harvest(pack)
   end
   data._g3Packs[pair] = pack or false

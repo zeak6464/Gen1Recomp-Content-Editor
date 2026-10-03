@@ -41,6 +41,59 @@ function M.redirect(path)
   return n>0 and out or nil
 end
 
+--- A sign's steps (Gen3FrLink.signSteps) as an Emerald script.
+function M.signOps(steps)
+    local ops={{op="lockall",opcode=105}}
+    for _,st in ipairs(steps) do
+      local key=st[2] and (M.MAP..st[2])
+      if st[1]=="text" then
+        ops[#ops+1]={op="loadword",opcode=15,[1]=0,[2]=key,dest=0,value=key}
+        ops[#ops+1]={op="callstd",opcode=9,[1]=4,std=4}
+      elseif st[1]=="braille" then
+        ops[#ops+1]={op="braillemessage",opcode=120,[1]=key,ptr=key}
+        ops[#ops+1]={op="waitbuttonpress",opcode=109}
+        ops[#ops+1]={op="closebraillemessage",opcode=218}
+      elseif st[1]=="pic" then
+        ops[#ops+1]={op="showmonpic",opcode=117,[1]=st[2],[2]=st[3],[3]=st[4]}
+      elseif st[1]=="unpic" then
+        ops[#ops+1]={op="hidemonpic",opcode=118}
+      end
+    end
+    ops[#ops+1]={op="releaseall",opcode=107}
+    ops[#ops+1]={op="end",opcode=2}
+    return ops
+  end
+
+--- A person's steps (Gen3FrLink.personSteps) as an Emerald script; `nurse`
+-- is Emerald's own nurse script (for { "nurse", localId }).
+function M.personOps(steps,nurse)
+    if steps[1] and steps[1][1]=="nurse" then
+      local target=nurse
+      if not target then return nil end
+      -- pokeemerald data/maps/OldaleTown_PokemonCenter_1F/scripts.inc
+      return {{op="setvar",opcode=22,[1]=0x800B,[2]=steps[1][2] or 1,var=0x800B,value=steps[1][2] or 1},
+        {op="call",opcode=4,[1]=target,target=target},{op="waitmessage",opcode=102},
+        {op="waitbuttonpress",opcode=109},{op="release",opcode=108},{op="end",opcode=2}}
+    end
+    local ops={{op="lock",opcode=106},{op="faceplayer",opcode=90}}
+    for _,st in ipairs(steps) do
+      local key=st[2] and (M.MAP..st[2])
+      if st[1]=="text" then
+        ops[#ops+1]={op="loadword",opcode=15,[1]=0,[2]=key,dest=0,value=key}
+        ops[#ops+1]={op="callstd",opcode=9,[1]=4,std=4}
+      elseif st[1]=="say" then
+        ops[#ops+1]={op="message",opcode=103,[1]=key,ptr=key}
+        ops[#ops+1]={op="waitmessage",opcode=102}
+      elseif st[1]=="mart" then
+        ops[#ops+1]={op="pokemart",opcode=134,[1]=key,items=key,ptr=key}
+      end
+    end
+    if ops[#ops].op=="waitmessage" then ops[#ops+1]={op="waitbuttonpress",opcode=109} end
+    ops[#ops+1]={op="release",opcode=108}
+    ops[#ops+1]={op="end",opcode=2}
+    return ops
+  end
+
 function M.install(mod,cfg)
   local CacheFs=require("src.import.CacheFs")
   local prefix=M.find(CacheFs.readAt)
@@ -90,10 +143,15 @@ function M.install(mod,cfg)
     local install=T.install
     T.install=function(...) return Runtime.call("editor.gen3.frlink.tiles",install,...) end
   end
-  mod.hooks:wrap("editor.gen3.frlink.tiles",function(proceed,...)
-    local a,b=proceed(...);proxyAll();return a,b
+  -- The engine builds its texture stream from the cache it is given when
+  -- install runs (newer engines read tilesets through it, not through
+  -- T._cache), so the proxy goes in first; and when install already ran,
+  -- the stream is rebuilt on the proxy.
+  mod.hooks:wrap("editor.gen3.frlink.tiles",function(proceed,cache,...)
+    local a,b=proceed(proxy(cache),...);proxyAll();return a,b
   end)
   proxyAll()
+  if T._cache and T._stream and T.invalidate then pcall(T.invalidate) end
 
   -- Tile animations (water, sand edges, flowers). Emerald runs its own
   -- animation clock and only steps Emerald's tilesets, so FireRed's are
@@ -249,6 +307,26 @@ function M.install(mod,cfg)
   rows(Interactions.behaviors,"behaviors")
   rows(Encounters._encounterTypes,"encounterTypes")
 
+  -- FireRed's shelves, dressers, trash bins, signs and the like: Emerald has
+  -- no interaction for these tiles. cfg.furniture gives each behaviour's id
+  -- (as text) its script ("frlg:furn:<id>", built from the cfg.signs steps)
+  -- and whether it only reads when the player faces up.
+  if cfg.furniture and next(cfg.furniture) then
+    if not Interactions._editorFrLinkScript then
+      Interactions._editorFrLinkScript=true
+      local base=Interactions.scriptFor
+      Interactions.scriptFor=function(...) return Runtime.call("editor.gen3.frlink.furniture",base,...) end
+    end
+    mod.hooks:wrap("editor.gen3.frlink.furniture",function(proceed,behavior,facing,...)
+      local key=proceed(behavior,facing,...)
+      if key then return key end
+      local row=behavior and cfg.furniture[tostring(behavior)]
+      if not row then return nil end
+      if row.facing=="up" and facing~="up" and facing~=2 then return nil end
+      return row.script
+    end)
+  end
+
   -- Import region: FireRed's wild Pokemon on the EM_KANTO_ maps (the
   -- species numbers are the same in both games). The mod's own lists win.
   if cfg.wild then
@@ -283,29 +361,17 @@ function M.install(mod,cfg)
     local signs=cfg.signs or {}
     local frText
     local function texts()
-      if frText==nil then frText=lua("data/generated/gba/scripts/text.lua") or false end
-      return frText or nil
-    end
-    local function build(steps)
-      local ops={{op="lockall",opcode=105}}
-      for _,st in ipairs(steps) do
-        local key=st[2] and (M.MAP..st[2])
-        if st[1]=="text" then
-          ops[#ops+1]={op="loadword",opcode=15,[1]=0,[2]=key,dest=0,value=key}
-          ops[#ops+1]={op="callstd",opcode=9,[1]=4,std=4}
-        elseif st[1]=="braille" then
-          ops[#ops+1]={op="braillemessage",opcode=120,[1]=key,ptr=key}
-          ops[#ops+1]={op="waitbuttonpress",opcode=109}
-          ops[#ops+1]={op="closebraillemessage",opcode=218}
-        elseif st[1]=="pic" then
-          ops[#ops+1]={op="showmonpic",opcode=117,[1]=st[2],[2]=st[3],[3]=st[4]}
-        elseif st[1]=="unpic" then
-          ops[#ops+1]={op="hidemonpic",opcode=118}
+      if frText==nil then
+        frText=lua("data/generated/gba/scripts/text.lua") or false
+        -- the import's named scripts (furniture and the like) keep their words in its pack
+        if frText then
+          setmetatable(frText,{__index=function(_,k)
+            local p=objects()
+            return p and type(p.text)=="table" and p.text[k] or nil
+          end})
         end
       end
-      ops[#ops+1]={op="releaseall",opcode=107}
-      ops[#ops+1]={op="end",opcode=2}
-      return ops
+      return frText or nil
     end
     -- Emerald's nurse script, the one its own Pokemon Center nurses call
     -- (found from Oldale's, so it follows the player's Emerald).
@@ -324,33 +390,6 @@ function M.install(mod,cfg)
         end
       end
       return nurseKey or nil
-    end
-    local function person(steps,Space)
-      if steps[1] and steps[1][1]=="nurse" then
-        local target=emeraldNurse(Space)
-        if not target then return nil end
-        -- pokeemerald data/maps/OldaleTown_PokemonCenter_1F/scripts.inc
-        return {{op="setvar",opcode=22,[1]=0x800B,[2]=steps[1][2] or 1,var=0x800B,value=steps[1][2] or 1},
-          {op="call",opcode=4,[1]=target,target=target},{op="waitmessage",opcode=102},
-          {op="waitbuttonpress",opcode=109},{op="release",opcode=108},{op="end",opcode=2}}
-      end
-      local ops={{op="lock",opcode=106},{op="faceplayer",opcode=90}}
-      for _,st in ipairs(steps) do
-        local key=st[2] and (M.MAP..st[2])
-        if st[1]=="text" then
-          ops[#ops+1]={op="loadword",opcode=15,[1]=0,[2]=key,dest=0,value=key}
-          ops[#ops+1]={op="callstd",opcode=9,[1]=4,std=4}
-        elseif st[1]=="say" then
-          ops[#ops+1]={op="message",opcode=103,[1]=key,ptr=key}
-          ops[#ops+1]={op="waitmessage",opcode=102}
-        elseif st[1]=="mart" then
-          ops[#ops+1]={op="pokemart",opcode=134,[1]=key,items=key,ptr=key}
-        end
-      end
-      if ops[#ops].op=="waitmessage" then ops[#ops+1]={op="waitbuttonpress",opcode=109} end
-      ops[#ops+1]={op="release",opcode=108}
-      ops[#ops+1]={op="end",opcode=2}
-      return ops
     end
     local function chain(t,look)
       local mt=getmetatable(t) or {}
@@ -372,9 +411,9 @@ function M.install(mod,cfg)
       bundle._editorFrSigns=true
       chain(bundle.scripts,function(_,full)
         local steps=signs[full]
-        if steps then return build(steps) end
+        if steps then return M.signOps(steps) end
         steps=people and people[full]
-        return steps and person(steps,Space)
+        return steps and M.personOps(steps,emeraldNurse(Space))
       end)
       chain(bundle.text,function(key) local t=texts() return t and t[key] end)
     end)
@@ -442,6 +481,54 @@ function M.install(mod,cfg)
         return nil
       end
       return proceed(key,...)
+    end)
+  end
+
+  -- Respawns (People, marts & nurses): walking into a Kanto Pokemon Center
+  -- makes it the place a blackout (or Teleport) returns to, as FireRed's
+  -- own centers do -- in front of its nurse, where FireRed puts the player.
+  -- Which maps and where comes from the import's heal locations.
+  if cfg.respawn then
+    local centers
+    local function center(mapId)
+      if type(mapId)~="string" or mapId:sub(1,#M.REGION)~=M.REGION then return nil end
+      if centers==nil then
+        centers={}
+        local pack=lua("data/generated/gba/region_map/heal_locations.lua") or {}
+        for _,row in pairs(type(pack.whiteout)=="table" and pack.whiteout or {}) do
+          if type(row)=="table" and type(row.map)=="string" and row.map:find("POKE",1,true) then
+            centers[M.REGION..row.map:gsub("^FR_","")]={x=tonumber(row.x) or 7,y=tonumber(row.y) or 4,healer=tonumber(row.healerLocalId)}
+          end
+        end
+      end
+      return centers[mapId]
+    end
+    local Field=require("src.core.game3.field")
+    mod.events:on("map.entered",function(e)
+      local spot=center(type(e)=="table" and e.mapId)
+      local session=spot and Field._session
+      if not session then return end
+      session.healMap,session.healX,session.healY,session.healHealerLocalId=e.mapId,spot.x,spot.y,spot.healer
+    end)
+    -- Emerald turns the player to face down after a blackout (its respawn
+    -- points are outdoors); in a Kanto center they face the nurse.
+    if not Field._editorFrLinkRespawn then
+      Field._editorFrLinkRespawn=true
+      local respawn=Field.respawnAtHeal
+      Field.respawnAtHeal=function(...) return Runtime.call("editor.gen3.frlink.respawn",respawn,...) end
+    end
+    mod.hooks:wrap("editor.gen3.frlink.respawn",function(proceed,opts,...)
+      local a,b=proceed(opts,...)
+      local session=Field._session
+      local spot=session and not (type(opts)=="table" and opts.warp) and center(session.healMap)
+      if spot then
+        local okP,Player=pcall(require,"src.core.game3.player")
+        if okP and Player and Player.reset then
+          Player.reset(session.healX or spot.x,session.healY or spot.y,"up")
+          if Player.syncToHost then Player.syncToHost(Field._game) end
+        end
+      end
+      return a,b
     end)
   end
 

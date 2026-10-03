@@ -2382,7 +2382,44 @@ local function worldConnDelta(dir, offset, curDef, destDef)
   return curDef.width * WORLD_BLOCK, off
 end
 
+-- The region the World view shows when its scope is "My region": the one
+-- picked there, else the one the selected map is in.
+local function worldRegion(S)
+  if not (Generation.isGen3(S) and S.project) then return nil end
+  local R = require("Gen3Regions")
+  return R.find(S.project, S.worldRegionId) or R.ownerOf(S.project, S.mapId)
+end
+
+local function regionColor(hex)
+  local r, g, b = require("Gen3Regions").rgb(hex)
+  return { r * 255, g * 255, b * 255 }
+end
+
 local function buildWorldLayout(S)
+  if S.worldScope == "region" then
+    local region = worldRegion(S)
+    if region then
+      local R = require("Gen3Regions")
+      local ids = {}
+      -- the region view shows towns, cities and routes, not the buildings
+      -- and caves inside them
+      local DayNight = require("Gen3DayNight")
+      local function townOrRoute(id) return R.isTownOrRoute(DayNight.mapKind(S, id), id) end
+      for _, id in ipairs(allMapIds(S)) do
+        if R.ownerOf(S.project, id) == region and townOrRoute(id) then ids[#ids + 1] = id end
+      end
+      local root = (R.ownerOf(S.project, S.mapId) == region and townOrRoute(S.mapId)) and S.mapId or ids[1]
+      local layout = require("WorldLayout").build(ids,
+        function(id) return resolveMapDef(S,id) end,
+        function(conn) return connMapId(conn,S) end,
+        worldConnDelta, root, "all")
+      -- an exit to a map outside the region is not a broken link
+      for _, e in ipairs(layout.edges) do
+        if not e.ok and resolveMapDef(S, e.to) then e.ok = true; e.outside = true end
+      end
+      return layout
+    end
+  end
   return require("WorldLayout").build(allMapIds(S),
     function(id) return resolveMapDef(S,id) end,
     function(conn) return connMapId(conn,S) end,
@@ -2392,7 +2429,7 @@ end
 Maps.worldLayout = buildWorldLayout
 
 local function worldFitKey(S, layout)
-  return tostring(S.worldScope or "connected") .. ":" .. tostring(layout.rootId or "") .. ":"
+  return tostring(S.worldScope or "connected") .. ":" .. tostring(S.worldRegionId or "") .. ":" .. tostring(layout.rootId or "") .. ":"
     .. tostring(layout.bounds.w) .. "x" .. tostring(layout.bounds.h)
 end
 
@@ -2410,7 +2447,7 @@ end
 
 local function drawWorldView(S, App, vx, vy, vw, vh, propW)
   local s = Kit.scale
-  local key=tostring(S.mapId)..":"..tostring(S.worldScope)..":"..tostring(S.uiPreviewTick)
+  local key=tostring(S.mapId)..":"..tostring(S.worldScope)..":"..tostring(S.worldRegionId)..":"..tostring(S.uiPreviewTick)..":"..tostring(#((S.project or {}).gen3Regions or {}))
   local cached=S._worldLayoutCache
   if not cached or cached.key~=key or cached.project~=S.project or cached.data~=S.data or not S._worldFitKey then
     cached={key=key,project=S.project,data=S.data,layout=buildWorldLayout(S)}
@@ -2539,9 +2576,10 @@ local function drawWorldView(S, App, vx, vy, vw, vh, propW)
         love.graphics.rectangle("fill",p.x,p.y,p.w,p.h)
       end
     end
+    local owner = Generation.isGen3(S) and S.project and require("Gen3Regions").ownerOf(S.project, id) or nil
     Theme.stroke(p.x, p.y, p.w, p.h, 2,
-      sel and PAL.green or PAL.cardBorder,
-      sel and 0.95 or 0.4, sel and 3 or 1.5)
+      sel and PAL.green or (owner and regionColor(owner.color)) or PAL.cardBorder,
+      sel and 0.95 or (owner and 0.9 or 0.4), sel and 3 or (owner and 3 or 1.5))
   end
 
   -- Connection lines on top of maps.
@@ -2564,7 +2602,7 @@ local function drawWorldView(S, App, vx, vy, vw, vh, propW)
         elseif e.dir == "south" then y2 = a.y + a.h + stub
         elseif e.dir == "west" then x2 = a.x - stub
         else x2 = a.x + a.w + stub end
-        Theme.col(PAL.red, 0.85)
+        Theme.col(e.outside and PAL.yellow or PAL.red, 0.85)
       end
       if love.graphics.line then
         love.graphics.line(x1, y1, x2, y2)
@@ -2623,16 +2661,35 @@ local function drawWorldView(S, App, vx, vy, vw, vh, propW)
   y = y + 22 * s
 
   local scopes={{"neighbors","Nearby"},{"connected","Full region"},{"all","All maps"}}
-  local bw=(propW-24*s)/3
+  -- regions you defined (UI > Town Map > Regions)
+  local regions=Generation.isGen3(S) and S.project and require("Gen3Regions").list(S.project) or {}
+  if #regions>0 then scopes={{"neighbors","Near"},{"connected","Linked"},{"region","Region"},{"all","All"}} end
+  local bw=(propW-24*s)/#scopes
   for i,scope in ipairs(scopes) do
     if Kit.button(px+10*s+(i-1)*(bw+2*s),y,bw,28*s,scope[2],{
-        kind=(S.worldScope or "connected")==scope[1] and "accent" or "ghost",
+        kind=(S.worldScope or "connected")==scope[1] and "accent" or "ghost",font=#scopes>3 and "micro" or nil,
         tooltip=scope[1]=="all" and "Show every map. Areas without edge connections are placed separately."
           or scope[1]=="connected" and "Follow every edge connection across the entire region"
+          or scope[1]=="region" and "Only the towns, cities and routes of one region you defined, with the ones that are not joined to the rest placed separately"
           or "Show this map and its immediate neighbors",
       }) then S.worldScope=scope[1];S._worldFitKey=nil end
   end
   y=y+34*s
+  if S.worldScope=="region" and #regions>0 then
+    local current=worldRegion(S)
+    local ids,labels={},{}
+    for _,r in ipairs(regions) do ids[#ids+1]=r.id;labels[r.id]=r.name end
+    require("ChoicePicker").field(S,{x=px+10*s,y=y,w=propW-20*s,h=28*s,current=current and current.id or ids[1],ids=ids,labels=labels,
+      title="Region to show",onPick=function(id)
+        S.worldRegionId=id;S._worldFitKey=nil
+        -- select a map of it, so the side panel has something to show
+        local R=require("Gen3Regions")
+        if R.ownerOf(S.project,S.mapId)~=R.find(S.project,id) then
+          for _,mid in ipairs(allMapIds(S)) do if R.ownerOf(S.project,mid)==R.find(S.project,id) then S.mapId=mid;break end end
+        end
+      end})
+    y=y+34*s
+  end
   if Kit.button(px + 10 * s, y, propW - 20 * s, 28 * s, "Fit", {
       kind = "ghost", tooltip = "Fit all maps in the selected viewing scope",
     }) then

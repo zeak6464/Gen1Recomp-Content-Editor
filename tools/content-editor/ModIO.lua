@@ -581,7 +581,7 @@ function ModIO.save(modDir, project, version)
       end
       if gen3Wrapper then manifest.entry = "editor_entry.lua" end
       if require("Generation").isGen3({version=project.game}) and
-          (next(project.gen3Borders or {}) or next(project.gen3Terrain or {}) or next((project.gen3 or {}).maps or {}) or next(project.gen3MapLayouts or {}) or require("Gen3Native").used(project) or require("Gen3Void").used(project) or require("Gen3FrLink").used(project) or require("Gen3ContestEvo").enabled(project)) then
+          (next(project.gen3Borders or {}) or next(project.gen3Terrain or {}) or next((project.gen3 or {}).maps or {}) or next(project.gen3MapLayouts or {}) or require("Gen3Native").used(project) or require("Gen3Void").used(project) or require("Gen3Link").used(project) or require("Gen3Regions").used(project) or require("Gen3ForeignMusic").used(project) or require("Gen3ContestEvo").enabled(project)) then
         manifest.permissions=manifest.permissions or {}
         local present=false
         for _,permission in ipairs(manifest.permissions) do if permission=="engine_internals" then present=true end end

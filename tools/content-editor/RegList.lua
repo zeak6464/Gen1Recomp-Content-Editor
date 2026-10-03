@@ -179,6 +179,13 @@ function RegList.drawList(S, App, x, y, w, h, title, ids, opts)
       S[selKey] = id
       if opts.onSelect then opts.onSelect(id) end
     end
+    local mark = opts.marker and opts.marker(id)
+    if mark then
+      -- a colour bar on the left edge of the row (a region, say)
+      love.graphics.setColor(mark[1], mark[2], mark[3], 1)
+      love.graphics.rectangle("fill", scrollX + 2 * s, ry + 4 * s, 4 * s, rowH - 8 * s, 2 * s, 2 * s)
+      love.graphics.setColor(1, 1, 1, 1)
+    end
     Kit.text("mono", Kit.ellipsize("mono", opts.label and opts.label(id) or id, math.max(8, rowW - 16 * s)),
       x + 16 * s, ry + (rowH - Kit.textHeight("mono")) / 2,
       owned and PAL.text or PAL.muted)

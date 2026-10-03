@@ -71,6 +71,9 @@ return function(data, encode)
       T._cache=proxy(T._cache)
       local okA,Anim=pcall(require,"src.core.game3.tileset_anim")
       if okA and Anim then Anim._cache=proxy(Anim._cache) end
+      -- newer engines read tilesets through a stream built from the cache at
+      -- install: rebuild it on the proxy
+      if T._cache and T._stream and T.invalidate then pcall(T.invalidate) end
       if not T._editorCopiesDispatch then
         T._editorCopiesDispatch=true
         local install=T.install

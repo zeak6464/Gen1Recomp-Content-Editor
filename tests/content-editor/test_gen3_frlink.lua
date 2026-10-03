@@ -125,6 +125,16 @@ run("people: talkers, mart clerks and nurses as steps; story people stay out", f
   assert(L.setPeople(S, true) and S.project.gen3FrPeople == nil)
 end)
 
+run("signs and people become Emerald scripts (game and editor share them)", function()
+  local sign = R.signOps({ { "text", "g3:t1" }, { "braille", "g3:b" } })
+  assert(sign[1].op == "lockall" and sign[2].op == "loadword" and sign[2].value == "frlg:g3:t1" and sign[#sign].op == "end")
+  local clerk = R.personOps({ { "say", "g3:hi" }, { "mart", "g3:list" }, { "text", "g3:bye" } })
+  assert(clerk[1].op == "lock" and clerk[3].op == "message" and clerk[5].op == "pokemart" and clerk[5].items == "frlg:g3:list")
+  assert(R.personOps({ { "nurse", 3 } }) == nil)
+  local nurse = R.personOps({ { "nurse", 3 } }, "g3:heal")
+  assert(nurse[1].op == "setvar" and nurse[1].value == 3 and nurse[2].target == "g3:heal")
+end)
+
 run("only Emerald mods can carry it", function()
   local p = { game = "firered", gen3MapLayouts = { EM_A = { source = "frlg:FR_ROUTE_1" } } }
   local ok, err = pcall(L.emit, p, tostring, {})
@@ -132,6 +142,74 @@ run("only Emerald mods can carry it", function()
   local out = {}
   L.emit({ game = "emerald" }, tostring, out)
   assert(#out == 0)
+end)
+
+run("export: FireRed's own step callback (Icefall Cave ice) is named per map", function()
+  L._scripts = { ["g3:resume"] = { { op = "setstepcallback", 4 }, { op = "end" } } }
+  L._texts, L._events = {}, { FR_ICEFALL = { mapScripts = { onResume = "g3:resume" } }, FR_ROUTE_1 = { mapScripts = {} } }
+  _G.love = { filesystem = { read = function() return "return {}" end } }
+  local p = { game = "emerald", gen3 = { maps = { EM_KANTO_ICEFALL = {}, EM_KANTO_ROUTE_1 = {} } },
+    gen3MapLayouts = { EM_KANTO_ICEFALL = { source = "frlg:FR_ICEFALL" }, EM_KANTO_ROUTE_1 = { source = "frlg:FR_ROUTE_1" } } }
+  local out, cfgs = {}, {}
+  L.emit(p, function(t) cfgs[#cfgs + 1] = t; return "CFG" end, out)
+  L._scripts, L._texts, L._events, L._furniture, L._pack = nil, nil, nil, nil, nil
+  _G.love = nil
+  local last = cfgs[#cfgs]
+  assert(out[#out]:find("regionTiles.install(mod,CFG)", 1, true) and last.host == "rse" and last.origin == "firered")
+  assert(last.steps.EM_KANTO_ICEFALL == "ice" and last.steps.EM_KANTO_ROUTE_1 == nil)
+end)
+
+run("export: Town Map and Fly, with the towns each map marks as visited", function()
+  L._scripts = { ["g3:enter"] = { { op = "setworldmapflag", 2192 }, { op = "end" } }, ["g3:none"] = { { op = "end" } } }
+  L._texts = {}
+  L._events = { FR_PALLET_TOWN = { mapScripts = { onTransition = "g3:enter" } }, FR_ROUTE_1 = { mapScripts = { onTransition = "g3:none" } } }
+  _G.love = { filesystem = { read = function() return "return {}" end } }
+  local p = { game = "emerald", gen3FrRegion = true, gen3 = { maps = { EM_KANTO_PALLET_TOWN = {}, EM_KANTO_ROUTE_1 = {} } },
+    gen3MapLayouts = { EM_KANTO_PALLET_TOWN = { source = "frlg:FR_PALLET_TOWN" }, EM_KANTO_ROUTE_1 = { source = "frlg:FR_ROUTE_1" } } }
+  local out, cfgs = {}, {}
+  L.emit(p, function(t) cfgs[#cfgs + 1] = t; return "CFG" end, out)
+  L._scripts, L._texts, L._events, L._furniture, L._pack = nil, nil, nil, nil, nil
+  _G.love = nil
+  local last = cfgs[#cfgs]
+  assert(out[#out]:find("regionMap.install(mod,CFG)", 1, true) and last.host == "rse" and last.origin == "firered" and last.cross == true)
+  assert(last.prefix == "FR_" and last.secBase == 0 and last.visits.EM_KANTO_PALLET_TOWN[1] == 2192 and last.visits.EM_KANTO_ROUTE_1 == nil)
+end)
+
+run("PokeNav text: defaults, limits, and what the export carries", function()
+  local S = { project = { game = "emerald" } }
+  assert(L.navText(S.project, "label") == "REGION MAP" and L.navText(S.project, "desc") == "Check the map of the region.")
+  assert(L.setNavText(S, "label", "kanto map") and L.navText(S.project, "label") == "KANTO MAP")
+  assert(not L.setNavText(S, "label", "kanto map"))
+  assert(L.setNavText(S, "label", "a very long label indeed") and #L.navText(S.project, "label") == 10)
+  assert(L.setNavText(S, "desc", ("x"):rep(80)) and #L.navText(S.project, "desc") == 40)
+  -- empty or the default itself clears it
+  assert(L.setNavText(S, "label", "") and S.project.gen3FrNavLabel == nil and L.navText(S.project, "label") == "REGION MAP")
+  assert(L.setNavText(S, "desc", "Hi") and L.setNavText(S, "desc", L.NAV_DEFAULT.desc) and S.project.gen3FrNavDesc == nil)
+  assert(not L.setNavText({}, "label", "x"))
+  L._scripts, L._texts, L._events = {}, {}, {}
+  _G.love = { filesystem = { read = function() return "return {}" end } }
+  L.setNavText(S, "label", "Kanto")
+  local p = { game = "emerald", gen3FrRegion = true, gen3FrNavLabel = S.project.gen3FrNavLabel, gen3 = { maps = {} }, gen3MapLayouts = {} }
+  local out, cfgs = {}, {}
+  L.emit(p, function(t) cfgs[#cfgs + 1] = t; return "CFG" end, out)
+  L._scripts, L._texts, L._events, L._furniture, L._pack = nil, nil, nil, nil, nil
+  _G.love = nil
+  local last = cfgs[#cfgs]
+  assert(last.nav.label == "KANTO" and last.nav.desc == "Check the map of the region.")
+end)
+
+run("furniture: FireRed's shelves and signs read in Emerald", function()
+  local scripts = { EventScript_Dresser = { { op = "loadword", 0, "g3:dr" }, { op = "callstd", 3 }, { op = "end" } },
+    EventScript_PokecenterSign = { { op = "loadword", 0, "g3:pc" }, { op = "callstd", 3 }, { op = "end" } },
+    EventScript_Cabinet = { { op = "setflag", 5 }, { op = "end" } } }
+  L._furniture, L._pack = nil, { scripts = scripts, text = { ["g3:dr"] = { { t = "text", s = "A dresser." } }, ["g3:pc"] = { { t = "text", s = "Heal!" } } } }
+  L._scripts, L._texts = {}, setmetatable({}, { __index = function(_, k) return L._pack.text[k] end })
+  local rows, steps = L.furniture()
+  L._furniture, L._pack, L._scripts, L._texts = nil, nil, nil, nil
+  assert(rows["139"].script == "frlg:furn:139" and rows["139"].facing == nil)
+  assert(rows["135"].script == "frlg:furn:135" and rows["135"].facing == "up")
+  assert(rows["137"] == nil, "a script that isn't a message stays out")
+  assert(steps["frlg:furn:139"][1][1] == "text" and steps["frlg:furn:139"][1][2] == "g3:dr")
 end)
 
 print(("%d passed, %d failed"):format(pass, fail))

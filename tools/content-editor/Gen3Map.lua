@@ -8,7 +8,7 @@ function M.layout(data, id, project)
     data._gen3DerivedLayouts=data._gen3DerivedLayouts or {}
     local entry=data._gen3DerivedLayouts[id]
     if entry and entry.spec==spec then return entry.layout end
-    local FrLink=require("Gen3FrLink")
+    local FrLink=require("Gen3Link")
     local base,err
     if FrLink.isMap(spec.source) then base,err=FrLink.layout(spec.source)
     else base,err=M.layout(data,spec.source or id) end
@@ -85,7 +85,7 @@ function M.tileset(data, pair)
     M._data = data
     -- FireRed tilesets (frlg__…, Emerald projects) come from the FireRed
     -- or LeafGreen import (Gen3FrLink).
-    local FrLink=require("Gen3FrLink")
+    local FrLink=require("Gen3Link")
     local function read(p)
       if FrLink.redirect(p) then return FrLink.read(p) end
       return data._gen3Read and data._gen3Read(M.alias(p))
@@ -230,6 +230,8 @@ function M.emit(project, encode, out)
       local base=sourceLayouts[spec.source or id]
       -- FireRed layouts ("frlg:FR_…"), from the player's FireRed import.
       if not base and Layout._editorFrLink then base=Layout._editorFrLink.layout(spec.source) end
+      -- Emerald layouts ("em:EM_…") in FireRed / LeafGreen, from the player's Emerald import.
+      if not base and Layout._editorEmLink then base=Layout._editorEmLink.layout(spec.source) end
       if def and base then
         setmetatable(base,Layout)
         local cells={}

@@ -1,5 +1,6 @@
 local Kit = require("Kit")
 local RegList = require("RegList")
+local Regions=require("Gen3Regions")
 local FormPane = require("FormPane")
 local Map = require("Gen3Map")
 local Void = require("Gen3Void")
@@ -22,9 +23,9 @@ local function tilesetChoices(S, current)
   end
   if current then pairsById[current]=true end
   -- GAME PATCHES > FireRed Maps (Emerald): FireRed's tilesets too.
-  local FrLink=require("Gen3FrLink")
-  if FrLink.enabled(S.project) and FrLink.editor() then
-    for _,pair in ipairs((FrLink.pairs())) do pairsById[pair]=true end
+  local FrLink=require("Gen3Link")
+  if FrLink.enabled(S.project) and FrLink.editor(S.project) then
+    for _,pair in ipairs((FrLink.pairs(S.project))) do pairsById[pair]=true end
   end
   for pair in pairs(pairsById) do labels[pair]=FrLink.label(pair) end
   return RegList.sortedKeys(pairsById),labels
@@ -36,9 +37,10 @@ end
 -- with Import template map, or all at once with Import region.
 local function fireRedRow(S,App,fx,y,fw,layout)
   local s=Kit.scale
-  local FrLink=require("Gen3FrLink")
-  if not FrLink.editor() then
-    Kit.caption(fx,y,"GAME PATCHES > FireRed Maps is on, but no FireRed or LeafGreen import was found.")
+  local FrLink=require("Gen3Link")
+  local other=FrLink.name(S.project)
+  if not FrLink.editor(S.project) then
+    Kit.caption(fx,y,"GAME PATCHES > "..other.." Maps is on, but no "..(other=="Emerald" and "Emerald" or "FireRed or LeafGreen").." import was found.")
     return
   end
   local ids,labels=tilesetChoices(S,layout.pair)
@@ -46,7 +48,7 @@ local function fireRedRow(S,App,fx,y,fw,layout)
   Kit.caption(fx,y+6*s,"Tileset")
   require("ChoicePicker").field(S,{x=fx+110*s,y=y,w=math.min(fw-110*s,360*s),h=28*s,current=S.g3LayoutPair,ids=ids,labels=labels,
     title="Tileset for this layout",onPick=function(id) S.g3LayoutPair=id end})
-  Kit.caption(fx,y+40*s,"FireRed tilesets and maps (Import template map) need FireRed or LeafGreen imported to play the mod.")
+  Kit.caption(fx,y+40*s,other.." tilesets and maps (Import template map) need "..(other=="Emerald" and "Emerald" or "FireRed or LeafGreen").." imported to play the mod.")
 end
 
 local function drawMid(S,pair,mid,px,py,tile)
@@ -293,7 +295,16 @@ function Panel.draw(S,x,y,w,h,App)
   S.g3MapId=S.g3MapId or ids[1]
   local fx,fw=RegList.drawList(S,App,x,y,w,h,require("Generation").label(S).." maps",ids,
     {selKey="g3MapId",queryKey="g3MapQuery",offsetKey="g3MapOffset",listW=210*s,
-      label=function(id) local map=(S.project.maps or {})[id];return map and (map.name or map.label) or id end})
+      searchPh="search... (@region)",
+      label=function(id) local map=(S.project.maps or {})[id];return map and (map.name or map.label) or id end,
+      -- regions you defined: a colour mark per map, and "@name" in the search
+      marker=function(id) local c=Regions.colorOf(S.project,id);if not c then return nil end;local r,g,b=Regions.rgb(c);return {r,g,b} end,
+      filter=function(id,q)
+        local hit=Regions.matches(S.project,id,q)
+        if hit~=nil then return hit end
+        local map=(S.project.maps or {})[id];local label=map and (map.name or map.label) or id
+        return (id.." "..label):lower():find(q:lower(),1,true)~=nil
+      end})
   if not S.g3MapId then Kit.caption(fx,y,"Import FireRed, LeafGreen or Emerald to load native maps"); return end
   local layout,err=Map.layout(S.data,S.g3MapId,S.project)
   if not layout then Kit.caption(fx,y,tostring(err)); return end
@@ -340,7 +351,7 @@ function Panel.draw(S,x,y,w,h,App)
         S.g3MapId=id;S.gen3Id=id;S.g3MapMode="terrain";S._g3Identity=nil;S.g3LayoutPair=nil;App.markDirty();S.status="Map layout applied; Save to export"
       end
     end
-    if require("Gen3FrLink").enabled(S.project) then fireRedRow(S,App,fx,y+256*s,fw,layout) end
+    if require("Gen3Link").enabled(S.project) then fireRedRow(S,App,fx,y+256*s,fw,layout) end
     return
   end
   local borderMode=S.g3MapMode=="border"

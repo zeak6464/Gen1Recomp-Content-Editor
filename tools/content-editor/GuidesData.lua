@@ -95,11 +95,12 @@ return {
     {
       id = "clean", category = "gen3", gen3 = true,
       title = "Start from scratch (Clean Project)",
-      summary = "A blank game: no story, events or FireRed maps. Only do this at the start of a project. FireRed and LeafGreen only.",
+      summary = "A blank game: no story, events or game maps. Only do this at the start of a project. FireRed, LeafGreen and Emerald.",
       steps = {
         { "GAME PATCHES > Clean Project > Apply, read the warning, then Wipe and start clean. Everything in the open mod is wiped -- it can't be undone.", go = { tab = "patches" } },
         { "You get one blank starter map; a new game starts there. The intro only asks boy or girl and the player's name." },
-        { "MAPS > Import template map copies any FireRed map's layout into a new map, without its events or story.", go = { tab = "maps" } },
+        { "MAPS > Import template map copies any of the game's maps' layouts into a new map, without its events or story. In Emerald with GAME PATCHES > FireRed Maps on, FireRed's maps and tilesets are there too; in FireRed and LeafGreen, GAME PATCHES > Emerald Maps does the same with Emerald's.", go = { tab = "maps" } },
+        { "To get the game's own maps back after cleaning, use GAME PATCHES > Kanto Region (FireRed, LeafGreen) or Hoenn Region (Emerald) > Re-import region: every map comes back as FR_KANTO_ / EM_HOENN_ maps, with its connections, signs, wild Pokemon and everyday people, but no story.", go = { tab = "patches" } },
       },
     },
     {

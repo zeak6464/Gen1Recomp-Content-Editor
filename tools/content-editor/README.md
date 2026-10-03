@@ -328,7 +328,12 @@ the base game; maps you add are set up with the editor's own tools.
   are hidden in the editor and can't be reached in game. **MAPS → Import
   template map** copies a FireRed map's layout (tiles, collision, heights,
   border) into a new map, never its events or story. Pokemon, moves, items,
-  types, tilesets, graphics and trainers stay.
+  types, tilesets, graphics and trainers stay. **Emerald** has it too: the
+  starter map is `EM_STARTER_MAP` (grass, Petalburg's tileset), the intro is
+  Birch's scene cut the same way (no professor, no Lotad) and the game
+  starts on your map, not in the truck. **FireRed Maps** stays as it was:
+  with it on, FireRed's tilesets and template maps are still there for a
+  hand-made region (the imported Kanto region is wiped with the rest).
 - **Real Time Clock** with **Encounter tables** -- see below.
 
 ## Gen 3 day and night (FireRed)
@@ -521,20 +526,151 @@ Gen1Recomp folder's). With it on:
   region again adds them to maps brought in earlier.
 
 Signs read what they say in FireRed -- messages, braille and Pokemon
-pictures -- rebuilt as Emerald scripts; their words come from the player's
-import, so they aren't editable here (replace a sign with your own to change
-it). Signs that are machines or menus in FireRed (slot machines, vending
+pictures -- rebuilt as Emerald scripts. They and the people show up in
+Dialog and Events like any other, with FireRed's words read from your
+import: edit them there. Only what you change is saved in the mod (as your
+own text or script); everything else still comes from the player's import.
+Signs that are machines or menus in FireRed (slot machines, vending
 machines) are left out. People are rebuilt the same way (what they say,
 their shop, their healing). Story people, trainers and other scripts don't
-come across (FireRed's scripts don't run in Emerald), a whiteout still
-sends the player back to their last Hoenn Pokemon Center, and the music is
-Emerald's (by map type). FireRed's tiles animate and its doors open as in FireRed.
+come across (FireRed's scripts don't run in Emerald), and each map keeps
+its own FireRed music, played from the player's FireRed import (see
+[Music from the other game](#music-from-the-other-game)). FireRed's shelves, dressers, trash bins,
+signs and the like show their FireRed text when read. With People, marts &
+nurses on, walking into a Kanto Pokemon Center makes it the place a blackout returns to: the player
+wakes up healed in front of its nurse, as in FireRed (Hoenn's centers keep
+working as they do). FireRed's tiles animate and its doors open as in FireRed;
+spinner tiles spin and the Icefall Cave ice cracks, as in FireRed.
+
+On these maps the Town Map (Emerald's PokeNav MAP) and the Fly move show FireRed's Kanto map, with the towns the player has walked into marked visited, and flying to a Kanto town lands on its imported copy. FireRed's own map screen is run by the game from the player's FireRed import; the mod carries no map art. Flying between regions is not possible: each region's Fly list is its own.
+
+The PokeNav's map entry reads **REGION MAP** on these Kanto maps, with "Check the map of the region." under it, instead of Hoenn's. Change both in UI > Town Map > **PokeNav text** (the entry, up to 10 letters, and the description under it, up to 40; empty or **Default** restores the wording above).
 
 The mod carries names only (`frlg__pallet_outdoor`, `frlg:FR_PALLET_TOWN`,
 `EM_KANTO_…`), never FireRed's graphics or lists. In game `main.lua` reads
 them from the player's own FireRed or LeafGreen import; without one the mod
 doesn't turn on and says to import FireRed or LeafGreen first. Turning the
 patch off hides FireRed from the pickers; maps already using it keep it.
+
+## Emerald maps and tilesets in FireRed / LeafGreen
+
+**GAME PATCHES → Emerald Maps** (FireRed and LeafGreen) is the same idea the
+other way round: Emerald's maps and tilesets in a Kanto mod -- Hoenn in a
+FireRed game -- read from an Emerald import. With it on:
+
+- Every Emerald tileset (`Emerald: …`) can be painted with, wherever FireRed's
+  are offered (map builder, **Create / resize → Tileset**, **Border**).
+- **Maps → Import template map** lists Emerald's maps (type "Emerald" in its
+  search).
+- **Import region** brings in every Emerald map at once as
+  `FR_HOENN_<name>`: Emerald's blocks, borders, connections, warps, signs,
+  map names and wild Pokemon. Add a warp from a Kanto map to reach them.
+- **Wild Pokemon** and **People, marts & nurses** (settings on the patch, on
+  to start with) work as in FireRed Maps: Emerald's talkers, Poke Mart clerks
+  with Emerald's shop lists, and Pokemon Center nurses (FireRed's healing);
+  walking into a Hoenn Pokemon Center makes it the place a blackout returns
+  to. People are drawn with Emerald's own sprites in the game (the editor
+  shows FireRed look-alikes). Trainers, item balls, story people, map scripts
+  and step triggers stay out.
+
+Emerald's tiles, tile animations and door animations all play. Long grass
+and deep sand act as FireRed's tall grass and sand, and Emerald's shelves,
+vases, trash cans, shop shelves and blueprints show their Emerald text when
+read. Muddy slopes slide you down, the Fortree and Pacifidlog bridges and
+cracked floors react to your steps, and ash grass turns to ash, all run by the
+game's own Emerald code (the ash puff and Soot Sack, though, are left out).
+
+On these maps the Town Map and the Fly move show Emerald's Hoenn map, run by the game from the player's Emerald import, with the towns the player has walked into marked visited; flying to a Hoenn town lands on its imported copy. Fly stays within the region the player is in.
+Hoenn's Acro / Mach Bike rails, bumpy slopes, berry soil and secret bases still
+look right but act as plain ground or walls, and deep sand leaves no
+footprints. Each map keeps its own Emerald music, played from the player's Emerald
+import (see [Music from the other game](#music-from-the-other-game)).
+
+The mod carries names only (`em__general__petalburg`, `em:EM_ROUTE101`,
+`FR_HOENN_…`), never Emerald's graphics, maps or lists. In game `main.lua`
+reads them from the player's own Emerald import; without one the mod doesn't
+turn on and says to import Emerald first. Turning the patch off hides Emerald
+from the pickers; maps already using it keep it. Clean Project keeps the patch
+as it was (without the imported region).
+
+## Kanto and Hoenn Region in a Clean Project
+
+Clean Project hides the game's own maps. **GAME PATCHES → Kanto Region**
+(FireRed and LeafGreen) and **Hoenn Region** (Emerald) bring them back,
+without the story. The region is already in the game, so the button is only
+needed if you deleted or changed the originals (Clean Project hides them).
+They work the same way (Hoenn's maps are `EM_HOENN_<name>`, Kanto's
+`FR_KANTO_<name>`); Kanto's, as an example:
+
+- **Re-import region** adds every map -- Kanto and the Sevii Islands -- at once as
+  `FR_KANTO_<name>`, joined by the game's own connections and warps, with its
+  blocks, borders, music, map names and signs. They are the mod's own maps:
+  paint, resize and connect them like any other. Add a warp or a connection
+  from one of your maps to reach them. Maps it already has are left alone, so
+  running it again only adds what is missing.
+- **Wild Pokemon** (on to start with): each map gets the game's own wild
+  Pokemon, editable in Encounters.
+- **People, marts & nurses** (on to start with): the everyday people come
+  too -- talkers, Poke Mart clerks with the game's shop lists, and Pokemon
+  Center nurses (walking into a Kanto Pokemon Center makes it the place a
+  blackout returns to). Trainers, item balls, story people, map scripts and
+  step triggers stay out; add your own in the editor.
+- **Town Map and Fly** work on the imported maps with no setting: the game's
+  own map screen opens for the player's region, the towns the player walks
+  into are marked visited, and Fly lands on the imported copy of the town (the
+  original is hidden after Clean Project).
+
+The mod carries names only (`FR_KANTO_…` / `EM_HOENN_…` maps naming the
+game's own), never the game's graphics or lists.
+
+## Regions
+
+**UI > Town Map > Regions** defines regions of your own, with nothing imported
+or linked behind them -- Kanto and Hoenn side by side, say. A region is a
+name, a colour and the maps in it:
+
+- **Maps by name:** list the map-name beginnings it owns (`EM_HOENN_, FR_HOENN_`).
+  The longest match wins, and a map is in at most one region.
+- **By hand:** type a map id and **Put in region** to add any map whatever it is
+  called; **Remove** takes it out again. A map a prefix would have given the
+  region can be taken out the same way.
+- **Add the regions in use** offers the regions the maps already in the mod
+  suggest (`EM_HOENN_`, `FR_KANTO_`...).
+- **In the editor:** MAPS > the map list shows a colour bar per region, and
+  searching `@hoenn` lists a region's maps (`@` every map that is in a region,
+  `@-` the ones in none).
+- **Preview the maps:** **Preview the maps** (or MAPS > World view > **Region**,
+  with a region picker) lays out just that region's towns, cities and routes
+  (not the buildings and caves in them) by their connections, outlined in the
+  region's colour. Exits to maps outside the region show as
+  yellow stubs.
+- **In an Emerald game:** a region's **PokeNav** entry (up to 10 letters) and
+  description (up to 40) replace "HOENN MAP" and its line on that region's maps.
+  They are redrawn from the game's own label at run time, so the mod carries
+  only the words. This wins over the Kanto wording above on a map both name.
+
+A region's own Town Map picture, Fly list and cursor grid are not part of this
+yet: the Town Map and Fly still show the screen of the game (or import) the
+maps belong to.
+
+## Music from the other game
+
+Any map in an Emerald project can play FireRed / LeafGreen music, and any map in a
+FireRed / LeafGreen project can play Emerald music (the other game's import has to
+be there, like for the map imports).
+
+- **Pick it:** AUDIO > **Map songs** > pick a map > the **Song** list has this
+  game's songs, then the other game's ("FireRed: Pallet", "Emerald: Petalburg").
+  **Play** previews either.
+- **Imported maps keep their own song:** the maps Emerald Maps / FireRed Maps bring
+  in play the song they have in their own game (before this they got a stand-in
+  by map type). Without that game's audio in the import the stand-in is still used.
+- **In the game:** the mod carries only a song number (the other game's number plus
+  16384). The game reads the song from the player's own import of that game and
+  plays it with its own music player, so volume, pausing, fades and jingles work as
+  for any song. If the other game isn't imported the map is silent.
+- Only map music is covered: battle music, jingles and the Pokemon Center / bike /
+  surf songs the game picks itself stay the host game's.
 
 ## Combine duplicate tiles
 
@@ -788,6 +924,8 @@ The FireRed workspaces include:
 - **Audio:** uses the existing Audio workspace with music/SFX/cry remaps,
   map-song assignments, file imports, and native/imported previews. Replacements use
   the runtime's stop, pause/resume, fade, and fanfare controls.
+  In a Gen 3 project the Map songs list also offers the other Gen 3 game's
+  music when its import is there (see [Music from the other game](#music-from-the-other-game)).
 
 Most forms commit edits immediately; use **Apply animation** and **Apply rules**
 for animation/starter drafts before switching selections, then **Save**.
@@ -1061,6 +1199,8 @@ status, catching and rewards.
 ### Additional FireRed Town Maps
 
 UI > Town Map > Town Map artwork includes Kanto and Sevii Islands 1-3, 4-5, and 6-7. Each preview decodes its original 240 x 160 artwork from the imported FireRed ROM. Import, export, and revert operate on the selected region independently. Sevii image overrides are saved with the mod, but the linked runtime currently supports navigation and Fly destinations only on Kanto.
+
+The picker also previews the other game's pictures when its import is there: Kanto and Sevii in an Emerald project (from your FireRed import), Hoenn in a FireRed / LeafGreen project (from your Emerald import). Those are view only (and can be exported as PNG), because in the game they are that game's own Town Map; nothing of them is stored in the mod.
 
 ### Fame Checker (FireRed)
 

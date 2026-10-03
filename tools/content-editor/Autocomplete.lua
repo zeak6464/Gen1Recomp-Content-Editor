@@ -210,6 +210,14 @@ function Autocomplete.moveIds(S)
 end
 
 function Autocomplete.mapIds(S)
+  -- GAME PATCHES > Clean Project: the game's own maps are hidden, so map
+  -- pickers (connections, warps, events) offer only the project's maps --
+  -- otherwise an imported region shows every map twice (Route 128 and
+  -- Hoenn Route 128) and picking the hidden one links to a map that isn't
+  -- part of the mod.
+  if S.project and type(S.project.gen3Clean) == "table" then
+    return require("Generation").listedMapIds(S)
+  end
   return mergeKeys(S.project and S.project.maps,
     require("Generation").dataMaps(S))
 end

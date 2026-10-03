@@ -1,9 +1,9 @@
 local M={}
 function M.cache(S)
   local c=S._worldPreviews
-  if not c or c.data~=S.data or c.project~=S.project or c.tick~=S.uiPreviewTick or c.scope~=S.worldScope then
+  if not c or c.data~=S.data or c.project~=S.project or c.tick~=S.uiPreviewTick or c.scope~=S.worldScope or c.region~=S.worldRegionId then
     if c then for _,entry in pairs(c.images) do entry.image:release() end end
-    c={data=S.data,project=S.project,tick=S.uiPreviewTick,scope=S.worldScope,images={},count=0}
+    c={data=S.data,project=S.project,tick=S.uiPreviewTick,scope=S.worldScope,region=S.worldRegionId,images={},count=0}
     S._worldPreviews=c
   end
   return c

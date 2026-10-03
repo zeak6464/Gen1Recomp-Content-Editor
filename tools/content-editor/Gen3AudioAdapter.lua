@@ -83,8 +83,16 @@ function M.play(S,mode,id,rec)
   S._g3AudioBake=coroutine.create(function()
     local Player=require("src.core.game3.m4a_player")
     local cache={read=function(_,path) return S.data._gen3Read(path) end}
-    S.data._g3PreviewPack=S.data._g3PreviewPack or assert(Player.loadPack(cache,"data/generated/gba/audio"))
     local target=assert(tonumber(type(rec)=="table" and rec.nativeId or rec or id),"Invalid audio ID")
+    local Foreign=require("Gen3ForeignMusic")
+    if Foreign.isForeign(target) then
+      -- a song of the other Gen 3 game, from the player's import of it
+      local link=assert(Foreign.other(S),"Import the other game to hear its music")
+      local fcache={read=function(_,path) return link.read(path) end}
+      S.data._g3PreviewPackForeign=S.data._g3PreviewPackForeign or assert(Player.loadPack(fcache,"data/generated/gba/audio"))
+      return Player.bakeSong(S.data._g3PreviewPackForeign,fcache,Foreign.nativeId(target),{maxSec=4,yieldEvery=2048})
+    end
+    S.data._g3PreviewPack=S.data._g3PreviewPack or assert(Player.loadPack(cache,"data/generated/gba/audio"))
     if mode=="cries" then
       return Player.bakeSlot(assert(Player.startCry(S.data._g3PreviewPack,target)),{maxSec=4,yieldEvery=2048})
     end

@@ -1,4 +1,4 @@
--- GAME PATCHES > Clean Project (FireRed / LeafGreen): start a mod from
+-- GAME PATCHES > Clean Project (FireRed / LeafGreen / Emerald): start a mod from
 -- scratch. Apply wipes the open project -- every edit made so far -- and
 -- leaves one blank starter map to begin on:
 --   * a new game starts on that map (PLAYER > start map, via the workbench
@@ -13,6 +13,10 @@
 local M = {}
 
 M.STARTER = { id = "FR_STARTER_MAP", width = 20, height = 18, pair = "pallet_outdoor", tile = 1 }
+-- Emerald: a field of grass on Petalburg's tileset; the intro is Birch's
+-- scene cut the same way (Gen3CleanIntro.configureBirch), with no truck.
+M.STARTER_EMERALD = { id = "EM_STARTER_MAP", width = 20, height = 18, pair = "general__petalburg", tile = 1 }
+local function emerald(project) return (project.game or project.version) == "emerald" end
 
 function M.enabled(project)
   return type(project) == "table" and type(project.gen3Clean) == "table"
@@ -26,13 +30,18 @@ function M.apply(S)
   local fresh = State.ensureProjectFields(State.blankProject(old.id, old.name))
   fresh.game = old.game
   fresh.gen3Workspace = true
+  -- Emerald: GAME PATCHES > FireRed Maps stays as it was (its tilesets and
+  -- template maps), without the imported region.
+  if emerald(old) and old.gen3FrLink == true then fresh.gen3FrLink = true end
+  -- FireRed / LeafGreen: GAME PATCHES > Emerald Maps the same way.
+  if not emerald(old) and old.gen3EmLink == true then fresh.gen3EmLink = true end
   S.project = fresh
   pcall(function() require("Generation").restoreUnownedLiveMaps(S) end)
-  if S.data then S.data._g3Packs = {} end
+  if S.data then S.data._g3Packs = {}; S.data._editorMaps, S.data._editorTilesets = nil, nil end
   pcall(function() require("Gen3Workspace").prepare(S) end)
   local L = require("LayeredMap")
   L.ensureProject(fresh)
-  local c = M.STARTER
+  local c = emerald(fresh) and M.STARTER_EMERALD or M.STARTER
   local source, map = L.createMap(S, c.id, c.width, c.height, c.pair)
   assert(source, "could not create the starter map: " .. tostring(map))
   for _, layer in ipairs(source.layers) do
@@ -65,8 +74,8 @@ function M.templateMaps(S)
   end
   table.sort(ids, function(a, b) return Labels.natural(labels[a], labels[b]) end)
   -- Emerald with GAME PATCHES > FireRed Maps on: FireRed's maps too.
-  if require("Generation").id(S) == "emerald" then
-    local frIds, frLabels = require("Gen3FrLink").templateMaps(S.project)
+  do
+    local frIds, frLabels = require("Gen3Link").templateMaps(S.project)
     for _, id in ipairs(frIds) do ids[#ids + 1] = id; labels[id] = frLabels[id] end
   end
   return ids, labels
@@ -80,12 +89,12 @@ function M.importTemplate(S, baseId)
   local W = require("Gen3Workspace")
   local L = require("LayeredMap")
   local copy = require("src.mods.Merge").deepCopy
-  local FrLink = require("Gen3FrLink")
+  local FrLink = require("Gen3Link")
   local fireRed = FrLink.isMap(baseId)
   local base, err
   if fireRed then base, err = FrLink.templateSource(S, baseId) else base, err = W.source(S, baseId) end
   if not base then return nil, err end
-  local wanted = (fireRed and baseId:sub(#FrLink.MAP + 1):gsub("^FR_", "")
+  local wanted = (fireRed and FrLink.templateName(baseId)
     or baseId:gsub("^" .. require("Generation").gen3MapPrefix(S), "")) .. "_TEMPLATE"
   local source, map = L.createMap(S, wanted, base.cellWidth, base.cellHeight, base.baseTileset)
   if not source then return nil, map end
@@ -100,7 +109,7 @@ function M.importTemplate(S, baseId)
   map.warps, map.objects, map.signs, map.connections = {}, {}, {}, {}
   local props = require("Gen3MapProperties")
   local kind
-  if fireRed then kind = (FrLink.header(baseId:sub(#FrLink.MAP + 1)) or {}).mapType
+  if fireRed then kind = (FrLink.header(baseId) or {}).mapType
   else kind = props.resolve(S, { id = baseId }).mapType end
   if kind then props.apply(map, kind) end
   return id
@@ -122,7 +131,7 @@ function M.emit(project, encode, out)
       return session
     end)
     -- the intro: boy or girl, and a name
-    local okS,Scene=pcall(require,"src.ui.game3.new_game_scene")
+    local okS,Scene=pcall(require,]=] .. (emerald(project) and '"src.ui.game3.rse.birch_speech"' or '"src.ui.game3.new_game_scene"') .. [=[)
     if okS and type(Scene)=="table" and Scene.new then
       if not Scene._editorCleanIntroBridge then
         Scene._editorCleanIntroBridge=true
@@ -130,7 +139,7 @@ function M.emit(project, encode, out)
         Scene.new=function(...) return Runtime.call("editor.gen3.clean.intro",base,...) end
       end
       mod.hooks:wrap("editor.gen3.clean.intro",function(proceed,...)
-        return cleanIntro.configure(proceed(...))
+        return cleanIntro.]=] .. (emerald(project) and "configureBirch" or "configure") .. [=[(proceed(...))
       end)
     end
   end
