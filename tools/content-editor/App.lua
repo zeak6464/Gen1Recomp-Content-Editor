@@ -235,8 +235,9 @@ local function snapshotVanillaCatalog()
   S._vanillaTilesetIds = tilesets
 end
 
-local function refreshModsAndEvents()
+local function refreshModsAndEvents(step)
   snapshotVanillaCatalog()
+  if step then step() end
   local ModLoader = require("src.mods.Loader")
   local mods = ModLoader.new()
   S.gen3ModError=nil
@@ -247,11 +248,15 @@ local function refreshModsAndEvents()
       if ok and loaded then mods = loaded end
     end
   else mods:load(Data) end
+  if step then step() end
   S.data = Data
   if require("Generation").isGen3(S) then require("Gen3ContentAdapter").prepare(S) end
+  if step then step() end
   if require("Generation").isGen3(S) then require("Gen3Workspace").prepare(S) end
+  if step then step() end
   S.mods = mods
   require("Generation").restoreUnownedLiveMaps(S)
+  if step then step() end
   local okCat, Catalog = pcall(require, "Catalog")
   if okCat and Catalog.scrapeEvents then
     local modRoots = {}
@@ -282,7 +287,8 @@ function App.reloadData(opts)
   pcall(function() Audio.stopPreview(S) end)
   pcall(function() require("src.core.ChipAudio").invalidate() end)
   local version = opts.version or S.version or App.dataVersion
-  local source, prefs, status = DataSource.apply({ version = version })
+  local source, prefs, status = DataSource.apply({ version = version, prepared = opts.prepared })
+  if opts.step then opts.step() end
   version = (prefs and prefs.lastVersion) or version or "red"
   S.version = version
   App.dataVersion = version
@@ -296,7 +302,7 @@ function App.reloadData(opts)
   elseif S.useGbcPalettes == nil then
     S.useGbcPalettes = true
   end
-  refreshModsAndEvents()
+  refreshModsAndEvents(opts.step)
   do
     local okP, Preview = pcall(require, "Preview")
     if okP and Preview then
@@ -395,7 +401,7 @@ function App.resetCatalogSelection()
 end
 
 -- Switch active game (Red/Blue/Yellow/Gold/Silver): remount cache + reload Data.
-function App.setGameVersion(version)
+function App.setGameVersion(version, prepared, step)
   local GameVersion = require("src.core.GameVersion")
   if not (GameVersion.VERSIONS and GameVersion.VERSIONS[version]) then
     say("Unknown game: " .. tostring(version))
@@ -407,13 +413,32 @@ function App.setGameVersion(version)
   S.version = version
   App.dataVersion = version
   pcall(function() require("src.world.MapLoader").invalidateAll() end)
-  App.reloadData({ version = version })
+  App.reloadData({ version = version, prepared = prepared, step = step })
+  if step then step() end
   App.resetCatalogSelection()
   local info = GameVersion.info(version)
   local src = S.dataSource or "?"
   say("Game: " .. ((info and info.displayName) or version)
     .. " (Gen " .. tostring(GameVersion.generation(version)) .. ") — "
     .. DataSource.label(src))
+  return true
+end
+
+function App.requestGameVersion(version)
+  local GameVersion = require("src.core.GameVersion")
+  if not (GameVersion.VERSIONS and GameVersion.VERSIONS[version]) then return false end
+  if S._gameSwitch or S.version == version then return false end
+  if GameVersion.generation(version) == 3 and love.thread then
+    local ok, job = pcall(require("GameSwitch").start, version, DataSource)
+    if not ok then say("Could not switch game: " .. tostring(job));return false end
+    S._gameSwitch = job
+    S.tab = "project"
+    job.label = (GameVersion.info(version) or {}).displayName or version
+    say("Loading " .. job.label .. "…")
+  else
+    App.setGameVersion(version)
+    if S.project then S.project.game=version;App.markDirty() end
+  end
   return true
 end
 
@@ -1494,6 +1519,27 @@ end
 
 function App.update(dt)
   if not S then return end
+  if S._gameSwitch then
+    local job = S._gameSwitch
+    if not job.commit then
+      local done, prepared, err = require("GameSwitch").poll(job)
+      if done then
+        if err then S._gameSwitch=nil;say("Could not switch game: " .. tostring(err))
+        else
+          job.commit = coroutine.create(function()
+            App.setGameVersion(job.version, prepared, coroutine.yield)
+            if S.project then S.project.game=job.version;App.markDirty() end
+          end)
+        end
+      end
+    end
+    if job.commit then
+      local ok, err = coroutine.resume(job.commit)
+      if not ok then S._gameSwitch=nil;say("Could not switch game: " .. tostring(err))
+      elseif coroutine.status(job.commit)=="dead" then S._gameSwitch=nil end
+    end
+    if S._gameSwitch then say("Loading " .. job.label .. "…");return end
+  end
   pcall(function() require("Updater").poll() end)
   pcall(function() require("UpdatePopup").update(S) end)
   if require("Gen3EventWindow").update(S,App) then return end
@@ -1645,6 +1691,7 @@ function App.draw()
   local mx, my = love.mouse.getPosition()
   if clickX then mx, my = clickX, clickY end
   Kit.beginFrame(mx, my, mouseClicked, wheelY)
+  Kit.blockClicks = S._gameSwitch ~= nil
   mouseClicked = false
   clickX, clickY = nil, nil
   Autocomplete.beginFrame(S)
@@ -1888,6 +1935,7 @@ function App.draw()
 end
 
 function App.keypressed(key)
+  if S and S._gameSwitch then return end
   if not S then return end
   if require("Gen3EventWindow").busy(S) then
     if S._eventWindow then S._eventWindow.process.focus() end
@@ -1969,6 +2017,7 @@ function App.keypressed(key)
 end
 
 function App.textinput(text)
+  if S and S._gameSwitch then return end
   if require("Gen3EventWindow").busy(S) then return end
   Kit.textinput(text)
 end
@@ -2011,6 +2060,7 @@ function App.wheelmoved(x, y)
 end
 
 function App.filedropped(file)
+  if S and S._gameSwitch then return end
   if require("Gen3EventWindow").busy(S) then return end
   if not (file and S) then return end
   local path = file.getFilename and file:getFilename() or nil

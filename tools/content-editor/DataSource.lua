@@ -290,6 +290,21 @@ function DataSource.hasImportedCache(version)
   return ready
 end
 
+-- Discovery for UI hints only. Full readiness walks thousands of files (and
+-- parses RS manifests), so reserve it for actually loading/importing a game.
+-- The completion marker is published last and identifies the cache format/ROM.
+function DataSource.hasImportedCacheMarker(version)
+  version = version or "red"
+  local ok, Contract = pcall(require, "src.import.CacheContract")
+  if not ok or not Contract.readMarker or not Contract.markerMatches then
+    local GameVersion = require("src.core.GameVersion")
+    local prefix = GameVersion.cachePrefix and GameVersion.cachePrefix(version) or ""
+    return love.filesystem.getInfo(prefix .. "rom-cache.complete", "file") ~= nil
+  end
+  local marker = Contract.readMarker(version, CacheFs)
+  return Contract.markerMatches(version, marker) and true or false
+end
+
 local mountedVersion = nil
 
 local function remountVersion(version)
@@ -371,7 +386,7 @@ local function loadGoldEditorTables()
   end
 end
 
-local function finishLoad(version)
+local function finishLoad(version, prepared)
   local ok, err = pcall(function() Data:load() end)
   if not ok then return false, err end
   if require("src.core.GameVersion").generation(version) == 3 then
@@ -386,7 +401,7 @@ local function finishLoad(version)
         result[#result+1]={name=name,type=info and info.type}
       end
       return result
-    end)
+    end, prepared)
     if not loaded then return false, detail end
     return true
   end
@@ -451,10 +466,10 @@ local function loadEmptyGen2(version)
   return ok, err
 end
 
-local function tryLocal(version)
+local function tryLocal(version, prepared)
   if not DataSource.hasLocalCache(version) then return false end
   remountVersion(version)
-  return finishLoad(version)
+  return finishLoad(version, prepared)
 end
 
 -- Folders where Gen1Recomp itself keeps ROM caches.  LÖVE picks the save
@@ -519,7 +534,7 @@ function DataSource.cacheRootFor(prefs, version)
   return nil
 end
 
-local function tryRecomp(prefs, version)
+local function tryRecomp(prefs, version, prepared)
   local cacheRoot = DataSource.cacheRootFor(prefs, version)
   if not cacheRoot then
     if not prefs.recompRoot then return false, "no linked folder" end
@@ -528,19 +543,19 @@ local function tryRecomp(prefs, version)
   local mok, merr = DataSource.mountRecomp(cacheRoot)
   if not mok then return false, merr end
   remountVersion(version)
-  local ok, err = finishLoad(version)
+  local ok, err = finishLoad(version, prepared)
   if ok then return true, cacheRoot end
   DataSource.unmountLinked()
   return false, err
 end
 
-local function tryImported(version)
+local function tryImported(version, prepared)
   if not hasImportedCache(version) then return false end
   -- Imported Gold/Silver lives in the save dir; keep a Red-only linked Recomp from
   -- shadowing gold/data/generated, silver/data/generated, or crystal/data/generated via a root data/generated mount.
   DataSource.unmountLinked()
   remountVersion(version)
-  return finishLoad(version)
+  return finishLoad(version, prepared)
 end
 
 -- Resolve and load data. Returns source id: "local"|"recomp"|"imported"|"fixtures"
@@ -589,13 +604,13 @@ function DataSource.apply(opts)
   end
 
   if mode == "recomp" then
-    local ok, usedRoot = tryRecomp(prefs, version)
+    local ok, usedRoot = tryRecomp(prefs, version, opts.prepared)
     if ok then
       return "recomp", prefs,
         "Linked Gen1Recomp (" .. verLabel .. "): " .. tostring(usedRoot)
     end
   elseif mode == "imported" then
-    local ok = tryImported(version)
+    local ok = tryImported(version, opts.prepared)
     if ok then
       return "imported", prefs,
         "Loaded imported " .. verLabel .. " ROM cache (save directory)"
@@ -604,21 +619,21 @@ function DataSource.apply(opts)
 
   -- auto (or failed explicit mode): local → linked → imported → fixtures
   do
-    local ok = tryLocal(version)
+    local ok = tryLocal(version, opts.prepared)
     if ok then
       return "local", prefs,
         "Loaded local " .. verLabel .. " ROM cache (dev / pack data/generated)"
     end
   end
   do
-    local ok, usedRoot = tryRecomp(prefs, version)
+    local ok, usedRoot = tryRecomp(prefs, version, opts.prepared)
     if ok then
       return "recomp", prefs,
         "Linked Gen1Recomp (" .. verLabel .. "): " .. tostring(usedRoot)
     end
   end
   do
-    local ok = tryImported(version)
+    local ok = tryImported(version, opts.prepared)
     if ok then
       return "imported", prefs,
         "Loaded imported " .. verLabel .. " ROM cache (save directory)"

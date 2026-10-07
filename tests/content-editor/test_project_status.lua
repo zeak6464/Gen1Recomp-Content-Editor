@@ -6,7 +6,8 @@ local function read(value) reads=reads+1;return value end
 local D={
   loadPrefs=function() return read({recompRoot="linked"}) end,
   isValidRecompRoot=function() return read(true) end,
-  hasImportedCache=function(v) return read(v=="emerald") end,
+  hasImportedCache=function() error("Full cache validation must never run during drawing") end,
+  hasImportedCacheMarker=function(v) return read(v=="emerald") end,
   hasLocalCache=function() return read(false) end,
   recompHasVersion=function(_,v) return read(v=="red") end,
 }

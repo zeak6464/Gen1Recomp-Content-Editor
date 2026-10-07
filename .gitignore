@@ -98,3 +98,4 @@ tests/content-editor/leafgreen-smoke/*.png
 /tests/content-editor/emerald-playtest/*.log
 /tests/content-editor/emerald-playtest/*.png
 /tools/diag-music/*.txt
+/tests/content-editor/game-switch-smoke/result*.txt

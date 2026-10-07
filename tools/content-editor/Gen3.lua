@@ -5,8 +5,15 @@ Gen3.tabs = { pokemon = "pokemon", moves = "moves", items = "items",
   dialog = "text", events = "map_scripts" }
 Gen3.registries = { "pokemon", "moves", "items", "trainers", "encounters",
   "maps", "text", "map_scripts" }
+Gen3.cacheTables = {"maps", "gba/native/manifest", "gba/warps", "gba/connections",
+  "gba/scripts/events", "gba/pokemon/names", "gba/pokemon/types", "gba/pokemon/stats",
+  "gba/pokemon/abilities", "gba/pokemon/ability_names", "gba/pokemon/meta",
+  "gba/pokemon/learnsets", "gba/pokemon/evolutions", "gba/pokemon/dex",
+  "gba/pokemon/move_names", "gba/pokemon/national", "gba/pokemon/tmhm",
+  "gba/pokemon/battle_moves", "gba/items/pack", "gba/trainers", "gba/encounters",
+  "gba/scripts/text", "gba/scripts/scripts"}
 
-function Gen3.load(data, read, list)
+function Gen3.load(data, read, list, prepared)
   local Serializer = require("Gen3Decode")
   local function get(name, required)
     local path = "data/generated/" .. name .. ".lua"
@@ -15,6 +22,8 @@ function Gen3.load(data, read, list)
       assert(not required, "Missing Gen 3 cache: " .. path)
       return {}
     end
+    local cached = prepared and prepared[path]
+    if cached and cached.bytes == bytes then return cached.value end
     local value, err = Serializer.decode(bytes, { allowArray = true, allowComments = true,
       maxBytes = 16 * 1024 * 1024, maxNodes = 1000000, maxTableEntries = 500000,
       maxDepth = 64, maxStringBytes = 4 * 1024 * 1024 })

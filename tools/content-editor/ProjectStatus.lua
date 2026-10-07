@@ -15,7 +15,7 @@ function M.get(S, DataSource, ModIO, order)
     mods=ModIO.listMods(), ready={}, imported={}}
   status.validRoot = root ~= nil and DataSource.isValidRecompRoot(root)
   for _, version in ipairs(order) do
-    status.imported[version] = DataSource.hasImportedCache(version)
+    status.imported[version] = DataSource.hasImportedCacheMarker(version)
     status.ready[version] = status.imported[version]
       or DataSource.hasLocalCache(version)
       or (root and DataSource.recompHasVersion(root, version)) or false

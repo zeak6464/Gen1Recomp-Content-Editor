@@ -203,18 +203,15 @@ function Project.draw(S, x, y, w, h, App)
     local bx = gameX + (i - 1) * (chipW + chipGap)
     local kind = (vid == curVer) and "primary" or "ghost"
     local hasCache = status.ready[vid]
-    local cacheNote = hasCache and "cache ready" or "no cache yet — Import ROM"
+    local cacheNote = hasCache and "cache found" or "no cache yet — Import ROM"
     if Kit.button(bx, row, chipW, btnH, label, {
         kind = kind,
+        enabled = not S._gameSwitch,
         tooltip = (info.displayName or label)
           .. " — Gen " .. tostring(Generation.num({ version = vid }))
           .. "\n" .. cacheNote,
       }) then
-      if App.setGameVersion then App.setGameVersion(vid) end
-      if S.project then
-        S.project.game = vid
-        App.markDirty()
-      end
+      if App.requestGameVersion then App.requestGameVersion(vid) end
     end
   end
   row = row + btnH + 8 * s
@@ -317,7 +314,7 @@ function Project.draw(S, x, y, w, h, App)
         tooltip = importedReady
           and (src == "imported"
             and "Already using this version's imported ROM cache"
-            or "Reuse this version's imported ROM cache without selecting the ROM again")
+            or "Validate and load this version's imported ROM cache without selecting the ROM again")
           or "No imported ROM cache exists for the selected game version",
       }) then
     App.useImportedData()
