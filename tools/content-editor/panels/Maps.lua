@@ -3587,6 +3587,44 @@ local function applyToolAtCell(S, mapDef, cx, cy, App)
       S.dialogMapId = mapDef.id
       S.dialogTextId = textId
     end
+  elseif tool == "item" then
+    if Generation.isGen3(S) then return end
+    S.mapEditMode = "events"
+    mapDef.objects = mapDef.objects or {}
+    local n = #mapDef.objects + 1
+    local obj = {
+      index = n, x = cx, y = cy, sprite = "SPRITE_POKE_BALL",
+      movement = "STAY", range = "NONE", item = "POTION",
+    }
+    if Generation.isGen2(S) then
+      -- Reserve an editor flag beyond the cartridge story flags. Scan all
+      -- project data, including scripts, to avoid reusing another event's flag.
+      local used, seen = {}, {}
+      local function scan(value)
+        if type(value) ~= "table" or seen[value] then return end
+        seen[value] = true
+        for key, entry in pairs(value) do
+          if key == "eventFlag" or key == "flag" or key == "event" then
+            local flag = tonumber(entry)
+            if flag then used[flag] = true end
+          end
+          scan(entry)
+        end
+      end
+      scan(S.data); scan(S.project)
+      local flag = 0x8000
+      while used[flag] and flag < 0xFFFF do flag = flag + 1 end
+      if flag == 0xFFFF then S.status = "No unused item pickup flag available"; return end
+      obj.item = nil
+      obj.type, obj.palette, obj.sight, obj.script = 1, 0, 0, 0
+      obj.movement = 0
+      obj.radius, obj.hours = {x = 0, y = 0}, {-1, -1}
+      obj.eventFlag = flag
+      obj.itemball = {item = require("ItemPicker").indexForId(S, "POTION") or "POTION", quantity = 1}
+    end
+    mapDef.objects[n] = obj
+    S.mapSection, S.mapObjectIndex = "objects", n
+    S.status = "Placed item pickup — choose its item in People & objects"
   elseif tool == "object" then
     S.mapEditMode = "events"
     mapDef.objects = mapDef.objects or {}
@@ -6147,6 +6185,20 @@ function Maps._section.drawWarps(S, map, mutate, App, px, py, propW, listBottom,
     py = py + fh + 6 * s
   end
 
+  if not Generation.isGen2(S) then
+    row("Item pickup", function(fx, fy, fw, fh_)
+      require("ItemPicker").field(S, {
+        x = fx, y = fy, w = fw, h = fh_, current = obj.item or "",
+        emptyLabel = "(no item)", title = "ITEM PICKUP", allowClear = true,
+        tooltip = "Choose the item this object gives when picked up",
+        onPick = function(id)
+          map = mutate()
+          map.objects[i].item = id ~= "" and id or nil
+          App.markDirty()
+        end,
+      })
+    end)
+  end
   row("Cell X / Y", function(fx, fy, fw, fh_)
     local x = tonumber(field(App, "wp_x", fx, fy, 50 * s, fh_, tostring(w.x or 0), "0")) or 0
     local y = tonumber(field(App, "wp_y", fx + 60 * s, fy, 50 * s, fh_, tostring(w.y or 0), "0")) or 0

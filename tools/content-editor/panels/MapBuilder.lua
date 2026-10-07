@@ -35,6 +35,8 @@ local TOOLS = {
 local EVENT_TOOLS = {
   { id = "object", mapTool = "object", label = "Event",
     tip = "Place an NPC or scripted object on a 16x16 cell" },
+  { id = "item", mapTool = "item", label = "Item",
+    tip = "Place an item pickup, then choose its item in People & objects" },
   { id = "sign", mapTool = "sign", label = "Sign",
     tip = "Place a sign/background event on a 16x16 cell" },
   { id = "berry", mapTool = "berry", label = "Berry",
@@ -105,7 +107,7 @@ local BASIC_TERRAIN_TOOLS = {
   pencil = true, eraser = true, fill = true, pan = true, exits = true, bridge = true, elevation = true,
 }
 local BASIC_EVENT_TOOLS = {
-  object = true, sign = true, berry = true, path = true, trigger = true,
+  object = true, item = true, sign = true, berry = true, path = true, trigger = true,
   event_select = true,
 }
 
@@ -2325,8 +2327,8 @@ local function drawToolbar(S, source, x, y, w, App)
 
   local barY = toolY + 31 * s
   local barBottom = barY + 24 * s
-  if Generation.isGen3(S) and S.builderTool=="object" then
-    barBottom=require("Gen3MapTemplates").drawPlacement(S,x,barY+29*s,w)
+  if Generation.isGen3(S) and (S.builderTool=="object" or S.builderTool=="item") then
+    barBottom=require("Gen3MapTemplates").drawPlacement(S,x,barY+29*s,w,S.builderTool=="item" and "pickup" or nil)
   end
   if EVENT_TOOL_BY_ID[S.builderTool] then
     local ownBar = S.builderTool == "path"

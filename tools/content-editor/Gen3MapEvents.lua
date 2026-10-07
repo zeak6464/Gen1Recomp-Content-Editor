@@ -3,6 +3,7 @@ local M={}
 local groups={objects={"Objects","mapObjectIndex"},signs={"Signs","mapSignIndex"},
   coordEvents={"Triggers","g3CoordIndex"},warps={"Warps","mapWarpIndex"}}
 function M.place(S,tool,x,y,App)
+  if tool=="item" then return require("Gen3MapTemplates").place(S,x,y,App,"pickup") end
   local kind=({object="objects",sign="signs",trigger="coordEvents",warp="warps"})[tool]
   if not kind then return false end
   if kind=="objects" and require("Gen3MapTemplates").place(S,x,y,App) then return true end

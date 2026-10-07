@@ -9,8 +9,9 @@ function M.draft(S)
   end
   return S.mapTemplate
 end
-function M.place(S,x,y,App)
+function M.place(S,x,y,App,kind)
   local d=require("src.mods.Merge").deepCopy(M.draft(S))
+  if kind then d.kind=kind end
   if d.kind=="empty" then return false end
   d.place=true;d.map=S.mapId;d.x=x;d.y=y
   local key,err=require("Gen3EventBuilder").create(S,d)
@@ -20,15 +21,18 @@ function M.place(S,x,y,App)
   App.markDirty();S.status=M.labels[d.kind].." placed. Edit it in the sidebar or open the event window."
   return true
 end
-function M.drawPlacement(S,x,y,w)
+function M.drawPlacement(S,x,y,w,kind)
   local K=require("Kit");local s=K.scale;local d=M.draft(S)
   local pickerW=math.min(180*s,w*.35)
-  require("ChoicePicker").field(S,{x=x,y=y,w=pickerW,h=26*s,current=d.kind,
+  local selected=kind or d.kind
+  if kind then K.text("micro",M.labels[kind],x,y+6*s,require("Theme").PAL.caption)
+  else require("ChoicePicker").field(S,{x=x,y=y,w=pickerW,h=26*s,current=d.kind,
     ids={"dialog","pickup","item","empty"},labels=M.labels,title="PLACE EVENT",onPick=function(id) d.kind=id end})
+  end
   local fx=x+pickerW+8*s;local fw=w-pickerW-8*s
-  if d.kind=="dialog" then
+  if selected=="dialog" then
     d.text=K.textfield("mapTemplate/text",fx,y,fw,26*s,d.text,"NPC dialogue")
-  elseif d.kind=="pickup" or d.kind=="item" then
+  elseif selected=="pickup" or selected=="item" then
     require("ItemPicker").field(S,{x=fx,y=y,w=math.max(70*s,fw-76*s),h=26*s,current=d.item,title="REWARD ITEM",onPick=function(id) d.item=id end})
     d.quantity=K.textfield("mapTemplate/quantity",x+w-68*s,y,68*s,26*s,d.quantity,"Quantity")
   end
