@@ -401,6 +401,7 @@ function App.setGameVersion(version)
     say("Unknown game: " .. tostring(version))
     return false
   end
+  if S.version == version and App.dataVersion == version then return true end
   DataSource.setLastVersion(version)
   GameVersion.set(version)
   S.version = version

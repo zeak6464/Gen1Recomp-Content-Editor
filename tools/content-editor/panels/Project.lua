@@ -96,7 +96,10 @@ function Project.draw(S, x, y, w, h, App)
   local innerW = w - 2 * pad
   local cy = cardY + pad
 
-  local mods = ModIO.listMods()
+  local GameVersion = require("src.core.GameVersion")
+  local status = require("ProjectStatus").get(S, DataSource, ModIO,
+    GameVersion.ORDER or { "red", "blue", "yellow", "gold", "silver", "crystal" })
+  local mods = status.mods
   local btnH = 32 * s
   local chipH = 28 * s
   local chipGap = 8 * s
@@ -194,15 +197,12 @@ function Project.draw(S, x, y, w, h, App)
   local chipCount = math.max(1, #order)
   local chipGap = 8 * s
   local chipW = math.floor((gameW - (chipCount - 1) * chipGap) / chipCount)
-  local cachePrefs = S.dataPrefs or DataSource.loadPrefs()
   for i, vid in ipairs(order) do
     local info = GameVersion.info(vid) or {}
     local label = info.label or vid
     local bx = gameX + (i - 1) * (chipW + chipGap)
     local kind = (vid == curVer) and "primary" or "ghost"
-    local hasCache = DataSource.hasImportedCache(vid)
-      or DataSource.hasLocalCache(vid)
-      or (cachePrefs.recompRoot and DataSource.recompHasVersion(cachePrefs.recompRoot, vid))
+    local hasCache = status.ready[vid]
     local cacheNote = hasCache and "cache ready" or "no cache yet — Import ROM"
     if Kit.button(bx, row, chipW, btnH, label, {
         kind = kind,
@@ -238,7 +238,7 @@ function Project.draw(S, x, y, w, h, App)
   local dataW = w - 2 * pad
   row = dataCardY + pad
   local src = S.dataSource or "fixtures"
-  local persistedPrefs = DataSource.loadPrefs()
+  local persistedPrefs = status.prefs
   local prefs = S.dataPrefs or persistedPrefs
   local mountedRoot = DataSource.mountedRecompRoot
     and DataSource.mountedRecompRoot() or nil
@@ -248,8 +248,7 @@ function Project.draw(S, x, y, w, h, App)
     or (persistedPrefs and persistedPrefs.recompRoot)
     or mountedRoot
   if recompRoot == "" then recompRoot = nil end
-  local validRecompRoot = recompRoot ~= nil
-    and DataSource.isValidRecompRoot(recompRoot)
+  local validRecompRoot = status.validRoot
   local usingRecomp = src == "recomp" and validRecompRoot
   local srcLine = DataSource.label(src)
   if recompRoot then
@@ -310,7 +309,7 @@ function Project.draw(S, x, y, w, h, App)
   }) then
     App.linkRecompFolder(recompRoot)
   end
-  local importedReady = DataSource.hasImportedCache(curVer)
+  local importedReady = status.imported[curVer]
   if Kit.button(dataX + 2 * (dsW + dsGap), row, dsW, btnH,
       "Use imported ROM", {
         kind = "accent",
