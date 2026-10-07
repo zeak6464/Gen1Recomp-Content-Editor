@@ -10,6 +10,21 @@ package.preload["src.import.CacheBlob"]=function()
   end}
 end
 assert(Blob.decode("ruby/test.idx","deflated")=="decoded")
+local framePath="emerald/data/generated/gba/chrome/user_frame_4.rgba"
+local frame=string.rep(string.char(32,33,34,255),24*24)
+assert(Blob.decode(framePath,frame)==frame)
+assert(not pcall(Blob.decode,framePath,frame:sub(2)),"Truncated raw RGBA must fail")
+assert(not pcall(Blob.decode,framePath,""),"Empty raw RGBA must fail")
+for _,header in ipairs({string.char(0x78,0x9c),string.char(0x1f,0x8b)}) do
+  assert(not pcall(Blob.decode,framePath,header..string.rep("\0",2302)),
+    "Damaged compressed RGBA must not become raw pixels")
+end
+package.loaded["src.import.CacheBlob"]={decode=function(path,bytes)
+  assert(path==framePath and bytes=="compressed frame")
+  return frame
+end}
+assert(Blob.decode(framePath,"compressed frame")==frame)
+package.loaded["src.import.CacheBlob"]=nil
 local legacy="SVMI"..string.char(1,2,1,0,16,0,1,0,0,0)..string.rep("\0",256)
 assert(Blob.decode("emerald/data/generated/gba/native/general__lilycove/mids.idx",legacy)==legacy)
 assert(Blob.decode("emerald/data/generated/gba/native/general__lilycove/mids_over.idx",legacy)==legacy)
