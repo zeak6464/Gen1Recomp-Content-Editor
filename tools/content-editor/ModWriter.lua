@@ -80,6 +80,12 @@ local function pruneEmpty(t)
   return t
 end
 
+local LUA_KEYWORDS_FLAT = {
+  ["and"]=true, ["break"]=true, ["do"]=true, ["else"]=true, ["elseif"]=true, ["end"]=true,
+  ["false"]=true, ["for"]=true, ["function"]=true, ["goto"]=true, ["if"]=true, ["in"]=true,
+  ["local"]=true, ["nil"]=true, ["not"]=true, ["or"]=true, ["repeat"]=true, ["return"]=true,
+  ["then"]=true, ["true"]=true, ["until"]=true, ["while"]=true,
+}
 local function writeValue(v, indent, lines)
   indent = indent or 0
   local pad = string.rep("  ", indent)
@@ -122,10 +128,29 @@ local function writeValue(v, indent, lines)
       end
       lines[#lines + 1] = pad .. "}"
     else
-      lines[#lines + 1] = "{"
       local keys = {}
       for k in pairs(v) do keys[#keys + 1] = k end
       table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+      -- a small record of plain values (a map cell: source + tile) goes on one
+      -- line; a region of large maps is otherwise mostly indentation
+      if #keys <= 4 then
+        local flat, parts = true, {}
+        for _, k in ipairs(keys) do
+          local val = v[k]
+          local tv = type(val)
+          if type(k) ~= "string" or not k:match("^[%a_][%w_]*$")
+              or LUA_KEYWORDS_FLAT[k]
+              or not (tv == "number" or tv == "boolean" or tv == "string") then
+            flat = false; break
+          end
+          parts[#parts + 1] = k .. " = " .. (tv == "string" and escapeStr(val) or tostring(val))
+        end
+        if flat and #parts > 0 then
+          lines[#lines + 1] = "{ " .. table.concat(parts, ", ") .. " }"
+          return
+        end
+      end
+      lines[#lines + 1] = "{"
       for _, k in ipairs(keys) do
         local key
         if type(k) == "number" then
@@ -159,6 +184,9 @@ end
 
 local PROJECT_SPLIT_BAGS = {
   layeredMaps = true,
+  -- one function per map: LuaJIT allows 65536 constants per function and every
+  -- cell is one, so a region of large maps overflows a single function
+  gen3Layered = true,
   maps = true,
   tilesets = true,
   mapTileSources = true,

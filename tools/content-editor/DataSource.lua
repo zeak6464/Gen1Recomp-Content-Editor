@@ -269,8 +269,25 @@ local function hasImportedCache(version)
   return false
 end
 
+-- The Project tab asks this for every game on every frame.  The real check
+-- reads the cache marker, its meta.json and (Ruby/Sapphire) walks the cache
+-- manifests, so once caches are visible it costs far too much to repeat per
+-- frame.  Remember each answer for a few seconds; loading data clears it.
+local importedSeen = {}
+local IMPORTED_TTL = 3
+
+function DataSource.forgetCacheChecks()
+  importedSeen = {}
+end
+
 function DataSource.hasImportedCache(version)
-  return hasImportedCache(version)
+  version = version or "red"
+  local now = love and love.timer and love.timer.getTime and love.timer.getTime()
+  local seen = importedSeen[version]
+  if now and seen and now - seen.at < IMPORTED_TTL then return seen.ready end
+  local ready = hasImportedCache(version) and true or false
+  if now then importedSeen[version] = { at = now, ready = ready } end
+  return ready
 end
 
 local mountedVersion = nil
@@ -285,7 +302,18 @@ local function remountVersion(version)
   pcall(GameVersion.set, version)
   if GameVersion.generation(version) == 3 then
     local Versions = require("src.import.gba.versions")
-    if Versions.selectCache then Versions.selectCache(version, require("src.core.game3.dataset").cache()) end
+    if Versions.selectCache then
+      -- Ruby/Sapphire read their ROM revision from the cache and assert when
+      -- it is missing.  With no cache there is nothing to select: fall
+      -- through so the editor opens empty and offers Import / Link instead.
+      local cache = require("src.core.game3.dataset").cache()
+      local native = version == "ruby" or version == "sapphire"
+      if not native or type(cache:read("data/generated/gba/meta.json")) == "string" then
+        Versions.selectCache(version, cache)
+      else
+        pcall(Versions.select, version)
+      end
+    end
   end
 end
 
@@ -429,23 +457,79 @@ local function tryLocal(version)
   return finishLoad(version)
 end
 
-local function tryRecomp(prefs, version)
-  if not prefs.recompRoot then return false, "no linked folder" end
-  local cacheRoot=prefs.recompRoot
-  if require("Generation").isGen3({version=version}) and not DataSource.recompHasVersion(cacheRoot,version) then
-    local appdata=os.getenv("APPDATA")
-    local save=love.filesystem.getSaveDirectory()
-    local shared=appdata and join(appdata,"LOVE/pokemon-love2d") or (save:match("^(.*)[/\\][^/\\]+$") or save).."/pokemon-love2d"
-    if DataSource.recompHasVersion(shared,version) then cacheRoot=shared end
+-- Folders where Gen1Recomp itself keeps ROM caches.  LÖVE picks the save
+-- folder from how the game was started: love.exe uses <appdata>/LOVE/<identity>,
+-- the fused gen1recomp.exe uses <appdata>/<identity>.  The editor always runs
+-- through love.exe, so a cache imported by the fused game sits one level up
+-- from where the editor's own save folder is.  Look in both.
+function DataSource.sharedCacheRoots()
+  local roots, seen = {}, {}
+  local function add(path)
+    if type(path) ~= "string" or path == "" then return end
+    path = path:gsub("[/\\]+$", "")
+    local key = path:gsub("\\", "/"):lower()
+    if seen[key] then return end
+    seen[key] = true
+    roots[#roots + 1] = path
   end
-  if not DataSource.recompHasVersion(cacheRoot, version) then
+  local ids, idSeen = {}, {}
+  local function addId(id)
+    if type(id) == "string" and id ~= "" and not idSeen[id] then
+      idSeen[id] = true
+      ids[#ids + 1] = id
+    end
+  end
+  local fs = love and love.filesystem
+  addId(os.getenv("POKEPORT_IDENTITY"))
+  addId(fs and fs.getIdentity and fs.getIdentity())
+  addId("pokemon-love2d")
+  local bases = {}
+  local appdata = os.getenv("APPDATA")
+  if appdata and appdata ~= "" then
+    bases[#bases + 1] = join(appdata, "LOVE")
+    bases[#bases + 1] = appdata
+  end
+  -- Any OS: the editor's save folder is <base>/<LOVE|love>/<identity>.
+  local save = fs and fs.getSaveDirectory and fs.getSaveDirectory() or ""
+  local parent = save:match("^(.*)[/\\][^/\\]+$")
+  if parent and parent ~= "" then
+    bases[#bases + 1] = parent
+    local grand, leaf = parent:match("^(.*)[/\\]([^/\\]+)$")
+    if grand and grand ~= "" and leaf:lower() == "love" then
+      bases[#bases + 1] = grand
+    end
+  end
+  for _, base in ipairs(bases) do
+    for _, id in ipairs(ids) do add(join(base, id)) end
+  end
+  return roots
+end
+
+-- The folder holding this version's cache: the linked Recomp folder first,
+-- then the shared save folders above.  nil when none of them has it.
+function DataSource.cacheRootFor(prefs, version)
+  local linked = prefs and prefs.recompRoot
+  if type(linked) == "string" and linked ~= ""
+      and DataSource.recompHasVersion(linked, version) then
+    return linked, true
+  end
+  for _, root in ipairs(DataSource.sharedCacheRoots()) do
+    if DataSource.recompHasVersion(root, version) then return root, false end
+  end
+  return nil
+end
+
+local function tryRecomp(prefs, version)
+  local cacheRoot = DataSource.cacheRootFor(prefs, version)
+  if not cacheRoot then
+    if not prefs.recompRoot then return false, "no linked folder" end
     return false, "linked folder has no " .. tostring(version) .. " cache"
   end
   local mok, merr = DataSource.mountRecomp(cacheRoot)
   if not mok then return false, merr end
   remountVersion(version)
   local ok, err = finishLoad(version)
-  if ok then return true end
+  if ok then return true, cacheRoot end
   DataSource.unmountLinked()
   return false, err
 end
@@ -476,6 +560,7 @@ function DataSource.apply(opts)
 
   if Data._pristineKeys then Data:unloadGenerated() end
   DataSource.unmountLinked()
+  DataSource.forgetCacheChecks()
 
   local mode = prefs.mode or "auto"
   local verLabel = (GameVersion.info(version) and GameVersion.info(version).label)
@@ -504,10 +589,10 @@ function DataSource.apply(opts)
   end
 
   if mode == "recomp" then
-    local ok = tryRecomp(prefs, version)
+    local ok, usedRoot = tryRecomp(prefs, version)
     if ok then
       return "recomp", prefs,
-        "Linked Gen1Recomp (" .. verLabel .. "): " .. tostring(prefs.recompRoot)
+        "Linked Gen1Recomp (" .. verLabel .. "): " .. tostring(usedRoot)
     end
   elseif mode == "imported" then
     local ok = tryImported(version)
@@ -526,10 +611,10 @@ function DataSource.apply(opts)
     end
   end
   do
-    local ok = tryRecomp(prefs, version)
+    local ok, usedRoot = tryRecomp(prefs, version)
     if ok then
       return "recomp", prefs,
-        "Linked Gen1Recomp (" .. verLabel .. "): " .. tostring(prefs.recompRoot)
+        "Linked Gen1Recomp (" .. verLabel .. "): " .. tostring(usedRoot)
     end
   end
   do

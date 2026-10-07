@@ -332,6 +332,43 @@ local function drawBlockEditor(S, App, pair, mid, x, y, w)
       S.status = tostring(approx)
     end
   end
+  y = y + 30 * s
+  for i, flip in ipairs({ { "H-flip block", true, "Flip the whole block left to right: the corners change sides and every tile is flipped" },
+      { "V-flip block", false, "Flip the whole block top to bottom: the corners change places and every tile is flipped" } }) do
+    if Kit.button(x + i * 138 * s, y, 130 * s, 24 * s, flip[1], { kind = "ghost", font = "small", tooltip = flip[3] }) then
+      local n = Blocks.flipBlock(def, flip[2])
+      save(S, App, pair, mid, def)
+      if require("Gen3DayNight").flipNightPixels(S.project, pair, mid, flip[2]) then App.markDirty() end
+      S.g3BlockMerge = nil
+      if S.g3BlockSlot then
+        -- follow the selected corner
+        local TO = flip[2] and { 2, 1, 4, 3 } or { 3, 4, 1, 2 }
+        local q = (S.g3BlockSlot - 1) % 4 + 1
+        S.g3BlockSlot = S.g3BlockSlot - q + TO[q]
+      end
+      S.status = n > 0 and ("Block %d flipped %s"):format(mid, flip[2] and "left to right" or "top to bottom")
+        or "This block is empty"
+    end
+  end
+  if Kit.button(x, y, 130 * s, 24 * s, "Rotate block", { kind = "ghost", font = "small",
+      tooltip = "Turn the whole block a quarter turn clockwise: every corner moves round and its tile is turned" }) then
+    local n, err = Blocks.rotateBlock(S, pair, def)
+    if n then
+      save(S, App, pair, mid, def)
+      if require("Gen3DayNight").rotateNightPixels(S.project, pair, mid) then App.markDirty() end
+      App.markDirty()
+      S.g3BlockMerge = nil
+      if S.g3BlockSlot then
+        -- follow the selected corner round
+        local TO = { 2, 4, 1, 3 }
+        local q = (S.g3BlockSlot - 1) % 4 + 1
+        S.g3BlockSlot = S.g3BlockSlot - q + TO[q]
+      end
+      S.status = n > 0 and ("Block %d turned a quarter turn clockwise"):format(mid) or "This block is empty"
+    else
+      S.status = tostring(err)
+    end
+  end
   y = y + 34 * s
 
   -- The selected slot.
@@ -342,18 +379,32 @@ local function drawBlockEditor(S, App, pair, mid, x, y, w)
       si <= 4 and "bottom" or "top", CORNER[(si - 1) % 4 + 1]), x, y, PAL.yellow)
     y = y + 16 * s
     Kit.text("small", "Tile " .. Blocks.tileLabel(S, pair, slot.tile), x, y + 5 * s, PAL.text)
-    local hflip, hChanged = Kit.checkbox(x + 80 * s, y, 110 * s, 26 * s, slot.hflip, "H-flip")
-    local vflip, vChanged = Kit.checkbox(x + 196 * s, y, 110 * s, 26 * s, slot.vflip, "V-flip")
+    local hflip, hChanged = Kit.checkbox(x + 80 * s, y, 94 * s, 26 * s, slot.hflip, "H-flip")
+    local vflip, vChanged = Kit.checkbox(x + 178 * s, y, 94 * s, 26 * s, slot.vflip, "V-flip")
     if hChanged or vChanged then
       slot.hflip, slot.vflip = hflip, vflip
       save(S, App, pair, mid, def)
     end
-    if Kit.button(x + 314 * s, y + 1 * s, 96 * s, 24 * s, "Clear slot",
+    if Kit.button(x + 276 * s, y + 1 * s, 66 * s, 24 * s, "Rotate", { kind = "ghost", font = "small",
+        enabled = slot.tile ~= false,
+        tooltip = "Turn this slot's tile a quarter turn clockwise. The game can't turn tiles, so it becomes one of your tiles" })
+        and slot.tile then
+      local n, err = Blocks.rotateTile(S, pair, slot)
+      if n then
+        save(S, App, pair, mid, def)
+        App.markDirty()
+        S.g3BlockMerge = nil
+        S.status = ("Slot %d turned a quarter turn clockwise (tile %s)"):format(si, Blocks.tileLabel(S, pair, n))
+      else
+        S.status = tostring(err)
+      end
+    end
+    if Kit.button(x + 346 * s, y + 1 * s, 82 * s, 24 * s, "Clear slot",
         { kind = "ghost", font = "small", tooltip = "Empty the slot" }) then
       def.slots[si] = { tile = false, pal = 0, hflip = false, vflip = false }
       save(S, App, pair, mid, def)
     end
-    if not Blocks.isCustom(slot.tile) and Kit.button(x + 416 * s, y + 1 * s, 130 * s, 24 * s,
+    if not Blocks.isCustom(slot.tile) and Kit.button(x + 430 * s, y + 1 * s, 104 * s, 24 * s,
         slot.tile and "Paint on a copy" or "Paint a new tile", { kind = "accent", font = "small",
           tooltip = "Make this tile one of yours and edit its pixels" }) then
       if slot.tile and not Blocks.tileAvailable(S, pair, slot.tile) then

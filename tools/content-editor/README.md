@@ -256,6 +256,19 @@ flips — plus your painted pixels; no game graphics. In game the blocks are
 rebuilt from the player's own saved data and written into that tileset's
 atlas, so ROM maps and maps built in the editor both show them.
 
+**Rotate** (beside H-flip and V-flip) turns the selected slot's tile a
+quarter turn clockwise, as it shows. The game can flip a tile but not turn
+it, so the tile becomes one of yours: it names the game tile and how many
+quarter turns it has, and your painted and merged pixels turn with it. No
+game pixels are stored, and base pixels keep animating in game. A tile of
+yours used in other slots is copied first; the same game tile turned the same
+way is reused. **Rotate block** (beside Swap layers) turns the whole block:
+every corner of both layers moves round and its tile is turned, and the
+block's night colours turn with it. Nothing changes if the tileset has no
+room left for the tiles. **H-flip block** and **V-flip block** (same row) flip the
+whole block left to right or top to bottom: the corners change places and
+every tile is flipped, with the game's own tiles (no tile of yours is made).
+
 **Merge a tile on top** (under a selected slot) combines two tiles in one
 slot: click it, then click tiles in the sheet (optionally flipped). The
 merged tile keeps its own colours wherever the hardware allows:
@@ -671,6 +684,23 @@ be there, like for the map imports).
   for any song. If the other game isn't imported the map is silent.
 - Only map music is covered: battle music, jingles and the Pokemon Center / bike /
   surf songs the game picks itself stay the host game's.
+
+## Preview in fullscreen (Gen 3 map builder)
+
+**MAPS → Preview in fullscreen** (top right of the MAP BUILDER bar) shows the
+map you are editing fullscreen in a window of its own -- on your second
+screen when you have one. It follows the editor as you work: what you paint,
+undo or change shows there straight away, and it switches map when you do.
+
+The preview only looks. It has the Pan tool: drag to pan, wheel to zoom
+(WASD pans too). **Esc** closes it, **F11** takes it out of fullscreen; so
+does **Close preview** in the editor.
+
+How it works: the editor draws one window per program, so the preview is
+another copy of the editor (started like the event window) that draws only the
+map. It takes a few seconds to load the game's data and uses about as much
+memory as the editor. The editor sends it what changes over a local connection
+on this computer only (`MapPopout.lua`, `PopoutSync.lua`).
 
 ## Combine duplicate tiles
 

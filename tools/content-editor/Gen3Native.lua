@@ -124,10 +124,36 @@ M.source=[=[
   if next(native.items) or next(native.help) or next(native.assets) or next(native.animations) then Cache._contentEditorInvalidate=invalidateNativeImages end
   -- One process-wide dispatcher; callbacks belong to the loader and disappear
   -- on disable/reload. Never overwrite the extracted cache on disk.
-  if not Cache._contentEditorBridge then
+  -- Runtimes from 0.3.5x on read the cache through CacheFs.readAt: CacheFs.read
+  -- is a thin wrapper over it and the Game3 dataset calls it directly, so a
+  -- bridge on CacheFs.read alone never sees those reads. Older runtimes only
+  -- have CacheFs.read.
+  if type(Cache.readAt) == "function" then
+    if not Cache._contentEditorBridgeAt then
+      Cache._contentEditorBridgeAt = true
+      local readAt = Cache.readAt
+      Cache.readAt = function(path) return Runtime.call("editor.gen3.cache", readAt, path) end
+    end
+  elseif not Cache._contentEditorBridge then
     Cache._contentEditorBridge = true
     local read = Cache.read
     Cache.read = function(path) return Runtime.call("editor.gen3.cache", read, path) end
+  end
+  -- The launcher's mod installer deflates .rgba/.idx files as it copies a mod
+  -- in, and mod:read returns them as stored. Hand the game the raw bytes.
+  local function assetBytes(file, what)
+    local bytes = assert(mod:read(file), what)
+    if file:match("%.rgba$") or file:match("%.idx$") then
+      local a, b = bytes:byte(1, 2)
+      if a and b and a % 16 == 8 and a < 128 and (a * 256 + b) % 31 == 0 then
+        local okB, Blob = pcall(require, "src.import.CacheBlob")
+        if okB and Blob and Blob.inflate then
+          local ok, raw = pcall(Blob.inflate, bytes)
+          if ok and type(raw) == "string" then bytes = raw end
+        end
+      end
+    end
+    return bytes
   end
   local function encode(v)
     if type(v)=="string" then return string.format("%q",v) end
@@ -179,9 +205,54 @@ M.source=[=[
       SceneKit.image=function(path) return Runtime.call("editor.gen3.rse.image",image,path) end
     end
     local images={}
+    -- The new-game intro and the Ruby/Sapphire Trainer Card draw their own
+    -- copies of the player's trainer picture, baked at import. An edited
+    -- trainers/front/<N>.rgba follows through to those copies, unless the
+    -- copy has its own replacement. Manifests are read on first use, once the
+    -- game itself is asking for these screens.
+    local picPaths,picLoaded={}, {}
+    local function trainerPicFor(path)
+      local pack=path:match("^data/generated/gba/(birch)/[^/]+%.png$") or path:match("^data/generated/gba/(rse/trainer_card)/[^/]+%.png$")
+      if not pack then return nil end
+      if not picLoaded.birch then
+        picLoaded.birch=true
+        local man=SceneKit.manifest("birch")
+        for name,pic in pairs(type(man)=="table" and type(man.pics)=="table" and man.pics or {}) do
+          if type(pic)=="table" and type(pic.png)=="string" and tonumber(pic.trainerPic) then
+            picPaths[pic.png]=tonumber(pic.trainerPic);picLoaded[name]=tonumber(pic.trainerPic)
+          end
+        end
+      end
+      if pack=="rse/trainer_card" and not picLoaded.card then
+        picLoaded.card=true
+        local man=SceneKit.manifest("rse/trainer_card")
+        local pics=type(man)=="table" and type(man.pics)=="table" and man.pics or {}
+        -- gTrainerFrontPicTable order: the boy, then the girl.
+        for key,fallback in pairs({male={"brendan",0},female={"may",1}}) do
+          local rec=pics[key]
+          if type(rec)=="table" and type(rec.png)=="string" then picPaths[rec.png]=picLoaded[fallback[1]] or fallback[2] end
+        end
+      end
+      local index=picPaths[path]
+      return index and native.assets["data/generated/gba/trainers/front/"..index..".rgba"] or nil
+    end
     mod.hooks:wrap("editor.gen3.rse.image",function(proceed,path)
       local asset=path and native.assets[path]
-      if not asset then return proceed(path) end
+      if not asset then
+        local pic=type(path)=="string" and trainerPicFor(path)
+        if not pic then return proceed(path) end
+        if images[path]==nil then
+          local ok,img=pcall(function()
+            local bytes=assetBytes(pic.file,"Missing native asset "..pic.file)
+            local w,h=tonumber(pic.width) or 64,tonumber(pic.height) or 64
+            assert(#bytes==w*h*4,"Trainer picture size mismatch")
+            return love.graphics.newImage(love.image.newImageData(w,h,"rgba8",bytes))
+          end)
+          if ok then img:setFilter("nearest","nearest") end
+          images[path]=ok and img or false
+        end
+        return images[path] or proceed(path)
+      end
       if images[path]==nil then
         local ok,img=pcall(function() return love.graphics.newImage(love.filesystem.newFileData(assert(mod:read(asset.file)),"asset.png")) end)
         if ok then img:setFilter("nearest","nearest") end
@@ -347,12 +418,38 @@ vec4 effect(vec4 color, Image t, vec2 tc, vec2 sc) {
     end)
     Ppu.clearCache()
   end
+  -- Sprites and tilesets are decoded on a worker thread that opens the cache
+  -- files itself, so it never passes through the bridge above. With no worker
+  -- spec the game decodes that asset on the main thread, through the bridge.
+  local streamed={}
+  for path in pairs(native.assets) do
+    local dir,name=path:match("^(.*)/([^/]+)%.[^./]+$")
+    if dir then streamed[dir.."/"..name]=true end
+    local outer,folder=path:match("^(.*)/([^/]+)/[^/]+$")
+    if outer then streamed[outer.."/"..folder]=true end
+  end
+  if next(streamed) then
+    local okS,shared=pcall(function() return require("src.core.game3.dataset").cache() end)
+    if okS and type(shared)=="table" and type(shared.assetWorkerSpec)=="function" then
+      if not shared._contentEditorWorker then
+        shared._contentEditorWorker=true
+        local spec=shared.assetWorkerSpec
+        shared.assetWorkerSpec=function(...) return Runtime.call("editor.gen3.cache.worker",spec,...) end
+      end
+      mod.hooks:wrap("editor.gen3.cache.worker",function(proceed,self,root,kind,key)
+        local rel=tostring(root).."/"..tostring(key)
+        if not rel:match("^data/generated/gba/") then rel="data/generated/gba/"..rel end
+        if streamed[rel] then return nil end
+        return proceed(self,root,kind,key)
+      end)
+    end
+  end
   mod.hooks:wrap("editor.gen3.cache",function(proceed,path)
     local key=path:gsub("^"..require("src.core.GameVersion").cachePrefix(), "")
     if not key:match("^data/generated/gba/") then key="data/generated/gba/"..key end
     local asset=native.assets[key]
     if asset then
-      if not memo[key] then memo[key]=assert(mod:read(asset.file),"Missing native asset "..asset.file) end
+      if not memo[key] then memo[key]=assetBytes(asset.file,"Missing native asset "..asset.file) end
       return memo[key]
     end
     local bytes=proceed(path)

@@ -3593,6 +3593,20 @@ function MapBuilder.wheelmoved(S, dy, dx)
   return dy ~= 0 or dx ~= 0
 end
 
+-- The map view on its own, for the fullscreen preview window (MapPopout).
+function MapBuilder.drawView(S, x, y, w, h, App)
+  if not (S and S.project) then return end
+  LayeredMap.ensureProject(S.project)
+  S.builderTile = S.builderTile or 0
+  local source = mapSource(S)
+  if source then
+    Kit.card(x, y, w, h, 10 * Kit.scale)
+    drawCanvas(S, source, x, y, w, h, App)
+  else
+    require("Maps").drawPreview(S, x, y, w, h, App)
+  end
+end
+
 function MapBuilder.draw(S, x, y, w, h, App)
   if not (S and S.project) then
     Kit.emptyBox(x, y, w, h, "Open or create a mod first")

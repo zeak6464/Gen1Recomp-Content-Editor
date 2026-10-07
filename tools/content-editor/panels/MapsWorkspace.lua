@@ -242,6 +242,21 @@ function MapsWorkspace.draw(S, x, y, w, h, App)
     end})
   end
   local actionRight = x + w - 12 * s
+  -- The map on a screen of its own, following this editor (MapPopout).
+  do
+    local Preview = require("MapPopout")
+    local open = Preview.active(S)
+    if (open or Preview.available(S)) and Kit.button(actionRight - 176 * s, y + 6 * s, 176 * s, 25 * s,
+        open and "Close preview" or "Preview in fullscreen", { kind = open and "accent" or "ghost",
+          tooltip = open and "Close the fullscreen map preview"
+            or "Show this map fullscreen in a window of its own (on your second screen if you have one). It follows what you do here; drag to pan it, wheel to zoom, Esc closes it." }) then
+      if open then Preview.close(S)
+      else
+        local ok, why = Preview.open(S, App)
+        if not ok then S.status = tostring(why) end
+      end
+    end
+  end
   if Kit.button(actionRight - 104 * s, actionY, 104 * s, 28 * s,
       S.dirty and "Save changes" or "Saved", {
         kind = S.dirty and "primary" or "ghost",

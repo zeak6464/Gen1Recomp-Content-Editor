@@ -52,6 +52,12 @@ function love.load(args)
     EditorApp=require("Gen3EventWindowChild").load(eventSession)
     return
   end
+  -- The map builder's fullscreen preview window (MapPopout).
+  local mapWindow=argumentAfter(args,"--map-window")
+  if mapWindow then
+    EditorApp=require("MapPopout").load(mapWindow)
+    return
+  end
   local packRoot = argumentAfter(args, "--pokemonium-pack")
   if packRoot then packLog("packRoot=" .. tostring(packRoot)) end
   local version = os.getenv("POKEPORT_VERSION")

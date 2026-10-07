@@ -408,6 +408,9 @@ function M.validate(project)
       assert(t.over == nil or (type(t.over) == "string" and TS.parseKey(t.over)
         and type(t.overMask) == "string" and #t.overMask == 64 and not t.overMask:find("[^01]")),
         "Tile " .. key .. " in " .. pair .. ": bad merged-tile source")
+      assert((t.rot == nil or t.rot == 1 or t.rot == 2 or t.rot == 3)
+        and (t.overRot == nil or t.overRot == 1 or t.overRot == 2 or t.overRot == 3),
+        "Tile " .. key .. " in " .. pair .. ": bad rotation")
       assert(t.base == nil or (type(t.base) == "string" and TS.parseKey(t.base))
         or (type(t.base) == "number" and t.base % 1 == 0 and t.base >= 0 and t.base <= 1023),
         "Tile " .. key .. ": bad base tile")
@@ -477,17 +480,156 @@ function M.newTile(S, pair, base)
   return nil, "This tileset has no room for more of your tiles"
 end
 
+--- Rotation. The game can flip a tile but not turn it, so a turned tile is
+-- one of yours: `rot` (1-3) is how many quarter turns clockwise its base
+-- tile is given before anything is painted on it, and `overRot` the same for
+-- a merged tile. Only that number is saved, never the turned pixels.
+-- `turned(rot, i)` is the pixel (1-64) of the unturned tile that shows at
+-- pixel `i`.
+function M.turned(rot, i)
+  if not rot or rot == 0 then return i end
+  local x, y = (i - 1) % 8, math.floor((i - 1) / 8)
+  for _ = 1, rot do x, y = y, 7 - x end
+  return y * 8 + x + 1
+end
+
+local function turnString(text, rot)
+  local out = {}
+  for i = 1, 64 do
+    local j = M.turned(rot, i)
+    out[i] = text:sub(j, j)
+  end
+  return table.concat(out)
+end
+
+-- A tile of yours that is only game tile `base` turned `rot` quarters.
+local function plainTurn(project, pair, base, rot)
+  local plain = string.rep(".", 64)
+  for _, n in ipairs(M.customTiles(project, pair)) do
+    local t = M.customTile(project, pair, n)
+    if t.base == base and (t.rot or 0) == rot and t.px == plain and not t.recolour and not t.over then return n end
+  end
+end
+
+--- Turn the tile in `slot` a quarter turn clockwise, as it shows (the
+-- slot's flips are kept). A game tile becomes one of yours that names it
+-- and the turn; a tile of yours used in other slots too is copied first.
+-- Changes `slot` (store its definition after). Returns the slot's new tile
+-- (a number, or the game tile's key after a full circle), or nil and a
+-- message.
+function M.rotateTile(S, pair, slot)
+  if not slot or not slot.tile then return nil, "This slot is empty -- pick a tile first" end
+  if not M.tileAvailable(S, pair, slot.tile) then
+    return nil, "This slot's tile can't be drawn -- pick one from the sheet first"
+  end
+  -- Seen through one flip, a clockwise turn of the picture is an
+  -- anticlockwise turn of the tile.
+  local turns = (slot.hflip == true) ~= (slot.vflip == true) and 3 or 1
+  local n = slot.tile
+  -- A tile that is only a game tile turned (nothing painted or merged):
+  -- the tile already turned that far is used again, and a full circle is
+  -- the game's own tile again.
+  local plain = M.isCustom(n) and M.customTile(S.project, pair, n)
+  if plain and not (plain.base and plain.px == string.rep(".", 64) and not plain.recolour and not plain.over) then
+    plain = nil
+  end
+  if plain or not M.isCustom(n) then
+    local base = plain and plain.base or n
+    local target = ((plain and plain.rot or 0) + turns) % 4
+    local have = target == 0 and base or plainTurn(S.project, pair, base, target)
+    if have then
+      slot.tile = have
+      -- yours, and this slot was its only use: it is not needed any more
+      if plain and M.tileUses(S.project, pair, n) <= 1 then M.deleteTile(S, pair, n) end
+      return have
+    end
+  end
+  if not M.isCustom(n) or M.tileUses(S.project, pair, n) > 1 then
+    local old = M.isCustom(n) and M.customTile(S.project, pair, n)
+    local err
+    n, err = M.newTile(S, pair, old and old.base or (type(slot.tile) == "string" and slot.tile or nil))
+    if not n then return nil, err end
+    if old then
+      local t = M.customTile(S.project, pair, n)
+      t.px, t.recolour, t.rot = old.px, old.recolour, old.rot
+      t.over, t.overH, t.overV, t.overMask, t.overRot = old.over, old.overH, old.overV, old.overMask, old.overRot
+    end
+  end
+  local t = M.customTile(S.project, pair, n)
+  t.px = turnString(t.px, turns)
+  if t.base then
+    t.rot = ((t.rot or 0) + turns) % 4
+    if t.rot == 0 then t.rot = nil end
+  end
+  if t.over then
+    t.overMask = turnString(t.overMask, turns)
+    t.overRot = ((t.overRot or 0) + turns) % 4
+    if t.overRot == 0 then t.overRot = nil end
+  end
+  slot.tile = n
+  return n
+end
+
+--- Turn a whole block a quarter turn clockwise: every corner moves round
+-- (both layers) and its tile is turned. Changes `def`; on failure nothing
+-- is changed. Returns how many tiles were turned, or nil and a message.
+function M.rotateBlock(S, pair, def)
+  local rows = ownTiles(S.project, pair)
+  local before = {}
+  for key, t in pairs(rows or {}) do
+    local c = {}
+    for k, v in pairs(t) do c[k] = v end
+    before[key] = c
+  end
+  local slots, turnedSlots, done = {}, 0, {}
+  for i = 1, 8 do
+    local sl = def.slots[i]
+    slots[i] = { tile = sl.tile, pal = sl.pal, hflip = sl.hflip, vflip = sl.vflip }
+  end
+  for i = 1, 8 do
+    local sl = slots[i]
+    if sl.tile then
+      -- the same tile the same way round in two corners: one turned tile
+      local key = tostring(sl.tile) .. (sl.hflip and "h" or "") .. (sl.vflip and "v" or "")
+      if done[key] then
+        sl.tile = done[key]
+      else
+        local n, err = M.rotateTile(S, pair, sl)
+        if not n then
+          -- put your tiles back as they were
+          local now = ownTiles(S.project, pair, next(before) ~= nil)
+          for k in pairs(now or {}) do if not before[k] then now[k] = nil end end
+          for k, t in pairs(before) do now[k] = t end
+          if now and not next(now) then
+            S.project.gen3Tiles[pair] = nil
+            if not next(S.project.gen3Tiles) then S.project.gen3Tiles = nil end
+          end
+          return nil, err
+        end
+        done[key] = n
+      end
+      turnedSlots = turnedSlots + 1
+    end
+  end
+  -- top-left -> top-right -> bottom-right -> bottom-left -> top-left
+  local FROM = { 3, 1, 4, 2 }
+  for layer = 0, 4, 4 do
+    for q = 1, 4 do def.slots[layer + q] = slots[layer + FROM[q]] end
+  end
+  return turnedSlots
+end
+
 --- Your tile's base pixels as they show: the base tile's colour numbers,
 -- through the tile's `recolour` (16 hex digits: old colour -> new) when a
 -- merge moved it to another palette. Unpainted pixels stay "the base", so
 -- in game they keep the base's animation (water, flowers).
 function M.baseOf(S, pair, t)
   local base = t.base and M.tilePixels(S, pair, t.base)
-  if not base or not t.recolour then return base end
+  if not base or not (t.recolour or t.rot) then return base end
   local out = {}
   for i = 1, 64 do
-    local v = base[i]
-    out[i] = v == 0 and 0 or (tonumber(t.recolour:sub(v + 1, v + 1), 16) or v)
+    local v = base[M.turned(t.rot, i)]
+    out[i] = (v == 0 or not t.recolour) and v or (tonumber(t.recolour:sub(v + 1, v + 1), 16) or v)
   end
   return out
 end
@@ -542,7 +684,7 @@ function M.setPixel(S, pair, tile, i, colour)
   t.px = t.px:sub(1, i - 1) .. ch .. t.px:sub(i + 1)
   if t.overMask and t.overMask:sub(i, i) == "1" then
     t.overMask = t.overMask:sub(1, i - 1) .. "0" .. t.overMask:sub(i + 1)
-    if not t.overMask:find("1", 1, true) then t.over, t.overH, t.overV, t.overMask = nil, nil, nil, nil end
+    if not t.overMask:find("1", 1, true) then t.over, t.overH, t.overV, t.overMask, t.overRot = nil, nil, nil, nil, nil end
   end
   return true
 end
@@ -582,8 +724,8 @@ function M.mergeTile(S, pair, slot, tile, tilePal, hflip, vflip, newPal)
     if not n then return nil, err end
     if old then
       local t = M.customTile(S.project, pair, n)
-      t.px, t.recolour = old.px, old.recolour
-      t.over, t.overH, t.overV, t.overMask = old.over, old.overH, old.overV, old.overMask
+      t.px, t.recolour, t.rot = old.px, old.recolour, old.rot
+      t.over, t.overH, t.overV, t.overMask, t.overRot = old.over, old.overH, old.overV, old.overMask, old.overRot
     end
   end
   local pack = M.pack(S, pair)
@@ -665,14 +807,14 @@ function M.mergeTile(S, pair, slot, tile, tilePal, hflip, vflip, newPal)
   if type(tile) == "string" then
     local chars = {}
     for i = 1, 64 do chars[i] = (mask[i] and t.px:sub(i, i) ~= ".") and "1" or "0" end
-    t.over, t.overMask = tile, table.concat(chars)
+    t.over, t.overMask, t.overRot = tile, table.concat(chars), nil
     t.overH, t.overV = (slot.hflip == true) ~= (hflip == true), (slot.vflip == true) ~= (vflip == true)
-    if not t.overMask:find("1", 1, true) then t.over, t.overH, t.overV, t.overMask = nil, nil, nil, nil end
+    if not t.overMask:find("1", 1, true) then t.over, t.overH, t.overV, t.overMask, t.overRot = nil, nil, nil, nil, nil end
   elseif t.overMask then
     local chars = {}
     for i = 1, 64 do chars[i] = mask[i] and "0" or t.overMask:sub(i, i) end
     t.overMask = table.concat(chars)
-    if not t.overMask:find("1", 1, true) then t.over, t.overH, t.overV, t.overMask = nil, nil, nil, nil end
+    if not t.overMask:find("1", 1, true) then t.over, t.overH, t.overV, t.overMask, t.overRot = nil, nil, nil, nil, nil end
   end
   slot.tile = n
   return n, approx
@@ -852,6 +994,30 @@ function M.merge(S, pair, def, si, tile, tilePal, hflip, vflip)
   return n, "nearest", approx
 end
 
+--- Flip a whole block: left to right (`horizontal`) or top to bottom. The
+-- corners of both layers change places and every tile is flipped; the game
+-- flips tiles itself, so no tile of yours is made. Returns how many slots
+-- hold a tile.
+function M.flipBlock(def, horizontal)
+  local n = 0
+  for layer = 0, 4, 4 do
+    local a, b, c, d = def.slots[layer + 1], def.slots[layer + 2], def.slots[layer + 3], def.slots[layer + 4]
+    if horizontal then
+      def.slots[layer + 1], def.slots[layer + 2], def.slots[layer + 3], def.slots[layer + 4] = b, a, d, c
+    else
+      def.slots[layer + 1], def.slots[layer + 2], def.slots[layer + 3], def.slots[layer + 4] = c, d, a, b
+    end
+  end
+  for i = 1, 8 do
+    local slot = def.slots[i]
+    if slot.tile then
+      n = n + 1
+      if horizontal then slot.hflip = not slot.hflip else slot.vflip = not slot.vflip end
+    end
+  end
+  return n
+end
+
 --- Swap a block definition's two layers, corner for corner.
 function M.swapLayers(def)
   for q = 1, 4 do
@@ -892,7 +1058,7 @@ function M.resetTile(S, pair, tile)
   local fresh = string.rep(t.base and "." or "0", 64)
   if t.px == fresh and not t.recolour and not t.over then return false end
   t.px, t.recolour = fresh, nil
-  t.over, t.overH, t.overV, t.overMask = nil, nil, nil, nil
+  t.over, t.overH, t.overV, t.overMask, t.overRot = nil, nil, nil, nil, nil
   return true
 end
 
@@ -1002,8 +1168,10 @@ function M.compileRuntime(S)
               data.tiles[k] = data.tiles[k] or {
                 base = t.px:find(".", 1, true) and t.base or nil, px = t.px,
                 recolour = t.px:find(".", 1, true) and t.recolour or nil,
+                rot = t.px:find(".", 1, true) and t.base and t.rot or nil,
                 over = t.over, overMask = t.overMask,
-                overH = t.over and t.overH or nil, overV = t.over and t.overV or nil }
+                overH = t.over and t.overH or nil, overV = t.over and t.overV or nil,
+                overRot = t.over and t.overRot or nil }
             end
             rec.slots[i] = { key = k or false, pal = sl.pal, hflip = sl.hflip, vflip = sl.vflip }
           end
@@ -1049,7 +1217,7 @@ function M.upgradeTiles(S)
     local pack = M.pack(S, pair)
     for key, t in pairs(rows) do
       local _, _, _, basePal = TS.parseKey(t.base)
-      if pack and basePal and not t.px:find(".", 1, true) and not t.recolour then
+      if pack and basePal and not t.px:find(".", 1, true) and not t.recolour and not t.rot then
         -- The palette it is drawn in: every use must agree.
         local pal
         for _, def in pairs(own(S.project, pair) or {}) do
@@ -1127,7 +1295,7 @@ function M.upgradeTiles(S)
             local ch = t.px:sub(i, i)
             chars[i] = (ch ~= "." and ch ~= "0") and "1" or "0"
           end
-          t.over, t.overH, t.overV, t.overMask = found[1], found[2], found[3], table.concat(chars)
+          t.over, t.overH, t.overV, t.overMask, t.overRot = found[1], found[2], found[3], table.concat(chars), nil
           changed = changed + 1
         end
       end
@@ -1239,7 +1407,7 @@ function M.blockImages(S, pair, mid, def)
   local key = "b|" .. pair .. "|" .. M.signature(def)
   for i = 1, 8 do
     local t = M.isCustom(def.slots[i].tile) and M.customTile(S.project, pair, def.slots[i].tile)
-    if t then key = key .. "|" .. tostring(t.base) .. t.px .. (t.recolour or "") end
+    if t then key = key .. "|" .. tostring(t.base) .. t.px .. (t.recolour or "") .. (t.rot or "") end
   end
   local c = cache(S)
   local hit = c.map[key]
@@ -1277,7 +1445,7 @@ function M.tileSheet(S, pair, pal, which, cols)
       pxOf[i] = M.tilePixels(S, pair, n) or {}
       palOf[i] = pal
       local t = M.customTile(S.project, pair, n)
-      parts[i] = tostring(t.base) .. t.px .. (t.recolour or "")
+      parts[i] = tostring(t.base) .. t.px .. (t.recolour or "") .. (t.rot or "")
     end
     pal = pal .. "|" .. table.concat(parts, "|")
   else
@@ -1317,7 +1485,7 @@ function M.tileImage(S, pair, tile, pal)
   local key = "i|" .. pair .. "|" .. tostring(tile) .. "|" .. pal
   if M.isCustom(tile) then
     local t = M.customTile(S.project, pair, tile)
-    key = key .. "|" .. tostring(t.base) .. t.px .. (t.recolour or "")
+    key = key .. "|" .. tostring(t.base) .. t.px .. (t.recolour or "") .. (t.rot or "")
   end
   local c = cache(S)
   local hit = c.map[key]

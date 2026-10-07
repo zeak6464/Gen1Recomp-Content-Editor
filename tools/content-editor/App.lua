@@ -1654,6 +1654,13 @@ function App.draw()
   local railH = 6 * s
   Theme.versionRail(0, 0, W, railH)
 
+  -- The map builder's fullscreen preview window (MapPopout) draws the map
+  -- and nothing of the editor around it.
+  local popout = S._mapPreviewWindow and require("MapPopout")
+  local contentY
+  if popout then
+    contentY = railH + 10 * s
+  else
   local titleY = railH + 10 * s
   local btnH = 32 * s
   Kit.text("title", "CONTENT EDITOR", 20 * s, titleY, PAL.heading)
@@ -1773,7 +1780,8 @@ function App.draw()
     S.tabBarScroll = 0
   end
 
-  local contentY = tabY + tabH + barGap + barH + 16 * s
+  contentY = tabY + tabH + barGap + barH + 16 * s
+  end
   local contentH = H - contentY - 44 * s
   History.beginFrame(S)
   -- Block underlying panel hits while a modal is up.
@@ -1798,8 +1806,10 @@ function App.draw()
       or S.tab == "player" and PANELS.player
       or require("Gen3Records")
   end
+  if popout then panel = popout.panel end
   if panel and panel.draw then
-    panel.draw(S, 20 * s, contentY, W - 40 * s, contentH, App)
+    local inset = popout and 6 * s or 20 * s
+    panel.draw(S, inset, contentY, W - 2 * inset, contentH, App)
   end
   History.endFrame(S)
 
@@ -1817,9 +1827,13 @@ function App.draw()
   Theme.col(PAL.cardBody, 0.85)
   love.graphics.rectangle("fill", 0, statusY, W, statusH)
   local statusTy = statusY + (statusH - Kit.textHeight("micro")) / 2
+  if popout then
+    Kit.text("micro", Kit.ellipsize("micro", S.status or "", W - 40 * s), 20 * s, statusTy, PAL.detail)
+  else
   Kit.text("micro", S.status or "", 20 * s, statusTy, PAL.detail)
   Kit.textRight("micro", "Undo Ctrl+Z   Redo Ctrl+Y   Save Ctrl+S   Esc",
     W - 20 * s, statusTy, PAL.faint)
+  end
 
   -- Re-enable hits so modals themselves can receive clicks.
   -- Upper modals (color wheel / custom-palette ask) block the ones below.

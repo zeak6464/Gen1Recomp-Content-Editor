@@ -130,6 +130,17 @@ return function(data, encode)
       local okO,o=pcall(function() return cache:read(NATIVE.."/"..pair.."/mids_over.idx") end)
       return TS.decodePair(okU and u or nil,okO and o or nil)
     end
+    -- A tile of yours can name its base turned `rot` quarter turns clockwise
+    -- (the game only flips): the pixel of the unturned tile showing at `i`.
+    local function turnedXY(rot,x,y)
+      for _=1,rot or 0 do x,y=y,7-x end
+      return x,y
+    end
+    local function turned(rot,i)
+      if not rot then return i end
+      local x,y=turnedXY(rot,(i-1)%8,math.floor((i-1)/8))
+      return y*8+x+1
+    end
     local function tilesFor(pair)
       local pack=readPair(pair)
       if not pack then return nil end
@@ -145,7 +156,7 @@ return function(data, encode)
             for i=1,64 do
               local ch=own.px:sub(i,i)
               if ch=="." then
-                local v=base[i]
+                local v=base[turned(own.rot,i)]
                 if own.recolour and v~=0 then v=tonumber(own.recolour:sub(v+1,v+1),16) or v end
                 px[i]=v
               else px[i]=tonumber(ch,16) or 0 end
@@ -200,10 +211,13 @@ return function(data, encode)
             if (px[t] or 0)~=0 then
               local di=(oy+y)*16+ox+x+1
               if mid and (not own or own.px:sub(t,t)==".") then
-                out[di]={mid,(math.floor(q/2)*8+ty)*16+(q%2)*8+tx+1,base}
+                local sx,sy=turnedXY(own and own.rot,tx,ty)
+                out[di]={mid,(math.floor(q/2)*8+sy)*16+(q%2)*8+sx+1,base}
               elseif omid and own.overMask:sub(t,t)=="1" then
                 -- a merged game tile's pixel: animates with that tile's block
-                local bx,by=own.overH and 7-tx or tx,own.overV and 7-ty or ty
+                local bx,by=turnedXY(own.overRot,tx,ty)
+                if own.overH then bx=7-bx end
+                if own.overV then by=7-by end
                 out[di]={omid,(math.floor(oq/2)*8+by)*16+(oq%2)*8+bx+1,merged}
               else
                 out[di]=nil

@@ -240,6 +240,40 @@ function M.setNightPixels(project, pair, mid, pixels, colour)
   return true
 end
 
+--- A block was turned a quarter turn clockwise (GFX > Blocks > Rotate
+-- block): its night colours turn with it. Returns true when it had any.
+function M.rotateNightPixels(project, pair, mid)
+  local rec = ((((project or {}).gen3DayNight or {}).paint or {})[pair] or {})[tostring(mid)]
+  if not rec or type(rec.px) ~= "string" or #rec.px ~= 256 then return false end
+  local out = {}
+  for y = 0, 15 do
+    for x = 0, 15 do
+      local i = (15 - x) * 16 + y + 1
+      out[y * 16 + x + 1] = rec.px:sub(i, i)
+    end
+  end
+  rec.px = table.concat(out)
+  M.paintRevision = (M.paintRevision or 0) + 1
+  return true
+end
+
+--- A block was flipped (GFX > Blocks > H-flip block / V-flip block): its
+-- night colours flip with it. Returns true when it had any.
+function M.flipNightPixels(project, pair, mid, horizontal)
+  local rec = ((((project or {}).gen3DayNight or {}).paint or {})[pair] or {})[tostring(mid)]
+  if not rec or type(rec.px) ~= "string" or #rec.px ~= 256 then return false end
+  local out = {}
+  for y = 0, 15 do
+    for x = 0, 15 do
+      local i = (horizontal and y or 15 - y) * 16 + (horizontal and 15 - x or x) + 1
+      out[y * 16 + x + 1] = rec.px:sub(i, i)
+    end
+  end
+  rec.px = table.concat(out)
+  M.paintRevision = (M.paintRevision or 0) + 1
+  return true
+end
+
 --- Every painted block: { {pair=, mid=}, ... }.
 function M.paintedBlocks(project)
   local out = {}

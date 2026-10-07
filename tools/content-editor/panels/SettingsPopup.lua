@@ -44,13 +44,9 @@ local function diskRoots()
       roots[#roots + 1] = (prefs.recompRoot:gsub("[/\\]+$", ""))
     end
   end
-  local appdata = os.getenv("APPDATA")
-  local fs = love.filesystem
-  local save = fs and fs.getSaveDirectory and fs.getSaveDirectory() or ""
-  if appdata then
-    roots[#roots + 1] = appdata .. "/LOVE/pokemon-love2d"
-  elseif save ~= "" then
-    roots[#roots + 1] = (save:match("^(.*)[/\\][^/\\]+$") or save) .. "/pokemon-love2d"
+  -- Both places Gen1Recomp saves to (love.exe and the fused game differ).
+  if okD and type(DataSource) == "table" and DataSource.sharedCacheRoots then
+    for _, root in ipairs(DataSource.sharedCacheRoots()) do roots[#roots + 1] = root end
   end
   return roots
 end

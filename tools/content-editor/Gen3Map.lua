@@ -87,8 +87,11 @@ function M.tileset(data, pair)
     -- or LeafGreen import (Gen3FrLink).
     local FrLink=require("Gen3Link")
     local function read(p)
+      -- A copy's folder first becomes the tileset it copies: a copy of a
+      -- FireRed tileset (frlg__...) in an Emerald project reads the link too.
+      p = M.alias(p)
       if FrLink.redirect(p) then return FrLink.read(p) end
-      return data._gen3Read and data._gen3Read(M.alias(p))
+      return data._gen3Read and data._gen3Read(p)
     end
     T.install({
       read=function(_,p) return read(p) end,
