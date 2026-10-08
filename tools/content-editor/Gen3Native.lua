@@ -1,9 +1,11 @@
 local M={}
-function M.used(p)
+-- Shared Pokemon/item records only imply native content during Gen 3 export.
+-- Save validation for older games must check the Gen 3-specific fields alone.
+function M.used(p, includeShared)
   if next(p.gen3BattlePositions or {}) then return true end
-  if next(p.pokemon or {}) or next((p.gen3 or {}).pokemon or {}) then return true end
+  if (includeShared ~= false and next(p.pokemon or {})) or next((p.gen3 or {}).pokemon or {}) then return true end
   if p.gen3Screens or p.gen3Roamers or p.gen3Fame or next(p.gen3DexText or {}) or require("Gen3Berries").used(p) then return true end
-  return next(p.gen3Forms or {}) or p.gen3Fly or next(p.gen3OakScene or {}) or next(p.gen3Oak or {}) or p.gen3BirchScene or p.gen3Breeding or next(p.gen3Behaviors or {}) or next(p.gen3TrainerMusic or {}) or next(p.items or {}) or next(p.gen3Help or {}) or next(p.gen3Trades or {}) or next(p.gen3Effects or {}) or next(p.gen3BattleRules or {}) or require("Gen3Workbench").used(p) or next(p.gen3Animations or {}) or next(p.gen3Assets or {}) or next(p.gen3Audio or {})
+  return next(p.gen3Forms or {}) or p.gen3Fly or next(p.gen3OakScene or {}) or next(p.gen3Oak or {}) or p.gen3BirchScene or p.gen3Breeding or next(p.gen3Behaviors or {}) or next(p.gen3TrainerMusic or {}) or (includeShared ~= false and next(p.items or {})) or next(p.gen3Help or {}) or next(p.gen3Trades or {}) or next(p.gen3Effects or {}) or next(p.gen3BattleRules or {}) or require("Gen3Workbench").used(p) or next(p.gen3Animations or {}) or next(p.gen3Assets or {}) or next(p.gen3Audio or {})
 end
 function M.emit(p,encode,out)
   require("Gen3TeachyTv").emit(p,encode,out)
