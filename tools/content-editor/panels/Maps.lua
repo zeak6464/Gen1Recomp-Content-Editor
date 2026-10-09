@@ -312,7 +312,7 @@ local SECTIONS = {
   { id = "objects", label = "People & objects" },
   { id = "signs", label = "Signs & messages" },
   { id = "encounters", label = "Wild Pokemon" },
-  { id = "hidden", label = "Hidden items", advanced = true },
+  { id = "hidden", label = "Hidden items" },
   { id = "gates", label = "Badge gates", advanced = true },
 }
 local ENV_GEN2 = {
@@ -3562,6 +3562,9 @@ local function applyToolAtCell(S, mapDef, cx, cy, App)
         "Warp at (%d,%d) — not a door/warp tile; Gen1 only fires at map edge / carpet",
         cx, cy)
     end
+  elseif tool == "hidden_item" and Generation.isGen2(S) then
+    local index,err=require("Gen2HiddenItemEditor").add(S,mapDef,cx,cy)
+    S.status=index and "Hidden item placed — choose its item in Hidden items" or err
   elseif tool == "sign" then
     S.mapEditMode = "events"
     if Generation.isGen2(S) then
@@ -7481,6 +7484,10 @@ function Maps._section.drawSigns(S, map, mutate, App, px, py, propW, listBottom,
     local i = S.mapSignIndex
     local ev = i and map.bgEvents[i]
     if not ev then return py end
+    if tonumber(ev.kind)==7 then
+      return require("Gen2HiddenItemEditor").draw(S,map,mutate,App,
+        px+10*s,py,propW-20*s,fh,s,field)
+    end
     local function row(label, body)
       if py + fh + 20 * s > listBottom then return true end
       Kit.text("micro", label, px + 10 * s, py, PAL.caption)
@@ -7691,27 +7698,9 @@ end
 
 function Maps._section.drawHiddenItems(S, map, mutate, App, px, py, propW, listBottom, fh, s)
   if Generation.isGen2(S) then
-    Kit.text("micro", "Gold hidden items are BG events (kind ITEM).",
-      px + 10 * s, py, PAL.muted)
-    py = py + 18 * s
-    Kit.text("micro", "Edit them under the BG Events section.",
-      px + 10 * s, py, PAL.faint)
-    py = py + 18 * s
-    local count = 0
-    for _, ev in ipairs(map.bgEvents or {}) do
-      if tonumber(ev.kind) == 7 then count = count + 1 end
-    end
-    Kit.text("micro", string.format("%d ITEM event(s) on this map", count),
-      px + 10 * s, py, PAL.caption)
-    py = py + 20 * s
-    if Kit.button(px + 10 * s, py, propW - 20 * s, 28 * s, "Open BG Events",
-        { kind = "primary" }) then
-      S.mapEditMode = "events"
-      S.mapSection = "signs"
-    end
-    return py + 36 * s
+    return require("Gen2HiddenItemEditor").draw(S,map,mutate,App,
+      px+10*s,py,propW-20*s,fh,s,field)
   end
-
   State.ensureProjectFields(S.project)
   local mapId = map.id or S.mapId
   local items, owned = resolveHiddenItems(S, mapId)

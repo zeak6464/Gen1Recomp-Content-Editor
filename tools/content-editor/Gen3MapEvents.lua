@@ -32,12 +32,11 @@ function M.place(S,tool,x,y,App)
   require("Gen3EventWindow").request(S,S.mapId,kind,index)
   return true
 end
-function M.draw(S,x,y,w,h,App)
-  local Kit=require("Kit");local Pane=require("FormPane")
+local function drawContent(S,x,y,w,App)
+  local Kit=require("Kit")
   local s=Kit.scale
-  local bottom=y+h
   local map=require("Maps").resolveMap(S,S.mapId)
-  if not map then return end
+  if not map then return y end
   if S._g3NameMap~=S.mapId then S._g3NameMap=S.mapId;S.g3MapNameDraft=map.label or map.name or S.mapId end
   Kit.caption(x,y,"Display name")
   S.g3MapNameDraft=Kit.textfield("g3MapName",x,y+22*s,w,28*s,S.g3MapNameDraft,"Map name",
@@ -66,7 +65,7 @@ function M.draw(S,x,y,w,h,App)
   y=require("Gen3MapProperties").draw(S,map,x,y,w,App)
   if Kit.button(x,y,w,27*s,S.g3ShowConnections and "Show events" or "Map connections",{tooltip="Add or edit multiple connections per side, each with its own offset."}) then S.g3ShowConnections=not S.g3ShowConnections end
   y=y+36*s
-  if S.g3ShowConnections then return require("Gen3ConnectionEditor").draw(S,S.mapId,x,y,w,bottom-y,App) end
+  if S.g3ShowConnections then return require("Gen3ConnectionEditor").draw(S,S.mapId,x,y,w,0,App,true) end
   local bx,by=x,y
   for _,kind in ipairs({"objects","signs","coordEvents","warps"}) do
     local bw=(w-6*s)/2
@@ -76,12 +75,12 @@ function M.draw(S,x,y,w,h,App)
   local kind=groups[S.mapSection] and S.mapSection or "objects"
   local rows=map[kind] or {};local key=groups[kind][2]
   S[key]=math.max(1,math.min(S[key] or 1,#rows))
-  y=by+8*s;h=bottom-y
+  y=by+8*s
   Kit.caption(x,y,groups[kind][1].." "..S[key].." / "..#rows)
   if Kit.button(x,y+25*s,45*s,25*s,"<",{}) then S[key]=math.max(1,S[key]-1) end
   if Kit.button(x+50*s,y+25*s,45*s,25*s,">",{}) then S[key]=math.min(#rows,S[key]+1) end
   local ev=rows[S[key]]
-  if not ev then return end
+  if not ev then return y+50*s end
   local identity=S.mapId..kind..S[key]
   if S._g3EventIdentity~=identity or S._g3EventValue~=ev then
     S._g3EventIdentity,S._g3EventValue=identity,ev
@@ -111,14 +110,20 @@ function M.draw(S,x,y,w,h,App)
       end})
     fieldTop=fieldTop+35*s
   end
-  local top,view=Pane.begin(S,"g3MapEventScroll",x,fieldTop,w,math.max(80*s,bottom-fieldTop-20*s))
-  local controlsTop=top
-  if kind~="warps" then controlsTop=require("Gen3RpgEventEditor").drawQuick(S,ev,x,controlsTop,view.contentW,App) end
+  local controlsTop=fieldTop
+  if kind~="warps" then controlsTop=require("Gen3RpgEventEditor").drawQuick(S,ev,x,controlsTop,w,App) end
   local advanced=S.g3MapEventAdvanced==true
-  if Kit.button(x,controlsTop,view.contentW,27*s,advanced and "Show simple controls" or "Advanced fields",{}) then S.g3MapEventAdvanced=not advanced end
+  if Kit.button(x,controlsTop,w,27*s,advanced and "Show simple controls" or "Advanced fields",{}) then S.g3MapEventAdvanced=not advanced end
   local ending
-  if advanced then ending=require("Gen3Fields").draw(S,identity,x,controlsTop+35*s,view.contentW,S._g3EventDraft,{})
-  else ending=require("Gen3MapEventForm").draw(S,ev,kind,key,x,controlsTop+35*s,view.contentW,App) end
+  if advanced then ending=require("Gen3Fields").draw(S,identity,x,controlsTop+35*s,w,S._g3EventDraft,{})
+  else ending=require("Gen3MapEventForm").draw(S,ev,kind,key,x,controlsTop+35*s,w,App) end
+  return ending
+end
+function M.draw(S,x,y,w,h,App)
+  local Pane=require("FormPane")
+  Pane.track(S,"g3MapEventScroll",S.mapId)
+  local top,view=Pane.begin(S,"g3MapEventScroll",x,y,w,math.max(0,h))
+  local ending=drawContent(S,x,top,view.contentW,App)
   Pane.finish(S,"g3MapEventScroll",top,ending,view)
 end
 return M

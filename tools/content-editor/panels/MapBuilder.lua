@@ -37,6 +37,8 @@ local EVENT_TOOLS = {
     tip = "Place an NPC or scripted object on a 16x16 cell" },
   { id = "item", mapTool = "item", label = "Item",
     tip = "Place an item pickup, then choose its item in People & objects" },
+  { id = "hidden_item", mapTool = "hidden_item", label = "Hidden item",
+    tip = "Place a hidden item, then choose what the player finds. No script needed" },
   { id = "sign", mapTool = "sign", label = "Sign",
     tip = "Place a sign/background event on a 16x16 cell" },
   { id = "berry", mapTool = "berry", label = "Berry",
@@ -60,6 +62,7 @@ for _, tool in ipairs(EVENT_TOOLS) do EVENT_TOOL_BY_ID[tool.id] = tool end
 local LEGACY_TOOLS = { berry = true, path = true }
 
 function MapBuilder.supportsTool(S, id)
+  if id=="hidden_item" then return Generation.isGen2(S) end
   if id=="bridge" or id=="elevation" then return Generation.isGen3(S) end
   return not (Generation.isGen3(S) and LEGACY_TOOLS[id])
 end
@@ -107,7 +110,7 @@ local BASIC_TERRAIN_TOOLS = {
   pencil = true, eraser = true, fill = true, pan = true, exits = true, bridge = true, elevation = true,
 }
 local BASIC_EVENT_TOOLS = {
-  object = true, item = true, sign = true, berry = true, path = true, trigger = true,
+  object = true, item = true, hidden_item = true, sign = true, berry = true, path = true, trigger = true,
   event_select = true,
 }
 
@@ -2303,7 +2306,8 @@ local function drawToolbar(S, source, x, y, w, App)
       S.builderRangeDraft = nil
       if tool.id ~= "warp" then S.builderWarpDraft = nil end
       if tool.mapTool == "warp" then S.builderPane = "warps" end
-      if tool.mapTool == "sign" then S.mapSection = "signs"
+      if tool.mapTool == "hidden_item" then S.mapSection = "hidden"
+      elseif tool.mapTool == "sign" then S.mapSection = "signs"
       elseif tool.mapTool then S.mapSection = "objects" end
       if tool.mapTool and tool.mapTool ~= "warp" then
         S.builderPane = "details"

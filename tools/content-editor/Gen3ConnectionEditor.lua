@@ -37,14 +37,16 @@ function M.edit(S,id,dir,index,destination,offset)
   if destination then Loader.invalidate(destination) end
   return map
 end
-function M.draw(S,id,x,y,w,h,App)
+function M.draw(S,id,x,y,w,h,App,inline)
   local K,Picker,Pane=require("Kit"),require("ChoicePicker"),require("FormPane");local s=K.scale
-  local map=require("Maps").resolveMap(S,id);if not map then return end
+  local map=require("Maps").resolveMap(S,id);if not map then return y end
   local ids,labels={},{}
   for _,key in ipairs(require("Autocomplete").mapIds(S)) do if key~=id then
     ids[#ids+1]=key;labels[key]=require("Gen3Names").map(key)
   end end
-  local top,view=Pane.begin(S,"g3ConnectionsScroll",x,y,w,h);local cy=top;local width=view.contentW
+  local top,view=y,nil
+  if not inline then top,view=Pane.begin(S,"g3ConnectionsScroll",x,y,w,h) end
+  local cy=top;local width=view and view.contentW or w
   local function edit(dir,index,dest,offset)
     local ok,result=pcall(M.edit,S,id,dir,index,dest,offset)
     if ok then App.markDirty();S.status="Connection updated, including its return connection" else S.status=tostring(result) end
@@ -70,6 +72,7 @@ function M.draw(S,id,x,y,w,h,App)
     end
     cy=cy+10*s
   end
-  Pane.finish(S,"g3ConnectionsScroll",top,cy,view)
+  if view then Pane.finish(S,"g3ConnectionsScroll",top,cy,view) end
+  return cy
 end
 return M
