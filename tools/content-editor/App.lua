@@ -605,9 +605,9 @@ end
 
 function App.openCacheFolder()
   local version = (S and (S.version or App.dataVersion)) or "red"
-  local folder = DataSource.importedCacheFolder(version)
+  local folder = DataSource.importedCacheFolder(version, true)
   if not folder or folder == "" then
-    return say("No save directory — cannot open cache folder")
+    return say("Could not create cache folder in the save directory")
   end
   local osName = (love.system and love.system.getOS and love.system.getOS()) or ""
   if osName == "" and package.config:sub(1, 1) == "\\" then osName = "Windows" end
@@ -615,7 +615,9 @@ function App.openCacheFolder()
   local ok
   if osName == "Windows" then
     path = path:gsub("/", "\\")
-    ok = os.execute('explorer "' .. path .. '"')
+    -- Explorer can return a nonzero status when it hands off to an existing
+    -- window. Report whether Windows accepted the launch instead.
+    ok = os.execute('start "" explorer "' .. path .. '"')
   elseif osName == "OS X" then
     ok = os.execute('open "' .. path .. '"')
   else

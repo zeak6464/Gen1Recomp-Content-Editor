@@ -747,7 +747,7 @@ function DataSource.clearImportedCache()
 end
 
 -- Absolute folder for the imported ROM cache (LÖVE save directory + version prefix).
-function DataSource.importedCacheFolder(version)
+function DataSource.importedCacheFolder(version, ensureExists)
   if not (love and love.filesystem and love.filesystem.getSaveDirectory) then
     return nil
   end
@@ -757,13 +757,14 @@ function DataSource.importedCacheFolder(version)
   local GameVersion = require("src.core.GameVersion")
   local prefix = GameVersion.cachePrefix and GameVersion.cachePrefix(version) or ""
   prefix = prefix:gsub("[/\\]+$", "")
-  if prefix ~= "" then
-    local info = love.filesystem.getInfo(prefix)
-    if info and info.type == "directory" then
-      return join(saveDir, prefix)
-    end
+  -- getInfo searches mounted/bundled data too, so it cannot prove that
+  -- Explorer's destination exists on disk. createDirectory always writes
+  -- to the save directory, including when the cache has not been imported.
+  if ensureExists then
+    local ok = love.filesystem.createDirectory(prefix ~= "" and prefix or ".")
+    if not ok then return nil end
   end
-  return saveDir
+  return prefix ~= "" and join(saveDir, prefix) or saveDir
 end
 
 function DataSource.mountedRecompRoot()
