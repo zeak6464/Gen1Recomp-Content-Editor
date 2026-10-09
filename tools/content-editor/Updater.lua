@@ -399,6 +399,13 @@ local function fetchLines(url, out, api)
   }
 end
 
+local function cleanupCommand(dir, only)
+  local win = M.platform() == "Windows"
+  local script = join(dir, (only and "cleanup-installed" or "cleanup") .. (win and ".ps1" or ".sh"))
+  if not writeText(script, require("UpdateCleanup").script(dir, win, only)) then return nil end
+  return (win and "powershell -NoProfile -ExecutionPolicy Bypass -File " or "sh ") .. q(script)
+end
+
 -- The steps --------------------------------------------------------------------
 -- M.state: { step = "idle" | "checking" | "ready" | "latest" | "downloading" |
 --   "unpacking" | "staged" | "error", release =, error =, auto = }
@@ -423,7 +430,10 @@ function M.check(auto)
   if not okDir then M.state = { step = "error", error = "no update folder: " .. tostring(dir), auto = auto } return end
   local out = join(dir, "latest.json")
   os.remove(out)
-  local j, err = job("check", fetchLines(M.apiUrl(), out, true))
+  local lines = fetchLines(M.apiUrl(), out, true)
+  local cleanup = cleanupCommand(dir)
+  if cleanup then table.insert(lines, 1, cleanup) end
+  local j, err = job("check", lines)
   if not j then M.state = { step = "error", error = err, auto = auto } return end
   M.state = { step = "checking", job = j, file = out, auto = auto }
 end
@@ -534,13 +544,15 @@ function M.poll()
     lines[#lines + 1] = (win and "powershell -NoProfile -ExecutionPolicy Bypass -File " or "sh ") .. q(script)
     local j, err = job("stage", lines)
     if not j then st.step, st.error = "error", err return end
-    st.step, st.job, st.package = "unpacking", j, packageDir
+    st.step, st.job, st.package, st.runtimeArchive = "unpacking", j, packageDir, runtimeArchive
   elseif st.step == "unpacking" then
     local ok = finished(st.job)
     if ok == nil then return end
     if not ok or not exists(join(st.package, "runtime/gen1recomp.love")) then
       st.step, st.error = "error", "source staging failed (tar and, on Linux/macOS, zip are required)" return
     end
+    os.remove(st.pkg)
+    os.remove(st.runtimeArchive)
     st.step = "staged"
   end
 end
@@ -570,11 +582,19 @@ function M.install(relaunch)
   end
   if not writeText(script, body) then return nil, "couldn't write the helper" end
   local command = (win and "powershell -NoProfile -ExecutionPolicy Bypass -File " or "sh ") .. q(script)
-  local j, err = job("install", {
+  local lines = {
     command .. " > " .. q(join(M.workDir(), "install.log")) .. " 2>&1",
     win and "if not %errorlevel%==0 exit /b %errorlevel%" or "[ $? -eq 0 ] || exit 1",
     "echo " .. st.release.tag .. " > " .. q(join(M.workDir(), "installed.txt")),
-  })
+  }
+  if st.staged then
+    local name = st.staged:match("([^/\\]+)$")
+    if name and name:match("^source-%d+-%d+$") then
+      local cleanup = cleanupCommand(M.workDir(), name)
+      if cleanup then lines[#lines + 1] = cleanup end
+    end
+  end
+  local j, err = job("install", lines)
   if not j then return nil, err end
   st.step = "installing"
   return true
