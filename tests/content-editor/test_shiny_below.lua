@@ -39,7 +39,9 @@ for _, version in ipairs({ "firered", "leafgreen", "ruby", "sapphire", "emerald"
   Rules.emit({ version = version, gen3BattleRules = { shinyBelow = 0 } }, function()
     return "{ shinyBelow = 0 }"
   end, out)
-  assert(table.concat(out, "\n"):find("SHINY_BELOW = battleRules.shinyBelow", 1, true), version)
+  local chunk = table.concat(out, "\n")
+  assert(chunk:find("SHINY_BELOW = battleRules.shinyBelow", 1, true), version)
+  assert(not chunk:find("editor.gen3.rules", 1, true), version .. " shiny edit leaves crit, weather, and trap functions alone")
 end
 local Writer = require("ModWriter")
 local gold = Writer.emitMain({ version = "gold", generation = 2, gen3BattleRules = { shinyBelow = 0 } })

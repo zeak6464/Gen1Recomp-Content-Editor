@@ -120,5 +120,37 @@ for _, version in ipairs({ "firered", "leafgreen", "ruby", "sapphire", "emerald"
   assert(chunk:find("Rules.residual.leftoversDiv = 8", 1, true), version)
 end
 
+local saved = {
+  weather = Capabilities.weatherChipDenom,
+  chip = Capabilities.partialTrapChipDenom,
+  minTurns = Capabilities.partialTrapMinTurns,
+  maxTurns = Capabilities.partialTrapMaxTurns,
+  crit = Rules.crit.multiplier,
+}
+local wired = {}
+Gen3BattleRules.emit({ version = "firered", generation = 3, gen3BattleRules = {
+  shinyBelow = 9, weatherChipDenom = 8, partialTrapChipDenom = 4,
+  partialTrapMinTurns = 2, partialTrapMaxTurns = 2,
+} }, function()
+  return "{ shinyBelow = 9, weatherChipDenom = 8, partialTrapChipDenom = 4, partialTrapMinTurns = 2, partialTrapMaxTurns = 2 }"
+end, wired)
+local wiredChunk = table.concat(wired, "\n")
+assert(not wiredChunk:find("editor.gen3.rules", 1, true), "weather and trap stay on the cart functions")
+assert(wiredChunk:find("Capabilities.weatherChipDenom = battleRules.weatherChipDenom", 1, true), "weather divisor is saved")
+assert(wiredChunk:find("Capabilities.partialTrapChipDenom = battleRules.partialTrapChipDenom", 1, true), "trap divisor is saved")
+assert(wiredChunk:find("Capabilities.partialTrapMinTurns = battleRules.partialTrapMinTurns", 1, true), "trap minimum is saved")
+assert(wiredChunk:find("Capabilities.partialTrapMaxTurns = battleRules.partialTrapMaxTurns", 1, true), "trap maximum is saved")
+local apply = assert(loadstring(wiredChunk))
+setfenv(apply, setmetatable({ mod = { hooks = { wrap = function() end } } }, { __index = _G }))
+apply()
+assertEq(Rules.weather.chipAmount(80), 10, "weather divisor reaches the battle")
+assertEq(Rules.partialTrap.chipAmount(80), 20, "trap divisor reaches the battle")
+assertEq(Rules.partialTrap.rollTurns(function() return 99 end), 2, "trap turns reach the battle")
+assert(Rules.crit.multiplier == saved.crit, "a non-crit edit does not replace the crit function")
+Capabilities.weatherChipDenom = saved.weather
+Capabilities.partialTrapChipDenom = saved.chip
+Capabilities.partialTrapMinTurns = saved.minTurns
+Capabilities.partialTrapMaxTurns = saved.maxTurns
+
 require("Rules")
 print("PASS residuals")

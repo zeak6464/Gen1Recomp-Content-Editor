@@ -58,6 +58,21 @@ for _, game in ipairs({ "firered", "leafgreen", "ruby", "sapphire", "emerald" })
   assert(loadstring(main), game .. " crit rules compile")
   assert(main:find("Rules.crit.CHANCE[0] = battleRules.critChance0", 1, true), game .. " saves the crit ladder")
   assert(main:find("Capabilities.damageRollMin = battleRules.damageRollMin", 1, true), game)
+  assert(not main:find("editor.gen3.rules", 1, true), game .. " crit chances do not replace the multiplier")
 end
+
+local Runtime = require("src.mods.Runtime")
+local hooks = require("src.mods.Hooks").new()
+Runtime.install(nil, hooks, nil)
+local critOut = {}
+BattleRules.emit({ version = "firered", gen3BattleRules = { critMultiplier = 3 } }, function()
+  return "{ critMultiplier = 3 }"
+end, critOut)
+local applyCrit = assert(loadstring(table.concat(critOut, "\n")))
+setfenv(applyCrit, setmetatable({ mod = { hooks = hooks } }, { __index = _G }))
+applyCrit()
+assert(Rules.crit.multiplier() == 3, "crit multiplier reaches the battle")
+Runtime.reset()
+assert(Rules.crit.multiplier() == 2, "disabling the mod restores the cart crit multiplier")
 
 print("PASS crit chances")

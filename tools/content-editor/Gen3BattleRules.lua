@@ -143,32 +143,26 @@ function M.emit(p,encode,out)
   assert((values.damageRollMax or 100)>=(values.damageRollMin or 85),"Damage roll maximum must be at least the minimum")
   out[#out+1]="  local battleRules="..encode(values)
   out[#out+1]=[=[
-  local Runtime=require("src.mods.Runtime")
   local Rules=require("src.core.game3.battle.rules")
-  if not Rules._editorRuleBridge then
-    Rules._editorRuleBridge=true
-    for _,entry in ipairs({{"crit","multiplier"},{"weather","chipAmount"},{"partialTrap","chipAmount"},{"partialTrap","rollTurns"}}) do
-      local group,method=entry[1],entry[2]
-      local base=Rules[group][method]
-      Rules[group][method]=function(...) return Runtime.call("editor.gen3.rules."..group.."."..method,base,...) end
-    end
+]=]
+  -- The cart function reads Capabilities.critMultiplier. A direct write would
+  -- stay after the mod is disabled, so only this one value goes through a
+  -- hook, and only when it was actually edited.
+  if values.critMultiplier ~= nil then
+    out[#out+1]=[=[
+  local Runtime=require("src.mods.Runtime")
+  if not Rules._editorCritBridge then
+    Rules._editorCritBridge=true
+    local base=Rules.crit.multiplier
+    Rules.crit.multiplier=function(...) return Runtime.call("editor.gen3.rules.crit.multiplier",base,...) end
   end
   mod.hooks:wrap("editor.gen3.rules.crit.multiplier",function(proceed)
-    return battleRules.critMultiplier or proceed()
+    if battleRules.critMultiplier == nil then return proceed() end
+    return battleRules.critMultiplier
   end)
-  for _,entry in ipairs({{"weather","weatherChipDenom"},{"partialTrap","partialTrapChipDenom"}}) do
-    local group,key=entry[1],entry[2]
-    mod.hooks:wrap("editor.gen3.rules."..group..".chipAmount",function(proceed,hp)
-      if not battleRules[key] then return proceed(hp) end
-      return math.max(1,math.floor((hp or 16)/battleRules[key]))
-    end)
+]=]
   end
-  mod.hooks:wrap("editor.gen3.rules.partialTrap.rollTurns",function(proceed,rng)
-    if not battleRules.partialTrapMinTurns and not battleRules.partialTrapMaxTurns then return proceed(rng) end
-    local low,high=battleRules.partialTrapMinTurns or 3,battleRules.partialTrapMaxTurns or 6
-    local n=(rng or math.random)(0,high-low)
-    return low+math.floor(n)%(high-low+1)
-  end)
+  out[#out+1]=[=[
   do
     local Capabilities=require("src.core.game3.battle.capabilities")
     if battleRules.critChance0 ~= nil then Rules.crit.CHANCE[0] = battleRules.critChance0 end
@@ -181,6 +175,10 @@ function M.emit(p,encode,out)
     if battleRules.screenTurns ~= nil then Capabilities.screenDefaultTurns = battleRules.screenTurns end
     if battleRules.safeguardTurns ~= nil then Capabilities.safeguardDefaultTurns = battleRules.safeguardTurns end
     if battleRules.mistTurns ~= nil then Capabilities.mistDefaultTurns = battleRules.mistTurns end
+    if battleRules.weatherChipDenom ~= nil then Capabilities.weatherChipDenom = battleRules.weatherChipDenom end
+    if battleRules.partialTrapChipDenom ~= nil then Capabilities.partialTrapChipDenom = battleRules.partialTrapChipDenom end
+    if battleRules.partialTrapMinTurns ~= nil then Capabilities.partialTrapMinTurns = battleRules.partialTrapMinTurns end
+    if battleRules.partialTrapMaxTurns ~= nil then Capabilities.partialTrapMaxTurns = battleRules.partialTrapMaxTurns end
     if battleRules.badgePercent ~= nil then
       require("src.core.game3.battle.damage").BADGE_PERCENT = battleRules.badgePercent
     end
