@@ -41,6 +41,12 @@ M.NAMES = {
 function M.label(S, id)
   if type(S) ~= "table" then id, S = S, nil end
   local n = tonumber(id)
+  -- Custom sprites imported into this mod show the name given at import.
+  local custom = n and S and S.project and S.project.gen3Assets
+    and S.project.gen3Assets["data/generated/gba/ow/" .. n .. ".rgba"]
+  if custom and custom.ow and custom.metaFile and custom.name then
+    return tostring(n) .. "  " .. custom.name .. " (custom)"
+  end
   local game = S and require("Generation").id(S)
   if n and game and game ~= "firered" and game ~= "leafgreen" then
     local name = require("Gen3Labels").constant(S, "event_objects", "OBJ_EVENT_GFX_", n)

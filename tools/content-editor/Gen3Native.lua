@@ -126,7 +126,11 @@ function M.emit(p,encode,out)
     assert(asset.indexFile==nil or (type(asset.indexFile)=="string" and asset.indexFile:match("^assets/") and not asset.indexFile:find("..",1,true)),"Invalid mod index map path")
     if asset.ow then
       local id=tonumber(path:match("^data/generated/gba/ow/(%d+)%.rgba$"))
-      assert(id and id<240,"Custom overworld sprites must use an ID below 240")
+      -- 240-255 are the game's script-controlled sprite slots; custom sprites
+      -- use free IDs below 240, then 256 and up (the exported runtime resolves
+      -- them before the game clamps unknown IDs).
+      assert(id and id%1==0 and id>=0 and id<=65535 and not (id>=240 and id<=255),
+        "Custom overworld sprites must use an ID of 0-239 or 256-65535")
       assert(type(asset.metaFile)=="string" and asset.metaFile:match("^assets/") and not asset.metaFile:find("..",1,true),"Invalid overworld metadata path")
       for _,key in ipairs({"width","height","frameCount"}) do
         local n=asset.ow[key]
