@@ -125,8 +125,18 @@ M.source=[=[
   end
   mod.hooks:wrap("editor.gen3.types.badge",function(proceed,id,x,y)
     local index=tonumber(id) or typeIds[id]
-    local rec=index and index>=18 and workbench.types[typeNames[index]]
+    local rec=index and workbench.types[typeNames[index]]
     if not rec then return proceed(id,x,y) end
+    if rec.image then
+      local ok,image=pcall(mod.assets.image,mod.assets,rec.image)
+      if ok and image then
+        love.graphics.push("all");love.graphics.setColor(1,1,1,1)
+        image:setFilter("nearest","nearest")
+        love.graphics.draw(image,x,y,0,32/image:getWidth(),12/image:getHeight())
+        love.graphics.pop();return
+      end
+    end
+    if index<18 then return proceed(id,x,y) end
     local Font=require("src.ui.game3.frlg_font");local label=(rec.name or typeNames[index]):upper()
     local width=Font.measure(label,{small=true});local scale=math.min(.75,28/math.max(1,width))
     love.graphics.push("all");love.graphics.setColor(.64,.35,.65,1);love.graphics.rectangle("fill",x,y,32,12,2,2)

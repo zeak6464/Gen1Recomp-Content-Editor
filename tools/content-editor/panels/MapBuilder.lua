@@ -1169,7 +1169,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
   local resolveSource = LayeredMap.sourceResolver(S)
   local pad = 8 * Kit.scale
   local vx, vy = x + pad, y + pad
-  local vw, vh = math.max(1, w - pad * 2), math.max(1, h - pad * 2)
+  local vw, vh = math.max(1, w - pad * 2 - 14 * Kit.scale), math.max(1, h - pad * 2 - 14 * Kit.scale)
   if S._builderDoFit or S.builderZoom == nil then
     S._builderDoFit = nil
     fitCanvas(S, source, vw, vh)
@@ -1183,6 +1183,34 @@ local function drawCanvas(S, source, x, y, w, h, App)
   end
   clampBuilderCam(S, source, vw, vh, zoom)
 
+  S._builderZoomViewport = {x=vx,y=vy,w=vw,h=vh}
+  local ex0,ey0,ex1,ey1=neighborExtents(S,source)
+  ex0,ey0,ex1,ey1=ex0-CELL*2,ey0-CELL*2,ex1+CELL*2,ey1+CELL*2
+  local function bar(axis,bx,by,length,low,high,visible,key)
+    local thickness=10*Kit.scale
+    local total=high-low
+    local value=S[key] or low
+    local extent=math.min(length,math.max(20*Kit.scale,length*visible/math.max(visible,total)))
+    local travel=length-extent
+    local range=math.max(0,total-visible)
+    local offset=range>0 and clamp((value-low)/range,0,1)*travel or 0
+    local bw,bh=axis=="x" and length or thickness,axis=="x" and thickness or length
+    if Kit.mouseClicked and Kit.hit(bx,by,bw,bh) and not Kit.blockClicks then
+      S._builderScrollDrag={axis=axis}
+    end
+    if S._builderScrollDrag and S._builderScrollDrag.axis==axis then
+      if love.mouse.isDown(1) and not Kit.blockClicks then
+        local pos=axis=="x" and Kit.mouseX-bx or Kit.mouseY-by
+        S[key]=low+(travel>0 and clamp((pos-extent/2)/travel,0,1) or 0)*range
+      else S._builderScrollDrag=nil end
+    end
+    love.graphics.setColor(.2,.24,.3,1)
+    love.graphics.rectangle("fill",bx,by,bw,bh,4,4)
+    love.graphics.setColor(.35,.6,.85,range>0 and .9 or .35)
+    love.graphics.rectangle("fill",bx+(axis=="x" and offset or 0),by+(axis=="y" and offset or 0),axis=="x" and extent or thickness,axis=="y" and extent or thickness,4,4)
+  end
+  bar("x",vx,vy+vh+3*Kit.scale,vw,ex0,ex1,vw/zoom,"builderCamX")
+  bar("y",vx+vw+3*Kit.scale,vy,vh,ey0,ey1,vh/zoom,"builderCamY")
   love.graphics.setScissor(math.floor(vx), math.floor(vy),
     math.ceil(vw), math.ceil(vh))
   love.graphics.push()
@@ -1378,7 +1406,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
     require("Gen3DayNightPanel").mapTimeBar(S, App, vx, vy, vw, vh, source.id)
   end
 
-  local over = Kit.hit(vx, vy, vw, vh) and not require("Gen3DayNightPanel").mapBarHit(S)
+  local over = Kit.hit(vx, vy, vw, vh) and not S._builderScrollDrag and not require("Gen3DayNightPanel").mapBarHit(S)
   S._builderViewHit = over
   S._builderSelectViewport = {x=vx,y=vy,w=vw,h=vh}
   local function mouseCell()
@@ -1446,6 +1474,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
     local ref, layerIndex = sourceAtCell(S, source, cx, cy)
     if ref then
       S.builderSourceId, S.builderTile = ref.source, ref.tile
+      S._builderRevealTile = ref.tile; S.builderPalette = "tiles"
       S.builderLayer = layerIndex
       clearStamp(S)
       if tool == "picker" then S.builderTool = "pencil" end
@@ -1565,6 +1594,7 @@ local function drawCanvas(S, source, x, y, w, h, App)
       local ref, layerIndex = sourceAtCell(S, source, cx, cy)
       if ref then
         S.builderSourceId, S.builderTile = ref.source, ref.tile
+        S._builderRevealTile = ref.tile; S.builderPalette = "tiles"
         S.builderLayer = layerIndex
         clearStamp(S)
         S.builderTool = "pencil"
@@ -2063,7 +2093,7 @@ local function drawTilePalette(S, source, x, y, w, h, App)
   local groups = (S.project and S.project.mapAssemblies) or {}
   local groupH = (S.builderPalette == "assembly" and #groups > 0)
     and 30 * Kit.scale or 0
-  local footerH = (S.builderSourceOptions and 118 or 34) * Kit.scale + groupH
+  local footerH = (S.builderSourceOptions and 146 or 34) * Kit.scale + groupH
   local gridH = math.max(20 * Kit.scale,
     h - (gridY - y) - footerH - 8 * Kit.scale)
   if not descriptor then
@@ -2096,6 +2126,15 @@ local function drawTilePalette(S, source, x, y, w, h, App)
   local offset = clamp(S[scrollKey] or 0, 0, math.max(0, scrollCount - perPage))
   offset = Kit.scroll(x + 8 * Kit.scale, gridY, w - 16 * Kit.scale, gridH,
     offset, scrollCount, perPage, columns, scrollKey)
+  if S._builderRevealTile ~= nil and not assembly then
+    local index=S._builderRevealTile
+    if uniqueTiles then
+      for i,tile in ipairs(uniqueTiles) do if tile==S._builderRevealTile then index=i-1;break end end
+    end
+    if index<offset or index>=offset+perPage then offset=clamp(math.floor(index/columns)*columns,0,math.max(0,scrollCount-perPage)) end
+    S._builderRevealTile=nil
+    if Kit._scrollState then Kit._scrollState[scrollKey]=nil end
+  end
   offset = math.floor(offset / columns) * columns
 
   local function stampHasTile(tile)
@@ -2195,6 +2234,17 @@ local function drawTilePalette(S, source, x, y, w, h, App)
     10 * Kit.scale, gridH, offset, scrollCount, perPage, scrollKey)
 
   local fy = y + h - footerH + 4 * Kit.scale
+  if S.builderSourceOptions then
+    if Kit.button(x+8*Kit.scale,fy,w-20*Kit.scale,24*Kit.scale,"Use selection as border",{tooltip="Use selected tiles, including imported PNG tiles, as the repeating map border"}) then
+      local map=S.project.maps[S.builderMapId]
+      if map then
+        if S.builderStamp and S.builderStamp.cells then LayeredMap.setBorderFromStamp(map,S.builderSourceId,S.builderStamp.cells)
+        else LayeredMap.setExplicitBorder(map,S.builderSourceId,S.builderTile) end
+        App.markDirty();S.status="Map border updated"
+      end
+    end
+    fy=fy+28*Kit.scale
+  end
   local bw = (w - 20 * Kit.scale) / 2
   local custom = descriptor and not descriptor.runtimeTileset
   if assembly and custom then
@@ -3644,6 +3694,12 @@ local function drawProperties(S, source, x, y, w, h, App)
       stepSize("h", 2)
     end
 
+    py=py+31*Kit.scale
+    local anchors={"top-left","top-right","bottom-left","bottom-right"}
+    local anchor=S.builderResizeAnchor or "top-left"
+    if Kit.button(px,py,innerW,25*Kit.scale,"Keep "..anchor,{tooltip="Choose the corner that stays fixed when resizing"}) then
+      for i,a in ipairs(anchors) do if a==anchor then S.builderResizeAnchor=anchors[i%#anchors+1];break end end
+    end
     local newWidth, newHeight = tonumber(draft.w), tonumber(draft.h)
     local whole = newWidth and newHeight
       and newWidth == math.floor(newWidth) and newHeight == math.floor(newHeight)
@@ -3654,16 +3710,22 @@ local function drawProperties(S, source, x, y, w, h, App)
     local shrinking = valid and (newWidth < source.cellWidth
       or newHeight < source.cellHeight)
     local cropped = 0
+    local fixed=S.builderResizeAnchor or "top-left"
+    local dx=valid and fixed:find("right") and newWidth-source.cellWidth or 0
+    local dy=valid and fixed:find("bottom") and newHeight-source.cellHeight or 0
+    local function outside(e)
+      return e.x+dx<0 or e.y+dy<0 or e.x+dx>=newWidth or e.y+dy>=newHeight
+    end
     if shrinking then
       for _, node in pairs(S.project.mapWarpNodes or {}) do
-        if node.map == source.id and (node.x >= newWidth or node.y >= newHeight) then
+        if node.map == source.id and outside(node) then
           cropped = cropped + 1
         end
       end
       local map = S.project.maps and S.project.maps[source.id]
       local function countCropped(list)
         for _, event in ipairs(list or {}) do
-          if event.x >= newWidth or event.y >= newHeight then cropped = cropped + 1 end
+          if outside(event) then cropped = cropped + 1 end
         end
       end
       if map then
@@ -3671,6 +3733,7 @@ local function drawProperties(S, source, x, y, w, h, App)
         countCropped(map.warps)
         countCropped(map.signs)
         countCropped(map.bgEvents)
+        countCropped(map.coordEvents)
       end
     end
     py = py + 33 * Kit.scale
@@ -3679,12 +3742,12 @@ local function drawProperties(S, source, x, y, w, h, App)
         px, py, PAL.red)
     elseif shrinking then
       local warning = cropped > 0
-        and string.format("Shrinking crops right/bottom and removes %d event(s).", cropped)
-        or "Shrinking crops terrain from the right and bottom."
+        and string.format("Shrinking crops terrain and removes %d event(s).", cropped)
+        or "Shrinking crops terrain opposite the fixed corner."
       Kit.text("micro", Kit.ellipsize("micro", warning, innerW),
         px, py, PAL.yellow)
     else
-      Kit.text("micro", "New space is added on the right and bottom.",
+      Kit.text("micro", "Fixed corner: "..(S.builderResizeAnchor or "top-left"),
         px, py, PAL.muted)
     end
     py = py + 20 * Kit.scale
@@ -3698,10 +3761,10 @@ local function drawProperties(S, source, x, y, w, h, App)
     if Kit.button(px + half + 4 * Kit.scale, py, half, 26 * Kit.scale,
         shrinking and "Resize & Crop" or "Apply Resize", {
           kind = shrinking and "danger" or "good", enabled = changed,
-          tooltip = "Resize from the top-left corner" }) then
+          tooltip = "Resize from the selected fixed corner" }) then
       App.beginEditBatch()
       local ok, result = LayeredMap.resizeMap(
-        S.project, source.id, newWidth, newHeight)
+        S.project, source.id, newWidth, newHeight, S.builderResizeAnchor)
       if ok then
         S.builderSelections = {}
         App.markDirty()
@@ -3832,8 +3895,15 @@ function MapBuilder.wheelmoved(S, dy, dx)
       S.builderCamX = (S.builderCamX or 0) + amount * 48
     end
   elseif dy ~= 0 then
-    S.builderZoom = clamp((S.builderZoom or 1) + (dy > 0 and 0.25 or -0.25),
-      0.25, 8)
+    local oldZoom=S.builderZoom or 1
+    local newZoom=clamp(oldZoom+(dy>0 and .25 or -.25),.25,8)
+    local view=S._builderZoomViewport
+    if view then
+      local mx,my=love.mouse.getPosition()
+      S.builderCamX=(S.builderCamX or 0)+(mx-view.x)*(1/oldZoom-1/newZoom)
+      S.builderCamY=(S.builderCamY or 0)+(my-view.y)*(1/oldZoom-1/newZoom)
+    end
+    S.builderZoom=newZoom
   end
   return dy ~= 0 or dx ~= 0
 end

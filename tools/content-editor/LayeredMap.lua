@@ -620,7 +620,7 @@ end
 
 -- Editable map operations
 
-function LayeredMap.resize(source, newWidth, newHeight)
+function LayeredMap.resize(source, newWidth, newHeight, anchor)
   if type(source) ~= "table" then return false, "no layered map" end
   local width = math.max(2, math.floor(tonumber(newWidth) or source.cellWidth))
   local height = math.max(2, math.floor(tonumber(newHeight) or source.cellHeight))
@@ -629,12 +629,18 @@ function LayeredMap.resize(source, newWidth, newHeight)
   end
   if width == source.cellWidth and height == source.cellHeight then return true end
   local oldWidth, oldHeight = source.cellWidth, source.cellHeight
+  local shiftX = anchor and anchor:find("right") and width-oldWidth or 0
+  local shiftY = anchor and anchor:find("bottom") and height-oldHeight or 0
+  local function oldIndex(x,y)
+    x,y=x-shiftX,y-shiftY
+    if x>=0 and y>=0 and x<oldWidth and y<oldHeight then return y*oldWidth+x+1 end
+  end
   for layerIndex, layer in ipairs(source.layers or {}) do
     local cells = {}
     for y = 0, height - 1 do
       for x = 0, width - 1 do
-        if x < oldWidth and y < oldHeight then
-          cells[y * width + x + 1] = layer.cells[y * oldWidth + x + 1]
+        if oldIndex(x,y) then
+          cells[y * width + x + 1] = layer.cells[oldIndex(x,y)]
         elseif layerIndex == 1 then
           cells[y * width + x + 1] = source.gen3Collision
             and {source=LayeredMap.runtimeSourceId(source.baseTileset),tile=0}
@@ -648,35 +654,48 @@ function LayeredMap.resize(source, newWidth, newHeight)
   for y = 0, height - 1 do
     for x = 0, width - 1 do
       collision[y * width + x + 1] =
-        (x < oldWidth and y < oldHeight)
-          and source.collision[y * oldWidth + x + 1] or "solid"
+        oldIndex(x,y)
+          and source.collision[oldIndex(x,y)] or "solid"
     end
   end
   for _,key in ipairs({"gen3Elevation","gen3Collision","gen3Behavior","gen3Bridges","visualHeights","visualShapes"}) do
     if source[key] then
       local values={}
       for y=0,height-1 do for x=0,width-1 do
-        if x<oldWidth and y<oldHeight then values[y*width+x+1]=source[key][y*oldWidth+x+1] end
+        if oldIndex(x,y) then values[y*width+x+1]=source[key][oldIndex(x,y)] end
       end end
       source[key]=values
     end
   end
+  for _,o in ipairs(source.visualObjects or {}) do o.x=o.x+shiftX;o.y=o.y+shiftY end
   require("MapObjects3D").resize(source,width,height)
   source.collision = collision
   source.cellWidth, source.cellHeight = width, height
   return true
 end
 
-function LayeredMap.resizeMap(project, mapId, newWidth, newHeight)
+function LayeredMap.resizeMap(project, mapId, newWidth, newHeight, anchor)
   ensureProject(project)
   local source = project.layeredMaps[mapId]
-  local ok, err = LayeredMap.resize(source, newWidth, newHeight)
+  local oldW,oldH=source and source.cellWidth,source and source.cellHeight
+  local ok, err = LayeredMap.resize(source, newWidth, newHeight, anchor)
   if not ok then return false, err end
+  local dx=anchor and anchor:find("right") and source.cellWidth-oldW or 0
+  local dy=anchor and anchor:find("bottom") and source.cellHeight-oldH or 0
+  local shifted={}
+  local function shift(e)
+    if not shifted[e] then e.x=e.x+dx;e.y=e.y+dy;shifted[e]=true end
+  end
+  for _,node in pairs(project.mapWarpNodes) do if node.map==mapId then shift(node) end end
+  local map=project.maps[mapId]
+  for _,key in ipairs({"objects","warps","signs","bgEvents","coordEvents"}) do
+    for _,e in ipairs(map and map[key] or {}) do shift(e) end
+  end
   local removed = 0
   local drop = {}
   for id, node in pairs(project.mapWarpNodes) do
     if node.map == mapId
-        and (node.x >= source.cellWidth or node.y >= source.cellHeight) then
+        and (node.x < 0 or node.y < 0 or node.x >= source.cellWidth or node.y >= source.cellHeight) then
       drop[#drop + 1] = id
     end
   end
@@ -690,7 +709,7 @@ function LayeredMap.resizeMap(project, mapId, newWidth, newHeight)
     local function trimEvents(list)
       for index = #(list or {}), 1, -1 do
         local event = list[index]
-        if event.x >= source.cellWidth or event.y >= source.cellHeight then
+        if event.x < 0 or event.y < 0 or event.x >= source.cellWidth or event.y >= source.cellHeight then
           table.remove(list, index)
           removed = removed + 1
         end
@@ -700,6 +719,7 @@ function LayeredMap.resizeMap(project, mapId, newWidth, newHeight)
     trimEvents(map.warps)
     trimEvents(map.signs)
     trimEvents(map.bgEvents)
+    trimEvents(map.coordEvents)
   end
   return true, removed
 end

@@ -303,6 +303,26 @@ function Types.draw(S, x, y, w, h, App)
       rec.name = v
     end
   end)
+  row("Artwork PNG", function(fx, fy_, fw, fh_)
+    local Preview=require("Preview")
+    local image=rec.image and Preview.image(S,rec.image)
+    if image then
+      love.graphics.setColor(1,1,1,1)
+      love.graphics.draw(image,fx,fy_,0,64*s/image:getWidth(),24*s/image:getHeight())
+    else Kit.text("micro","No artwork",fx,fy_+6*s,PAL.muted) end
+    if Kit.button(fx+fw-170*s,fy_,96*s,fh_,"Import PNG",{kind="ghost"}) then
+      local typeId=id
+      App.pickFile("Type artwork PNG","PNG (*.png)|*.png",function(picked)
+        if not picked then return end
+        App.importToMod(picked,nil,function(rel)
+          local r=ensureType(S,typeId,App);r.image=rel;App.markDirty()
+        end)
+      end)
+    end
+    if rec.image and Kit.button(fx+fw-70*s,fy_,70*s,fh_,"Clear",{kind="ghost"}) then
+      rec=ensureType(S,id,App);rec.image=nil;App.markDirty()
+    end
+  end)
   row("Category", function(fx, fy_, fw, fh_)
     local cur = rec.category or "special"
     if Kit.chip(fx, fy_, 120 * s, fh_, cur:upper(), true, PAL.blue) then

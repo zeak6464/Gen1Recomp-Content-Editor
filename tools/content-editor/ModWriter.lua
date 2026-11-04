@@ -2804,6 +2804,7 @@ function ModWriter.emitMain(project, baseData, derivedModId)
       category = raw.category or "special",
     }
     if raw.index ~= nil then rec.index = raw.index end
+    if raw.image then rec.image = raw.image end
     local verb = emitVerb(raw)
     if verb == "register" and baseTypeTbl[tid] then
       verb = "override"

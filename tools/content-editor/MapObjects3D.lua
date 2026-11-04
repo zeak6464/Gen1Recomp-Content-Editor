@@ -200,7 +200,7 @@ function M.resize(source,width,height)
   local objects={}
   for _,object in ipairs(source.visualObjects or {}) do
     -- Remove cut-off models instead of silently moving or distorting them.
-    if object.x+object.width<=width and object.y+object.height<=height then objects[#objects+1]=object end
+    if object.x>=0 and object.y>=0 and object.x+object.width<=width and object.y+object.height<=height then objects[#objects+1]=object end
   end
   if source.visualObjects then source.visualObjects=objects end
 end
