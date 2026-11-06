@@ -19,6 +19,7 @@ function M.draw(S,x,y,w,h,App)
   if S.g3EncounterSection=="roamers" then return require("Gen3Roamers").draw(S,x,y,w,h,App) end
   local ids=List.mergeIds(S.project.encounters,S.data.encounters)
   local labels=require("Gen3Labels")
+  local DN0=require("Gen3DayNight") -- edited tables (all-day or time lists) show bright in the list
   local preferred=labels.preferredEncounterIds(S.project.encounters,S.data.encounters)
   local unique={}
   for _,id in ipairs(ids) do if preferred[labels.map(id)]==id or S.project.encounters[id] then unique[#unique+1]=id end end
@@ -27,7 +28,8 @@ function M.draw(S,x,y,w,h,App)
   table.sort(ids,function(a,b) return labels.natural(labels.map(a)..a,labels.map(b)..b) end)
   S.g3EncounterId=S.g3EncounterId or ids[1]
   local fx,fw=List.drawList(S,App,x,y,w,h,"WILD ENCOUNTERS",ids,
-    {selKey="g3EncounterId",queryKey="encounterQuery",offsetKey="encounterOffset",label=labels.map})
+    {selKey="g3EncounterId",queryKey="encounterQuery",offsetKey="encounterOffset",label=labels.map,
+    isOwned=function(id) return S.project.encounters[id]~=nil or DN0.hasTimeLists(S.project,id,"land") or DN0.hasTimeLists(S.project,id,"water") or DN0.hasTimeLists(S.project,id,"rocks") or DN0.hasTimeLists(S.project,id,"fishing") end})
   local id=S.g3EncounterId
   local rec=id and (S.project.encounters[id] or S.data.encounters[id])
   if not rec then Kit.caption(fx,y,"Select an encounter table");return end

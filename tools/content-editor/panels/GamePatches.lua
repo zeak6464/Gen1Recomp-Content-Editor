@@ -365,7 +365,7 @@ M.PATCHES = {
       open = function(S) S.tab, S.g3GfxMode = "gfx", "daynight" end },
     subs = {
       {
-        id = "encounters", kanto = true, title = "Encounter tables", subtitle = "Pre-configured Day/ night encounters that can be edited",
+        id = "encounters", kanto = true, title = "Encounter tables", subtitle = "Pre-configured day / night encounters that can be edited; tables you've already edited are left alone",
         isOn = function(S) return dayNight().encountersEnabled(S.project) end,
         setOn = function(S, on)
           if on and not dayNight().enabled(S.project) then
@@ -376,7 +376,7 @@ M.PATCHES = {
           if changed then dayNight().syncCrystalPopulation(S) end
           return changed
         end,
-        status = { on = "Encounter tables on: Crystal's lists filled in, ready to edit",
+        status = { on = "Encounter tables on: Crystal's lists filled in (your edited tables kept), ready to edit",
           off = "Encounter tables off: Crystal's lists taken back out, all-day lists used" },
       },
     },

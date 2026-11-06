@@ -811,6 +811,20 @@ function M.crystalArea(slots, rate)
   return area
 end
 
+function M.projectHasTable(project, targetId)
+  local tbl = (project or {}).encounters
+  if type(tbl) ~= "table" then return false end
+  if tbl[targetId] then return true end
+  local labels = require("Gen3Labels")
+  local ok, name = pcall(labels.map, targetId)
+  if not ok then return false end
+  for id in pairs(tbl) do
+    local ok2, other = pcall(labels.map, id)
+    if ok2 and other == name then return true end
+  end
+  return false
+end
+
 --- Where Crystal's lists go: FireRed's own tables, { {crystal=, id=}, ... },
 -- sorted. Maps added in a mod are never touched.
 function M.crystalTargets(project)
@@ -831,8 +845,9 @@ function M.compileCrystal(project)
   for _, e in ipairs(M.crystalTargets(project)) do
     local m = C.maps[e.crystal]
     -- only tables the editor hasn't filled in yet (older projects); filled
-    -- ones have them as their own lists, cleared ones use the all-day list
-    if crystalMark(project, e.id) == nil then
+    -- ones have them as their own lists, cleared ones use the all-day list,
+    -- and a table the project has its own record for is yours
+    if crystalMark(project, e.id) == nil and not M.projectHasTable(project, e.id) then
       out[e.id] = {}
       for _, period in ipairs(Core.PERIODS) do
         out[e.id][period] = { land = M.crystalArea(m[period], nil) }
@@ -880,17 +895,49 @@ function M.shownTableId(S, targetId)
   return shown or targetId
 end
 
+local function sameArea(a, b)
+  if not a or not b or #a.slots ~= #b.slots then return false end
+  if (tonumber(a.rate) or 0) ~= (tonumber(b.rate) or 0) then return false end
+  for i, x in ipairs(a.slots) do
+    local y = b.slots[i]
+    if x.species ~= y.species or x.minLevel ~= y.minLevel or x.maxLevel ~= y.maxLevel then return false end
+  end
+  return true
+end
+
+--- Has the project changed this table's all-day land list from the game's
+-- own (edited it, or taken it away)? Such a table is yours: Encounter
+-- tables never puts Crystal's lists over it.
+function M.userEditedLand(S, id)
+  local proj = ((S.project or {}).encounters or {})[id]
+  if type(proj) ~= "table" then return false end
+  local base = ((S.data or {}).encounters or {})[id]
+  local pl = proj.land or proj.grass
+  local bl = base and (base.land or base.grass)
+  if pl == nil then return bl ~= nil end
+  if bl == nil then return true end
+  return not sameArea(copyArea(pl), copyArea(bl))
+end
+
 --- Give Crystal's morning / day / night lists to FireRed's own tables that
 -- don't have lists of their own yet -- as that table's own lists, the same
 -- as if you'd made them yourself; no separate step to make them "yours".
 -- They go on the id the Encounters list shows. Needs S (each table's rate
--- comes from the game's data). Returns how many tables were filled in.
+-- comes from the game's data). A table whose all-day list you've edited is
+-- left alone (marked cleared, so it stays on your list; "Give morning, day
+-- and night their own lists" still works by hand). Returns how many tables
+-- were filled in.
 function M.populateCrystal(S)
   local n = 0
   for _, e in ipairs(M.crystalTargets(S.project)) do
-    if crystalMark(S.project, e.id) == nil then
-      local id = M.shownTableId(S, e.id)
-      if not M.hasTimeLists(S.project, id, "land") then
+    local mark = crystalMark(S.project, e.id)
+    local id = M.shownTableId(S, e.id)
+    if mark == nil then
+      if M.userEditedLand(S, id) then
+        local d = own(S.project)
+        d.crystalFilled = d.crystalFilled or {}
+        d.crystalFilled[e.id] = { id = id, cleared = true, yours = true }
+      elseif not M.hasTimeLists(S.project, id, "land") then
         local _, lists = M.crystalFor(S, id)
         if lists then
           for _, period in ipairs(Core.PERIODS) do M.setTimeArea(S.project, id, period, "land", lists[period]) end
@@ -900,19 +947,26 @@ function M.populateCrystal(S)
           n = n + 1
         end
       end
+    elseif not mark.cleared and M.userEditedLand(S, mark.id) then
+      -- Repair for projects filled in before this check existed: the table
+      -- had a list of its own, and Crystal's lists went over it. Where the
+      -- time lists are still exactly Crystal's, take them back out so the
+      -- table shows (and the game uses) your list again.
+      local _, lists = M.crystalFor(S, mark.id)
+      local untouched = lists ~= nil
+      for _, period in ipairs(Core.PERIODS) do
+        local t = M.timeArea(S.project, mark.id, period, "land")
+        if untouched and not sameArea(t, lists[period]) then untouched = false end
+      end
+      if untouched then
+        M.clearTimeLists(S.project, mark.id, "land")
+        mark.cleared, mark.yours = true, true
+        n = n + 1
+      end
     end
   end
   tidy(S.project)
   return n
-end
-
-local function sameArea(a, b)
-  if not a or not b or #a.slots ~= #b.slots then return false end
-  for i, x in ipairs(a.slots) do
-    local y = b.slots[i]
-    if x.species ~= y.species or x.minLevel ~= y.minLevel or x.maxLevel ~= y.maxLevel then return false end
-  end
-  return true
 end
 
 --- Take Crystal's lists back out of the tables M.populateCrystal filled in,
