@@ -20,10 +20,16 @@ function M.draw(S,x,y,w,h,App)
   local ids=List.mergeIds(S.project.encounters,S.data.encounters)
   local labels=require("Gen3Labels")
   local DN0=require("Gen3DayNight") -- edited tables (all-day or time lists) show bright in the list
+  -- one row per map (ROUTE1 / ROUTE_1 / FR_ROUTE_1 / "3:19" are one table);
+  -- a project with two records for one map gets them merged first
+  if labels.mergeDuplicateEncounters(S.project,S.data.encounters)>0 then
+    App.markDirty();ids=List.mergeIds(S.project.encounters,S.data.encounters)
+  end
   local preferred=labels.preferredEncounterIds(S.project.encounters,S.data.encounters)
+  local function key(id) return labels.encounterKey(id,S.project.encounters,S.data.encounters) end
   local unique={}
-  for _,id in ipairs(ids) do if preferred[labels.map(id)]==id or S.project.encounters[id] then unique[#unique+1]=id end end
-  if S.g3EncounterId and not S.project.encounters[S.g3EncounterId] then S.g3EncounterId=preferred[labels.map(S.g3EncounterId)] end
+  for _,id in ipairs(ids) do if preferred[key(id)]==id then unique[#unique+1]=id end end
+  if S.g3EncounterId and preferred[key(S.g3EncounterId)]~=S.g3EncounterId then S.g3EncounterId=preferred[key(S.g3EncounterId)] end
   ids=unique
   table.sort(ids,function(a,b) return labels.natural(labels.map(a)..a,labels.map(b)..b) end)
   S.g3EncounterId=S.g3EncounterId or ids[1]
