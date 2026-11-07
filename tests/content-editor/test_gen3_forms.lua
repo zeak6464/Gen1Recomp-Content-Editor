@@ -118,4 +118,22 @@ return function(data,root,mount)
   S.g3FormSelection={CASTFORM=3};Forms.draw(S,data.pokemon.CASTFORM,20,20,1320,{markDirty=function() end})
   K.endFrame();love.graphics.setCanvas();assert(IO.writeText(root.."/tests/content-editor/gen3-smoke/forms-editor.png",canvas:newImageData():encode("png"):getString()))
   require("src.mods.Runtime").reset();local ordinary={species=25,level=50};P.applyStats(ordinary);assert(ordinary.species==25)
+  -- Save strips data/generated sprite paths. A form still has to show and export the parent's art.
+  local graveler=assert(data.pokemon.GRAVELER,"Graveler missing from cache")
+  local owned=require("src.mods.Merge").deepCopy(graveler)
+  owned.spriteFront,owned.spriteBack=nil,nil
+  S.project.pokemon.GRAVELER=owned
+  local _,form=Forms.add(S,"GRAVELER","Alolan")
+  assert(form.spriteSource==graveler.index,"Graveler form lost the sprite source")
+  form.spriteFront,form.spriteBack=nil,nil
+  local shown=Forms.spritePath(form,false,false,S)
+  assert(type(shown)=="string" and shown:find("/"..form.spriteSource..".rgba",1,true),"Graveler form sprite has no path: "..tostring(shown))
+  local parentShown=Forms.spritePath(owned,false,false,S)
+  assert(type(parentShown)=="string" and parentShown:find("/75.rgba",1,true),"Graveler sprite has no path: "..tostring(parentShown))
+  local probe=require("src.mods.Merge").deepCopy(S.project)
+  local ok,err=pcall(function() require("Gen3").emit(probe,require("ModWriter").encodeLua) end)
+  assert(ok,err)
+  local exported=probe.gen3.pokemon[form.id]
+  assert(exported and exported.spriteFront and exported.spriteFront:find("/"..form.spriteSource..".rgba",1,true),"Save dropped the Graveler form sprite")
+  assert(exported.spriteBack and exported.spriteBack:find("/back/"..form.spriteSource..".rgba",1,true),"Save dropped the Graveler form back sprite")
 end

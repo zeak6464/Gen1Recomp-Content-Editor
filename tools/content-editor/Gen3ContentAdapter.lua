@@ -57,6 +57,7 @@ function M.compile(p)
         local value={}
         for key in pairs(Schemas.REGISTRIES[name].gen3Fields) do value[key]=copy(rec[key]) end
         require("Gen3Types").compileRecord(p,name,value)
+        if name=="pokemon" then require("Gen3Forms").fillSprites(value,rec,p) end
         records[id]=value;modes[id]=rec._isNew and "register" or "patch";exact[id]=true
         end
       end

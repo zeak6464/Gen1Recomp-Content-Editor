@@ -91,6 +91,43 @@ function M.encounterSpecies(S,parent,choice)
   end
   return row.species
 end
+-- Species number whose original pictures this record still uses.
+-- Save drops data/generated paths, so the number has to outlive them.
+local function artIndex(rec,project,seen)
+  if type(rec)~="table" then return end
+  local marked=tonumber(rec.spriteSource)
+  if marked and marked>=1 and marked<=439 then return marked end
+  for _,key in ipairs({"spriteFront","spriteBack"}) do
+    local n=type(rec[key])=="string" and tonumber(rec[key]:match("/pokemon/[^/]+/(%d+)%.rgba$"))
+    if n and n<=439 then return n end
+  end
+  if project and rec.id then
+    seen=seen or {}
+    if seen[rec.id] then return end
+    seen[rec.id]=true
+    for parent,family in pairs(project.gen3Forms or {}) do
+      for _,row in ipairs(family.forms or {}) do
+        if row.species==rec.id and parent~=rec.id then
+          local base=project.pokemon and project.pokemon[parent]
+          local from=base and artIndex(base,project,seen)
+          if from then return from end
+        end
+      end
+    end
+  end
+  local index=tonumber(rec.index)
+  if index and index>=1 and index<=439 then return index end
+end
+function M.fillSprites(value,rec,project)
+  local source=artIndex(rec,project)
+  if not source then return end
+  if type(value.spriteFront)~="string" or value.spriteFront=="" then
+    value.spriteFront=("data/generated/gba/pokemon/front/%d.rgba"):format(source)
+  end
+  if type(value.spriteBack)~="string" or value.spriteBack=="" then
+    value.spriteBack=("data/generated/gba/pokemon/back/%d.rgba"):format(source)
+  end
+end
 function M.add(S,parent,name)
   local family=M.ensure(S,parent)
   local base=assert(S.project.pokemon[parent] or S.data.pokemon[parent])
@@ -100,6 +137,7 @@ function M.add(S,parent,name)
   local index=439;for _,bag in ipairs({S.data.pokemon,S.project.pokemon}) do for _,rec in pairs(bag) do index=math.max(index,rec.index or 0) end end
   assert(index<require("Gen3SpeciesCapacity").limit,"No free species slots remain")
   local rec=copy(base);rec.id=id;rec.index=index+1;rec._isNew=true;rec.name=base.name;rec.trueColor=true
+  rec.spriteSource=artIndex(base)
   rec.spriteShinyFront=M.spritePath(base,false,true);rec.spriteShinyBack=M.spritePath(base,true,true)
   rec.letters=nil;rec.forms=nil;S.project.pokemon[id]=rec
   local row={name=name or "New form",species=id};family.forms[#family.forms+1]=row
@@ -129,8 +167,16 @@ function M.spritePath(rec,back,shiny,S)
     end
     local normal=rec["sprite"..side] or ""
     local source=normal:match("/pokemon/[^/]+/(%d+)%.rgba$")
-    source=tonumber(source) or (tonumber(rec.index) and rec.index<=439 and rec.index)
+    source=tonumber(source) or (tonumber(rec.spriteSource) and rec.spriteSource<=439 and tonumber(rec.spriteSource)) or (tonumber(rec.index) and rec.index<=439 and rec.index)
     if source then return "gen3-shiny/"..side:lower().."/"..source end
+  end
+  local source=artIndex(rec,S and S.project)
+  if not source and S and S.data and S.data.pokemon and rec.id and S.data.pokemon[rec.id]~=rec then
+    return M.spritePath(S.data.pokemon[rec.id],back,shiny)
+  end
+  if source then
+    if shiny then return "gen3-shiny/"..side:lower().."/"..source end
+    return ("data/generated/gba/pokemon/%s/%d.rgba"):format(side:lower(),source)
   end
 end
 local function writePictures(S,rec,species,frame,palette)

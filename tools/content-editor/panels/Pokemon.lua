@@ -406,6 +406,11 @@ local function monSpritePath(S, mon, field)
   local vanilla = id and S.data and S.data.pokemon and S.data.pokemon[id]
   local vp = vanilla and vanilla[field]
   if type(vp) == "string" and vp ~= "" then return vp end
+  if Generation.isGen3(S) then
+    local shiny = field == "spriteShinyFront" or field == "spriteShinyBack"
+    local back = field == "spriteBack" or field == "spriteShinyBack"
+    return require("Gen3Forms").spritePath(mon, back, shiny, S)
+  end
   return nil
 end
 
