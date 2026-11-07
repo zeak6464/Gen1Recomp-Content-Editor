@@ -815,12 +815,16 @@ function M.projectHasTable(project, targetId)
   local tbl = (project or {}).encounters
   if type(tbl) ~= "table" then return false end
   if tbl[targetId] then return true end
+  -- by name with spaces taken out: ROUTE19 and ROUTE_19 are one map
   local labels = require("Gen3Labels")
-  local ok, name = pcall(labels.map, targetId)
-  if not ok then return false end
+  local function norm(id)
+    local ok, name = pcall(labels.map, id)
+    return ok and (tostring(name):gsub(" ", "")) or nil
+  end
+  local name = norm(targetId)
+  if not name then return false end
   for id in pairs(tbl) do
-    local ok2, other = pcall(labels.map, id)
-    if ok2 and other == name then return true end
+    if norm(id) == name then return true end
   end
   return false
 end
@@ -890,9 +894,9 @@ end
 --- The id the Encounters list shows for one of Crystal's FireRed tables.
 function M.shownTableId(S, targetId)
   local labels = require("Gen3Labels")
-  local ok, name = pcall(labels.map, targetId)
-  local shown = ok and labels.preferredEncounterIds((S.project or {}).encounters, (S.data or {}).encounters)[name]
-  return shown or targetId
+  local proj, data = (S.project or {}).encounters, (S.data or {}).encounters
+  local key = labels.encounterKey(targetId, proj, data)
+  return labels.preferredEncounterIds(proj, data)[key] or targetId
 end
 
 local function sameArea(a, b)
