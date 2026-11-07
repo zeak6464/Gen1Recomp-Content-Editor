@@ -757,6 +757,7 @@ function M.draw(S, x, y, w, h, App)
     local game = require("Generation").id(S)
     if DN.setEnabled(S.project, on, game == "firered" or game == "leafgreen") then
       App.markDirty()
+      DN.syncCrystalPopulation(S) -- Encounter tables follow the clock (GAME PATCHES)
       local added = #DN.paintedBlocks(S.project) - before
       if added > 0 then S.status = ("Day and night on -- %d blocks start with the default night look"):format(added) end
     end
