@@ -1324,14 +1324,19 @@ function LayeredMap.bakeTileSource(S, source, imageData)
       or LayeredMap.isRuntimeSource(source.id) then
     return nil, "tile source has no image"
   end
+  local loadedHere = false
   if not imageData then
     local ok, loaded = pcall(readImageData, S, source.image)
     if not ok then return nil, loaded end
     imageData = loaded
+    loadedHere = true
   end
   local file = TilePixels.idFor(source.image) and source.imageFile or source.image
   source.pixels = TilePixels.encode(imageData, source.columns, source.count,
     source.tileWidth, source.tileHeight)
+  if loadedHere and imageData and imageData.release then
+    pcall(imageData.release, imageData)
+  end
   source.imageFile = file
   source.image = TilePixels.path(source.id)
   source._uniqueSig, source._uniqueTiles = nil, nil

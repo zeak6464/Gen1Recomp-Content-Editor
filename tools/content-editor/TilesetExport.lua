@@ -49,9 +49,15 @@ local function sourceBytes(S, source)
   end
   -- Baked into the project (TilePixels): write the pixels out as a PNG.
   if source.pixels and require("TilePixels").idFor(source.image) then
+    local data
     local ok, bytes = pcall(function()
-      return require("TilePixels").imageData(source.pixels):encode("png"):getString()
+      data = require("TilePixels").imageData(source.pixels)
+      local fileData = data:encode("png")
+      local text = fileData:getString()
+      if fileData.release then fileData:release() end
+      return text
     end)
+    if data and data.release then pcall(data.release, data) end
     if ok then return bytes end
     return nil, "could not encode " .. tostring(source.id) .. ": " .. tostring(bytes)
   end

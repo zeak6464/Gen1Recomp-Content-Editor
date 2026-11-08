@@ -183,11 +183,16 @@ local function loadImageData(S, path)
   return ok and data or nil
 end
 
+local function releaseObj(obj)
+  if obj and obj.release then pcall(obj.release, obj) end
+end
+
 local function writePng(imageData, path)
   if not (imageData and imageData.encode) then return false, "no encode" end
   local ok, fileData = pcall(imageData.encode, imageData, "png")
   if not (ok and fileData) then return false, fileData end
   local bytes = fileData.getString and fileData:getString() or tostring(fileData)
+  releaseObj(fileData)
   return ModIO.writeText(path, bytes)
 end
 
@@ -261,6 +266,7 @@ local function buildBlockAtlas(S, map, tileset)
   local sheet = loadImageData(S, tileset and tileset.image)
   local blocks = tileset and tileset.blocks
   if not (sheet and type(blocks) == "table" and #blocks > 0) then
+    releaseObj(sheet)
     return nil
   end
   local n = #blocks
@@ -272,6 +278,7 @@ local function buildBlockAtlas(S, map, tileset)
     blitBlock(atlas, sheet, tileset, blocks[bi + 1],
       (bi % cols) * 32, math.floor(bi / cols) * 32, palFn)
   end
+  releaseObj(sheet)
   return atlas, n, cols, cols * 32, rows * 32
 end
 
@@ -280,6 +287,7 @@ local function buildCellAtlas(S, map, tileset)
   local sheet = loadImageData(S, tileset and tileset.image)
   local blocks = tileset and tileset.blocks
   if not (sheet and type(blocks) == "table" and #blocks > 0) then
+    releaseObj(sheet)
     return nil
   end
   local n = #blocks * 4
@@ -291,6 +299,7 @@ local function buildCellAtlas(S, map, tileset)
     blitCell(atlas, sheet, tileset, tile,
       (tile % cols) * 16, math.floor(tile / cols) * 16, palFn)
   end
+  releaseObj(sheet)
   return atlas, n, cols, cols * 16, rows * 16
 end
 
@@ -391,8 +400,12 @@ function TmxIO.exportMap(S, mapId, folder)
     return false, "could not build tileset PNG for " .. tostring(tsName)
       .. " (missing " .. tostring(tileset.image or "tileset image") .. ")"
   end
+  local function fail(err)
+    releaseObj(atlas)
+    return false, err
+  end
   local okPng, pngErr = writePng(atlas, join(folder, pngName))
-  if not okPng then return false, pngErr end
+  if not okPng then return fail(pngErr) end
 
   local map = payload.map
   local objects, nextId = {}, 1
@@ -464,6 +477,7 @@ function TmxIO.exportMap(S, mapId, folder)
 
   local dest = join(folder, payload.id .. ".tmx")
   local ok, writeErr = ModIO.writeText(dest, table.concat(tmx, "\n") .. "\n")
+  releaseObj(atlas)
   if not ok then return false, writeErr end
   return true, dest
 end

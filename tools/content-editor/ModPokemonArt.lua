@@ -10,10 +10,20 @@ local function decode(path)
   return require("Gen3Decode").decode(bytes,{allowComments=true,allowArray=true,
     maxBytes=8*1024*1024,maxNodes=200000,maxTableEntries=100000})
 end
+local function releaseArt(c)
+  if type(c) ~= "table" then return end
+  for _, img in pairs(c.frames or {}) do
+    if img and img.release then pcall(img.release, img) end
+  end
+  for _, data in pairs(c.sheets or {}) do
+    if data and data.release then pcall(data.release, data) end
+  end
+end
 local function state(S)
   if not (S and S.path and S.data) then return end
   local c=S.data._modPokemonArt
   if c and c.path==S.path and c.revision==revision then return c end
+  releaseArt(c)
   c={path=S.path,revision=revision,packs={},sheets={},frames={}}
   S.data._modPokemonArt=c
   local roots={S.path}
@@ -51,7 +61,10 @@ local function sheet(c,path)
   if c.sheets[path]==nil then
     local bytes=read(path)
     local ok,data=pcall(function()
-      return love.image.newImageData(love.filesystem.newFileData(assert(bytes),"sprite.png"))
+      local fd=love.filesystem.newFileData(assert(bytes),"sprite.png")
+      local id=love.image.newImageData(fd)
+      if fd.release then fd:release() end
+      return id
     end)
     c.sheets[path]=ok and data or false
   end
@@ -65,6 +78,7 @@ local function frame(c,path,x,y,size)
   local pixels=love.image.newImageData(size,size)
   pixels:paste(data,0,0,x,y,size,size)
   local image=love.graphics.newImage(pixels)
+  if pixels.release then pixels:release() end
   image:setFilter("nearest","nearest");c.frames[key]=image
   return image
 end

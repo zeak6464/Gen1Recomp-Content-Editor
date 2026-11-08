@@ -790,6 +790,15 @@ function App.save()
     say("No mod open")
     return false
   end
+  -- Compile rewrites tilesets and can mark the project dirty. Keep that off
+  -- the undo stack; History.endFrame clears this and refreshes the baseline.
+  S._suppressHistory = true
+  local function finish(ok)
+    -- Strong keys here pin every tileset table compile just replaced.
+    S._liveTilesets = nil
+    collectgarbage("collect")
+    return ok
+  end
   -- Layered maps are editor source. Compile them into normal map and tileset
   -- records before ModWriter serializes the portable mod.
   local okLayered, layeredResult, layeredErr = pcall(function()
@@ -797,11 +806,11 @@ function App.save()
   end)
   if not okLayered then
     say("Save failed: " .. tostring(layeredResult))
-    return false
+    return finish(false)
   end
   if layeredResult == false then
     say("Save failed: " .. tostring(layeredErr))
-    return false
+    return finish(false)
   end
 
   -- Custom maps/tilesets must keep _isNew so Save emits :register (MK103).
@@ -849,7 +858,7 @@ function App.save()
     base._vanillaTilesetIds = S._vanillaTilesetIds
   end
   if S.manifestDirty then
-    if not Manifest.save(S, App) then return false end
+    if not Manifest.save(S, App) then return finish(false) end
   end
   ModIO._emitBaseData = base
   local ok, err = ModIO.save(S.path, S.project)
@@ -862,7 +871,7 @@ function App.save()
       pcall(LayeredMap.removeUnusedMapImages, S))
     if cleanup then
       say("Saved " .. S.path .. " — " .. cleanup)
-      return true
+      return finish(true)
     end
     if err == "kept-main" then
       say("Saved " .. S.path
@@ -870,10 +879,10 @@ function App.save()
     else
       say("Saved " .. S.path .. " (<mod>.editor_project.lua beside the mod folder + main.lua)")
     end
-    return true
+    return finish(true)
   else
     say("Save failed: " .. tostring(err))
-    return false
+    return finish(false)
   end
 end
 

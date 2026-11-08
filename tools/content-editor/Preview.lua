@@ -7,6 +7,20 @@ local PAL = Theme.PAL
 local Preview = {}
 
 local cache = {}  -- key -> Image | false
+-- Images this module created. Assets.image results stay in Assets' cache.
+local owned = {}
+-- Fallback images for paths Assets.image could not open. Not Assets-owned.
+local assetFallbackCache = {}
+
+local function releaseObj(obj)
+  if obj and obj ~= false and obj.release then pcall(obj.release, obj) end
+end
+
+local function storeImage(key, img, mine)
+  cache[key] = img or false
+  if mine and img and img ~= false then owned[key] = true else owned[key] = nil end
+  return img
+end
 -- Reject huge user-picked imports so decode cannot freeze the LOVE window.
 -- Generated mapbuilder atlases from a TMX folder can be larger than this.
 local MAX_PREVIEW_BYTES = 8 * 1024 * 1024  -- 8 MiB
@@ -61,6 +75,7 @@ local function loadFromDisk(absPath, maxBytes)
     return nil, "FileData failed: " .. tostring(fileData)
   end
   local ok2, img = pcall(love.graphics.newImage, fileData)
+  releaseObj(fileData)
   if ok2 and img then return img end
   return nil, "decode failed: " .. tostring(img)
 end
@@ -150,6 +165,7 @@ local function imageFromCacheBytes(path)
   local okFd, fileData = pcall(love.filesystem.newFileData, bytes, name)
   if not (okFd and fileData) then return nil end
   local okImg, img = pcall(love.graphics.newImage, fileData)
+  releaseObj(fileData)
   return okImg and img or nil
 end
 
@@ -163,13 +179,12 @@ function Preview.installAssetCacheFallback()
   if not (ok and Assets and type(Assets.image) == "function") then return end
   assetsWrapped = true
   local origImage, origData = Assets.image, Assets.imageData
-  local imgCache = {}
   function Assets.image(path)
     local okI, img = pcall(origImage, path)
     if okI and img then return img end
-    if imgCache[path] ~= nil then return imgCache[path] end
+    if assetFallbackCache[path] ~= nil then return assetFallbackCache[path] end
     local loaded = imageFromCacheBytes(path)
-    imgCache[path] = loaded
+    assetFallbackCache[path] = loaded
     if loaded then return loaded end
     if not okI then error(img) end
     return img
@@ -186,6 +201,7 @@ function Preview.installAssetCacheFallback()
           local okFd, fd = pcall(love.filesystem.newFileData, bytes, name)
           if okFd and fd then
             local okId, id = pcall(love.image.newImageData, fd)
+            releaseObj(fd)
             if okId then return id end
           end
         end
@@ -224,9 +240,16 @@ function Preview.image(S, path)
     if type(pixels) ~= "table" then return nil end
     local img = pixelImages[pixels]
     if img == nil then
+      img = false
       local ok, data = pcall(require("TilePixels").imageData, pixels)
-      img = ok and love.graphics.newImage(data) or false
-      if img then img:setFilter("nearest", "nearest") end
+      if ok and data then
+        local okImg, made = pcall(love.graphics.newImage, data)
+        releaseObj(data)
+        if okImg and made then
+          made:setFilter("nearest", "nearest")
+          img = made
+        end
+      end
       pixelImages[pixels] = img
     end
     return img or nil
@@ -237,8 +260,10 @@ function Preview.image(S, path)
     if cache[key] then return cache[key] end
     local bytes=override and require("ModIO").readText(S.path.."/"..override.file) or S.data._gen3Read(path)
     if bytes and #bytes==64*64*4 then
-      local img=love.graphics.newImage(love.image.newImageData(64,64,"rgba8",bytes))
-      img:setFilter("nearest","nearest");cache[key]=img;return img
+      local pixels = love.image.newImageData(64, 64, "rgba8", bytes)
+      local img=love.graphics.newImage(pixels)
+      releaseObj(pixels)
+      img:setFilter("nearest","nearest");storeImage(key, img, true);return img
     end
   end
   local key = cacheKey(S, path)
@@ -250,7 +275,7 @@ function Preview.image(S, path)
     cache[key] = false
     return nil
   end
-  local img
+  local img, mine = nil, false
   if kind == "love" then
     local ok, Assets = pcall(require, "src.render.Assets")
     if ok and Assets and Assets.image then
@@ -259,26 +284,40 @@ function Preview.image(S, path)
     end
     if not img then
       img = imageFromCacheBytes(path)
+      if img then mine = true end
     end
     if not img then
       local ok3, result = pcall(love.graphics.newImage, resolved)
-      if ok3 then img = result end
+      if ok3 then img = result; mine = true end
     end
   else
     local cap = isGeneratedAtlas(path) and MAX_ATLAS_BYTES or MAX_PREVIEW_BYTES
     local loaded, err = loadFromDisk(resolved, cap)
     img = loaded
+    mine = img and true or false
     if not loaded and err then
       Preview._lastError = err .. " (" .. path .. ")"
     end
   end
-  cache[key] = img or false
+  storeImage(key, img, mine)
   return img
 end
 
 function Preview.invalidate()
   require("ModPokemonArt").invalidate()
+  for key, img in pairs(cache) do
+    if owned[key] then releaseObj(img) end
+  end
   cache = {}
+  owned = {}
+  for pixels, img in pairs(pixelImages) do
+    releaseObj(img)
+    pixelImages[pixels] = nil
+  end
+  for path, img in pairs(assetFallbackCache) do
+    releaseObj(img)
+    assetFallbackCache[path] = nil
+  end
   Preview._rev = (Preview._rev or 0) + 1
 end
 
@@ -294,7 +333,9 @@ function Preview.invalidatePath(path)
   for key in pairs(cache) do
     local k = tostring(key):gsub("\\", "/")
     if k:find(needle, 1, true) or (base and k:find(base, 1, true)) then
+      if owned[key] then releaseObj(cache[key]) end
       cache[key] = nil
+      owned[key] = nil
     end
   end
 end
@@ -1396,7 +1437,7 @@ function Preview.gen2TrueColorImage(S, path, mapDef)
   end
   if data.release then pcall(data.release, data) end
   if img and img.setFilter then img:setFilter("nearest", "nearest") end
-  cache[key] = img or false
+  storeImage(key, img, img and true or false)
   return img
 end
 
@@ -1432,11 +1473,13 @@ function Preview.imageWithPalette(S, path, colorsOrName)
     end)
   end)
   if not okMap then
+    releaseObj(data)
     cache[key] = Preview.image(S, path) or false
     return cache[key] or nil
   end
   local okImg, baked = pcall(love.graphics.newImage, data)
-  cache[key] = (okImg and baked) or false
+  releaseObj(data)
+  storeImage(key, (okImg and baked) or false, okImg and baked and true or false)
   return cache[key] or nil
 end
 
@@ -1806,12 +1849,12 @@ local function loadObpIcon(S, path)
     if kind == "disk" then
       -- Absolute host paths: decode via FileData (same size guard as sprites).
       local img = select(1, loadFromDisk(resolved))
-      return img
+      return img, img and true or false
     end
     local ok, id = pcall(love.image.newImageData, resolved)
     if ok then data = id end
   end
-  if not data then return Preview.image(S, path) end
+  if not data then return Preview.image(S, path), false end
   local okMap = pcall(function()
     data:mapPixel(function(_, _, r, _, _, a)
       local v = 0
@@ -1821,9 +1864,13 @@ local function loadObpIcon(S, path)
       return v, v, v, a
     end)
   end)
-  if not okMap then return Preview.image(S, path) end
+  if not okMap then
+    releaseObj(data)
+    return Preview.image(S, path), false
+  end
   local okImg, baked = pcall(love.graphics.newImage, data)
-  return okImg and baked or nil
+  releaseObj(data)
+  return (okImg and baked or nil), true
 end
 
 -- True when species / custom icon table opts out of SGB remap.
@@ -1907,7 +1954,8 @@ function Preview.drawPokemonIcon(S, mon, x, y, maxW, maxH, speciesId, paletteNam
   -- Built-in class icons: OBP0 shade-bake, then optional live SGB tint.
   local key = (S and S.path or "") .. "|icon|" .. path .. "#obp"
   if cache[key] == nil then
-    cache[key] = loadObpIcon(S, path) or false
+    local baked, mine = loadObpIcon(S, path)
+    storeImage(key, baked or false, mine and baked and true or false)
   end
   local img = cache[key]
   if not img then

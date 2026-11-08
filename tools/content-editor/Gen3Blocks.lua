@@ -357,10 +357,17 @@ function M.sheetPng(S, pair)
   local data, info = M.sheetImage(S, pair)
   if not data then return nil, info end
   local ok, fileData = pcall(function() return data:encode("png") end)
+  local function release(obj)
+    if obj and obj.release then pcall(obj.release, obj) end
+  end
+  release(data)
   if not (ok and fileData and fileData.getString) then
+    release(fileData)
     return nil, "could not encode " .. tostring(pair)
   end
-  return fileData:getString(), info
+  local bytes = fileData:getString()
+  release(fileData)
+  return bytes, info
 end
 
 function M.hasEdits(project, pair)
@@ -1490,10 +1497,34 @@ function M.clearImages(S)
   if S.data then S.data._g3BlockImages = nil end
 end
 
+local function releaseHeld(obj)
+  if obj and obj.release then pcall(obj.release, obj) end
+end
+
 local function image(w, h, rgba)
-  local img = love.graphics.newImage(love.image.newImageData(w, h, "rgba8", rgba))
+  local data = love.image.newImageData(w, h, "rgba8", rgba)
+  local img = love.graphics.newImage(data)
+  releaseHeld(data)
   img:setFilter("nearest", "nearest")
   return img
+end
+
+local retiredMaps = {}
+local function roomFor(c)
+  if c.n <= 4000 then return end
+  -- The map editor can still be drawing images from this cache for the
+  -- rest of the frame, so hold one discarded generation before releasing.
+  retiredMaps[#retiredMaps + 1] = c.map
+  c.map, c.n = {}, 0
+  while #retiredMaps > 1 do
+    local old = table.remove(retiredMaps, 1)
+    for _, entry in pairs(old) do
+      if type(entry) == "table" then
+        releaseHeld(entry[1])
+        releaseHeld(entry[2])
+      end
+    end
+  end
 end
 
 local function colourByte(pack, pal, c, transparentZero)
@@ -1529,7 +1560,7 @@ function M.blockImages(S, pair, mid, def)
   end
   local u = image(16, 16, rgba(under, false))
   local o = image(16, 16, rgba(over, true))
-  if c.n > 4000 then c.map, c.n = {}, 0 end
+  roomFor(c)
   c.map[key] = { u, o }
   c.n = c.n + 1
   return u, o
@@ -1577,6 +1608,7 @@ function M.tileSheet(S, pair, pal, which, cols)
     lines[py + 1] = table.concat(line)
   end
   local img = image(w, h, table.concat(lines))
+  roomFor(c)
   c.map[key] = { img, list }
   c.n = c.n + 1
   return img, list
@@ -1598,7 +1630,7 @@ function M.tileImage(S, pair, tile, pal)
   local bytes = {}
   for i = 1, 64 do bytes[i] = colourByte(pack, pal, px[i] or 0, true) end
   local img = image(8, 8, table.concat(bytes))
-  if c.n > 4000 then c.map, c.n = {}, 0 end
+  roomFor(c)
   c.map[key] = { img }
   c.n = c.n + 1
   return img

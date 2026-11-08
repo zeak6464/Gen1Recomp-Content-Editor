@@ -90,6 +90,8 @@ function M.export(path,project)
     return fs.getSaveDirectory():gsub("\\","/").."/"..target,omitted
   end)
   Mount.unmountData(path)
+  -- The zip is already on disk. Drop the in-memory copy of every file.
+  collectgarbage("collect")
   if not ok then return nil,tostring(result) end
   return result,skipped
 end

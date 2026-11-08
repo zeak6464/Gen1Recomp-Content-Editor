@@ -259,6 +259,9 @@ end
 
 function History.noteDirty(S)
   if not (S and S.project) then return end
+  -- Save compiles a second copy of the project. That must not become an undo
+  -- snapshot, or each save keeps another full copy until restart.
+  if S._suppressHistory then return end
   -- A batch keeps one snapshot for the whole gesture. This avoids copying a
   -- large layered map on every frame while the mouse is held down.
   if S._histBatch then
@@ -292,9 +295,19 @@ function History.noteDirty(S)
 end
 
 function History.endFrame(S)
-  if not (S and S.project) then return end
-  if S._histBatch then return end
-  if S._histDirtyFrame or not S._histBaseline then
+  if not S then return end
+  local suppressed = S._suppressHistory
+  S._suppressHistory = nil
+  if not S.project then return end
+  if S._histBatch then
+    -- The open gesture keeps its own snapshot. The saved project still
+    -- becomes the baseline for whatever edit comes after it.
+    if suppressed then S._histBaseline = deepCopy(S.project) end
+    return
+  end
+  -- A suppressed save still replaces the baseline so the next edit undoes
+  -- back to the saved project, without pushing that save onto the stack.
+  if suppressed or S._histDirtyFrame or not S._histBaseline then
     S._histBaseline = deepCopy(S.project)
   end
 end

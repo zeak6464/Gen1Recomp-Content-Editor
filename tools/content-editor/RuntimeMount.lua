@@ -261,20 +261,45 @@ function RuntimeMount.mountAt(path,mountPoint)
   return love.filesystem.mount(path,mountPoint,true)
 end
 
-function RuntimeMount.unmountData(path)
-  if RuntimeMount.isRuntimePath(path) then return true end
-  if love.filesystem.unmountFullPath then return love.filesystem.unmountFullPath(path) end
-  local ok,ffi=pcall(require,"ffi")
-  if not ok then return false end
-  pcall(ffi.cdef,"int PHYSFS_unmount(const char *oldDir);")
-  for _,name in ipairs(loveDllCandidates()) do
-    local loaded,lib=pcall(ffi.load,name)
-    if loaded then
-      local called,result=pcall(function() return lib.PHYSFS_unmount(path) end)
-      if called and result~=0 then return true end
+-- mountAt can succeed through mountFullPath or PHYSFS_mount. A failed
+-- unmountFullPath used to return immediately and leave the FFI mount in the
+-- search path, so every later file lookup walked another archive.
+local function unmountOnce(path)
+  local removed = false
+  if love.filesystem.unmountFullPath then
+    local ok, result = pcall(love.filesystem.unmountFullPath, path)
+    removed = removed or (ok and result == true)
+  end
+  if love.filesystem.unmount then
+    local ok, result = pcall(love.filesystem.unmount, path)
+    removed = removed or (ok and result == true)
+  end
+  local okFfi, ffi = pcall(require, "ffi")
+  if not okFfi then return removed end
+  pcall(ffi.cdef, "int PHYSFS_unmount(const char *oldDir);")
+  local libraries = { function() return ffi.C end }
+  for _, name in ipairs(loveDllCandidates()) do
+    local dll = name
+    libraries[#libraries + 1] = function() return ffi.load(dll) end
+  end
+  for _, getLibrary in ipairs(libraries) do
+    local loaded, lib = pcall(getLibrary)
+    if loaded and lib then
+      local called, result = pcall(function() return lib.PHYSFS_unmount(path) end)
+      if called and result ~= 0 then removed = true end
     end
   end
-  return false
+  return removed
+end
+
+function RuntimeMount.unmountData(path)
+  if RuntimeMount.isRuntimePath(path) then return true end
+  local removed = false
+  for _ = 1, 32 do
+    if not unmountOnce(path) then break end
+    removed = true
+  end
+  return removed
 end
 
 function RuntimeMount.mount()

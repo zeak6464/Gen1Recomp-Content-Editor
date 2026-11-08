@@ -2851,7 +2851,11 @@ local function liveTilesetForEditor(S, ts)
   local lovePath = lovePathForModAsset(S, ts.image)
   if lovePath == ts.image then return ts end
   -- Stable per-project-tileset wrapper so we do not rebuild every frame.
-  S._liveTilesets = S._liveTilesets or {}
+  -- Weak keys: compile replaces the tileset table, and a strong key would
+  -- keep every previous generation until the editor quits.
+  if not S._liveTilesets then
+    S._liveTilesets = setmetatable({}, { __mode = "k" })
+  end
   local live = S._liveTilesets[ts]
   if not live then
     live = {}
