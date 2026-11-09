@@ -1704,11 +1704,21 @@ local function finishPathPrompt(accepted)
   if not S or not S._pathPrompt then return end
   local prompt = S._pathPrompt
   S._pathPrompt = nil
+  if Kit.focus == "path_prompt" then Kit.blur() end
+  local text = tostring(prompt.value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+  if prompt.kind == "text" then
+    if not accepted or text == "" then text = nil end
+    if prompt.cb then
+      local ok, err = pcall(prompt.cb, text)
+      if not ok then say(tostring(err)) end
+    end
+    return
+  end
   if not accepted then
     say("Open cancelled")
     return
   end
-  local path = tostring(prompt.value or ""):gsub("^%s+", ""):gsub("%s+$", "")
+  local path = text
   if path == "" then
     say("Open cancelled")
     return
@@ -1721,10 +1731,25 @@ local function finishPathPrompt(accepted)
   end
 end
 
+function App.promptText(title, opts, cb)
+  if not S then return end
+  opts = opts or {}
+  S._pathPrompt = {
+    kind = "text",
+    title = title or "Enter text",
+    hint = opts.hint,
+    value = opts.value or "",
+    placeholder = opts.placeholder,
+    ok = opts.ok,
+    cb = cb,
+  }
+  Kit.focus = "path_prompt"
+end
+
 local function drawPathPrompt(W, H, s)
   local prompt = S._pathPrompt
   if not prompt then return end
-  Kit.blockClicks = true
+  Kit.blockClicks = false
   Theme.col({ 0, 0, 0 }, 0.72)
   love.graphics.rectangle("fill", 0, 0, W, H)
   local boxW = math.min(640 * s, W - 40 * s)
@@ -1734,11 +1759,12 @@ local function drawPathPrompt(W, H, s)
   Kit.card(bx, by, boxW, boxH, 12 * s)
   Kit.text("small", tostring(prompt.title or "Enter path"),
     bx + 16 * s, by + 16 * s, PAL.heading)
-  Kit.text("micro", tostring(prompt.hint or "Paste an absolute path"),
+  local isText = prompt.kind == "text"
+  Kit.text("micro", tostring(prompt.hint or (isText and "" or "Paste an absolute path")),
     bx + 16 * s, by + 40 * s, PAL.muted)
   local fieldH = 34 * s
   local edited = Kit.textfield("path_prompt", bx + 16 * s, by + 68 * s,
-    boxW - 32 * s, fieldH, prompt.value or "", "/path/to/...")
+    boxW - 32 * s, fieldH, prompt.value or "", prompt.placeholder or (isText and "" or "/path/to/..."))
   if edited ~= nil then prompt.value = edited end
   local btnW = 100 * s
   if Kit.button(bx + boxW - 16 * s - btnW * 2 - 10 * s, by + boxH - 48 * s,
@@ -1746,7 +1772,7 @@ local function drawPathPrompt(W, H, s)
     finishPathPrompt(false)
   end
   if Kit.button(bx + boxW - 16 * s - btnW, by + boxH - 48 * s,
-      btnW, 32 * s, "OK", { kind = "primary" }) then
+      btnW, 32 * s, prompt.ok or "OK", { kind = "primary" }) then
     finishPathPrompt(true)
   end
   Kit.blockClicks = false
