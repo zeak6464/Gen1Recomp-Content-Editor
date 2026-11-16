@@ -1,4 +1,4 @@
-return function(S, game, IO, mount)
+return function(S, game, IO, mount, cryCheck)
   assert(mount(S.path, "mods/new_species_check", 0) ~= 0)
   local fs = {}
   for _,key in ipairs({"read","load","getInfo"}) do fs[key] = love.filesystem[key] end
@@ -22,6 +22,7 @@ return function(S, game, IO, mount)
   local status=loader:status()
   assert(#(status.errors or {}) == 0, table.concat(status.errors or {},"; "))
   assert(S.data.pokemon.NEW_MON, "runtime registration lost species")
+  if cryCheck then cryCheck.verify(S,S.data) end
   local save = {version=game,party={},player={name="TEST",id=1},flags={},
     pokedex={seen={},owned={},caught={}},options={}}
   local g = {data=S.data,save=save}
@@ -55,7 +56,7 @@ return function(S, game, IO, mount)
     b:storeCaughtMon()
     assert(save.party[1].species=="NEW_MON" and save.pokedex.owned.NEW_MON)
     screen=assert(queued,"capture did not queue new-entry screen")()
-    screen.picDelay=0
+    if cryCheck then screen.picDelay=1;screen:update(1/60) else screen.picDelay=0 end
   end
   return function() screen:draw() end
 end

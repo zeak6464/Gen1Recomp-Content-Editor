@@ -44,6 +44,9 @@ local function form(rec,mutate,App,x,y,w,fh,s)
 end
 function M.pokemon(S,mon,mutate,App,x,y,w,fh,s)
   local F=form(mon,mutate,App,x,y,w,fh,s)
+  F.row("Cry",function(xx,yy,ww)
+    require("Gen3Cries").draw(S,mon,App,xx,yy,ww,fh,s)
+  end)
   local abilities={};for _,name in pairs(S.data.gen3Pokemon.abilityNames or {}) do
     abilities[#abilities+1]=require("src.mods.Schemas").gen3View.idOf(name)
   end

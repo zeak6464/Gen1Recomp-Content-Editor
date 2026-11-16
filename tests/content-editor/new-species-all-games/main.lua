@@ -5,6 +5,7 @@ local dir = root .. "/tests/content-editor/new-species-all-games/out/" .. game
 package.path = root .. "/tools/content-editor/?.lua;" .. root .. "/tools/content-editor/panels/?.lua;"
   .. root .. "/tools/save-editor/?.lua;" .. runtime .. "/?.lua;" .. package.path
 local lines = {}
+local cryCheck
 local render, finished, afterScreenshot
 local function log(s) lines[#lines + 1] = s end
 local function report(s)
@@ -52,6 +53,10 @@ function love.load()
   log("PASS New Species button created unchanged template")
   local IO = require("ModIO")
   assert(IO.ensureDirectory(S.path))
+  if os.getenv("CRY_CHECK") == "1" then
+    cryCheck = dofile(root .. "/tests/content-editor/new-species-all-games/cries.lua")
+    cryCheck.prepare(S, IO, log)
+  end
   assert(IO.writeText(S.path .. "/manifest.json", require("src.link.Json").encode({
     id="new_species_check",name="New species check",version="1.0.0",api=2,
     entry="main.lua",games={game},permissions={"engine_internals"},profile="content",
@@ -60,7 +65,7 @@ function love.load()
   log("PASS save/export and project reload")
   assert(IO.load(S.path).pokemon.NEW_MON)
   if not gen3 then
-    render = dofile(root .. "/tests/content-editor/new-species-all-games/legacy.lua")(S,game,IO,lib.PHYSFS_mount)
+    render = dofile(root .. "/tests/content-editor/new-species-all-games/legacy.lua")(S,game,IO,lib.PHYSFS_mount,cryCheck)
     log("PASS runtime capture storage and new-entry screen")
     return
   end
@@ -71,6 +76,7 @@ function love.load()
   assert(loader, err)
   assert(#fresh._editorGen3Report.rejected == 0)
   loader.events:emit("game.ready", {})
+  if cryCheck then cryCheck.verify(S, fresh, log) end
   local P = require("src.core.game3.pokemon")
   P.install(P._cache)
   assert(P.speciesFromName("NEW_MON") == rec.index)
@@ -118,6 +124,9 @@ function love.draw()
     IO.writeText(dir .. "/caught.png",data:encode("png"):getString())
     if afterScreenshot then afterScreenshot() end
     report("PASS capture Pokédex registration rendered")
-    love.event.quit()
+    if cryCheck then cryCheck.finish(report) else love.event.quit() end
   end)
+end
+function love.update(dt)
+  if cryCheck then cryCheck.update(dt) end
 end
