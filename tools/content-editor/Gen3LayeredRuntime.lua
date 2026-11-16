@@ -364,6 +364,66 @@ return "  local collisionModes="..encode(C.modes).."\n  local paintedCollision="
       map._editorBridges=source.gen3Bridges
       map.midLayout=Layout.fromDecoded({width=width,height=height,cells=cells,
         borderWidth=border.width,borderHeight=border.height,borderMids=borderMids},id,pair)
+      -- The map's scripts still write ROM metatile IDs of its base tileset
+      -- (the Mansion switches, the lab floors, Rocket Hideout doors): written
+      -- straight into this layout they would pick compact atlas slots at
+      -- random. Translate each written ID to the slot that is exactly that
+      -- native block, adding the slot (and growing the canvas) when the map
+      -- never painted it.
+      local layout=map.midLayout
+      local base=source.baseTileset
+      local baseRef="@runtime:"..base
+      local baseBehaviors=Interactions.behaviors[base] or {}
+      local nativeSlot={}
+      for i,refs in ipairs(slots) do
+        local r=refs[1]
+        if #refs==1 and r.source==baseRef and (r.opacity or 1)==1 and not r.bridge then
+          local slot=i-1
+          -- Prefer the slot that also kept the block's own behaviour.
+          if nativeSlot[r.tile]==nil or behaviors[slot]==(baseBehaviors[r.tile] or 0) then nativeSlot[r.tile]=slot end
+        end
+      end
+      local function slotForNative(mid)
+        mid=tonumber(mid) or 0
+        local slot=nativeSlot[mid]
+        if slot then return slot end
+        slot=#slots
+        slots[slot+1]={{source=baseRef,tile=mid,opacity=1}}
+        behaviors[slot]=baseBehaviors[mid] or 0
+        nativeSlot[mid]=slot
+        ts.midToSlot[slot]=slot;ts.midCount=#slots
+        local ok,err=pcall(function()
+          if #slots>ts.cols*ts.rows then
+            local c=math.max(1,math.ceil(math.sqrt(#slots)))
+            local r=math.max(1,math.ceil(#slots/c))
+            local image=love.graphics.newCanvas(c*16,r*16)
+            local overImage=love.graphics.newCanvas(c*16,r*16)
+            image:setFilter("nearest","nearest");overImage:setFilter("nearest","nearest")
+            local old,oldOver=ts.image,ts.overImage
+            ts.image,ts.overImage,ts.cols,ts.rows=image,overImage,c,r
+            ts.quads,ts.overQuads,ts.slotPix={},{},{}
+            if old then old:release() end
+            if oldOver then oldOver:release() end
+          end
+          prepare(entry);render(entry)
+        end)
+        if not ok then print("[editor layers] map "..tostring(id).." script tile "..mid.." not drawn: "..tostring(err)) end
+        local okView,FieldView=pcall(require,"src.core.game3.field_view")
+        if okView and FieldView then FieldView._nativeDirty=true end
+        return slot
+      end
+      local apply=layout.applyOverride
+      layout.applyOverride=function(self,x,y,mid,coll,elev)
+        return apply(self,x,y,slotForNative(mid),coll,elev)
+      end
+      local setRows=layout.setMetatiles
+      layout.setMetatiles=function(self,rows)
+        local out={}
+        for i,r in ipairs(rows or {}) do
+          out[i]={x=r.x,y=r.y,mid=r.mid~=nil and slotForNative(r.mid) or nil,coll=r.coll,elev=r.elev}
+        end
+        return setRows(self,out)
+      end
     end
     for id,source in pairs(layered.maps) do
       local ok,err=pcall(build,id,source)

@@ -47,6 +47,7 @@ function M.remove(S,id)
   end
   if #family.forms==1 then p.gen3Forms[parent]=nil end
   p.pokemon[id]=nil
+  if S.data then S.data._g3IconImages=nil end
   -- Species-keyed overrides must not survive the removed record. References
   -- in encounters, teams, gifts and evolutions fall back to the original.
   local seen={}
@@ -140,6 +141,8 @@ function M.add(S,parent,name)
   rec.spriteSource=artIndex(base)
   rec.spriteShinyFront=M.spritePath(base,false,true);rec.spriteShinyBack=M.spritePath(base,true,true)
   rec.letters=nil;rec.forms=nil;S.project.pokemon[id]=rec
+  -- Party icons are cached by species index; a reused index must not show the old form's icon.
+  if S.data then S.data._g3IconImages=nil end
   local row={name=name or "New form",species=id};family.forms[#family.forms+1]=row
   return row,rec
 end
@@ -288,8 +291,26 @@ function M.draw(S,mon,x,y,w,App)
     onPick=function(id) family.mode=id;App.markDirty() end});y=y+40*s
   local ids,names={},{};for i,row in ipairs(family.forms) do ids[#ids+1]=tostring(i);names[tostring(i)]=row.name end
   local selection=M.editSelection(S,family,parent,mon.id)
-  C.field(S,{x=x,y=y,w=w-180*s,h=30*s,current=tostring(selection),ids=ids,labels=names,title="Form to edit",tooltip="Select the form whose settings you want to edit. This does not change a Pokemon in the player's party.",onPick=function(id) S.g3FormSelection[parent]=tonumber(id) end})
-  if K.button(x+w-170*s,y,170*s,30*s,"Add custom form",{kind="good",tooltip="Create a new species record for this family, starting with the parent's data. Configure its artwork, stats and selection rules afterward."}) then M.add(S,parent);S.g3FormSelection[parent]=#family.forms;App.markDirty() end;y=y+42*s
+  C.field(S,{x=x,y=y,w=w-180*s,h=30*s,current=tostring(selection),ids=ids,labels=names,title="Form to edit",tooltip="Select the form whose settings you want to edit. This does not change a Pokemon in the player's party.",onPick=function(id)
+    S.g3FormSelection[parent]=tonumber(id)
+    -- Editing a form means editing that form's own Pokemon: open its page.
+    local picked=family.forms[tonumber(id)]
+    if picked and picked.species~=mon.id and (S.project.pokemon[picked.species] or S.data.pokemon[picked.species]) then S.pokemonId=picked.species end
+  end})
+  if K.button(x+w-170*s,y,170*s,30*s,"Add custom form",{kind="good",tooltip="Create a new species record for this family, starting with the parent's data. Configure its artwork, stats and selection rules afterward."}) then
+    local function create(name)
+      local _,rec=M.add(S,parent,name);S.g3FormSelection[parent]=#family.forms;App.markDirty()
+      -- Go straight to the new form's own Pokemon page.
+      S.pokemonId=rec.id;S.pokemonSection="basics"
+    end
+    if App.promptText then
+      local base=S.project.pokemon[parent] or S.data.pokemon[parent]
+      App.promptText("New form of "..tostring(base and base.name or parent),
+        {hint="A friendly name such as Sunny, Winter, or Alolan. You edit its stats and artwork next.",
+         placeholder="Form name",ok="Create"},
+        function(name) if name then create(name) end end)
+    else create() end
+  end;y=y+42*s
   local row=family.forms[selection];local rec=S.project.pokemon[row.species] or S.data.pokemon[row.species]
   if selection>1 then
     if K.button(x,y,170*s,30*s,"Delete form",{kind="danger",tooltip="Delete this form and its rules. Encounters, teams and gifts using it return to the original species."}) then
