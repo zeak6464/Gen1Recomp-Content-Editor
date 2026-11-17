@@ -577,17 +577,18 @@ function App.importRomFile(path)
     App.dataVersion = version
     S.version = version
     require("src.core.GameVersion").set(version)
-    require("src.import.CacheFs").mountVersion(version)
     App.reloadData({ version = version })
     say("ROM imported (" .. tostring(version) .. ") — cache in save directory")
   end, { launcher = false })
   S._romImporter = importer
+  importer.restoreEditorMounts = DataSource.suspendImportMounts()
   say("Importing ROM…")
-  importer:startPath(path)
-  if importer.workState == "working" then
+  local started, err = pcall(importer.startPath, importer, path)
+  if started and importer.workState == "working" then
     return true
   end
-  local failed = importNotice(importer)
+  importer.restoreEditorMounts()
+  local failed = started and importNotice(importer) or err
   if failed then say(failed) end
   S._romImporter = nil
   return false
@@ -1637,6 +1638,7 @@ function App.update(dt)
     local updated, updateErr = pcall(function() imp:update(dt or 0) end)
     if not updated then
       say("ROM import failed: " .. tostring(updateErr))
+      imp.restoreEditorMounts()
       S._romImporter = nil
       return
     end
@@ -1647,6 +1649,7 @@ function App.update(dt)
     end
     if imp.workState ~= "working" and not imp.worker then
       if imp.workState ~= "complete" and S._romImporter == imp then
+        imp.restoreEditorMounts()
         local msg = importNotice(imp)
         if msg and msg ~= "" then say(msg) end
         S._romImporter = nil

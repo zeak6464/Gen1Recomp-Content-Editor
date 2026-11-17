@@ -63,7 +63,6 @@ function love.load(args)
   local version = os.getenv("POKEPORT_VERSION")
     or (packRoot and "gold") or "red"
   require("src.core.GameVersion").set(version)
-  require("src.import.CacheFs").mountVersion(version)
   EditorApp = require("App")
   EditorApp.load(argumentAfter(args, "--mod"), { version = version })
   if packRoot and packRoot ~= "" then

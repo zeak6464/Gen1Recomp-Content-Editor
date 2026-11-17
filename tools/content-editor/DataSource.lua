@@ -307,6 +307,20 @@ end
 
 local mountedVersion = nil
 
+-- Import workers share the editor's filesystem mounts. A readiness probe for
+-- an unprefixed generated file must not see the previously selected game.
+function DataSource.suspendImportMounts()
+  local version, linked = mountedVersion, mountedRecomp
+  if version then CacheFs.unmountVersion(version) end
+  mountedVersion = nil
+  DataSource.unmountLinked()
+  return function()
+    if linked then DataSource.mountRecomp(linked) end
+    if version then CacheFs.mountVersion(version) end
+    mountedVersion = version
+  end
+end
+
 local function remountVersion(version)
   if mountedVersion and mountedVersion ~= version then
     pcall(CacheFs.unmountVersion, mountedVersion)
